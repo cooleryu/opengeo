@@ -30,8 +30,13 @@ These are the content we want to evaluate, not evidence that GEO has worked.
 
 ## Current status
 
-Early-stage project setup. This repository currently contains this introduction only. It is not a released software tool or a proven ranking method.
+Early-stage project setup. The first topic-discovery Skill and scenario-routing specification are available:
 
-Next: publish a reviewed question set, measurement rules, and the first experiment record. We will remove private information and check third-party permissions before sharing materials.
+- [Repository topic-discovery Skill](skills/repository-topic-discovery/SKILL.md): start from one GitHub repository, investigate its actual capabilities and existing contributions, and propose questions with traceable evidence.
+- [Scenario-routing specification](skills/SCENARIOS.md): select an investigation approach for repositories, commerce, company services, or personal content. Only the repository Skill is currently documented.
+
+These are workflow instructions, not an integrated application or a proven ranking method. The Skill has passed a format check and a small offline simulation; a real-repository workflow has not yet been validated with this version.
+
+Next: run the Skill on a real repository, review its proposed questions, then connect the validated workflow to search measurements. We will remove private information and check third-party permissions before sharing experiment records.
 
 Maintained by [cooleryu](https://github.com/cooleryu).
