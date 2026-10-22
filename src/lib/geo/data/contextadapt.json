@@ -1,0 +1,1131 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-18",
+  "timezone": "Asia/Shanghai",
+  "project": {
+    "id": "contextadapt",
+    "name": "ContextAdapt",
+    "owner": "cooleryu",
+    "description": "研究编码 Agent 如何保留会改变下一步行动的证据，并在执行前核对目标、状态和权限的开源项目。",
+    "siteUrl": "https://cooleryu.github.io/ContextAdapt/",
+    "repositoryUrl": "https://github.com/cooleryu/ContextAdapt",
+    "asOf": "2026-10-18",
+    "primaryLanguage": "zh-CN",
+    "intent": "调查可见性 → 审阅一项具体改进 → 记录实施 → 每日观察与复盘",
+    "identityExclusion": {
+      "url": "https://arxiv.org/abs/2609.38260",
+      "authors": [
+        "Olivia Macmillan-Scott",
+        "Mirco Musolesi"
+      ],
+      "reason": "与本项目无关的同名论文"
+    }
+  },
+  "assets": [
+    {
+      "id": "codex-258k-context-zh-CN",
+      "title": "Codex 为什么显示 258K？默认 500K 怎么生效",
+      "type": "article",
+      "language": "zh-CN",
+      "status": "published",
+      "publishedAt": "2026-10-15",
+      "publicUrl": "https://cooleryu.github.io/ContextAdapt/articles/codex-258k-context/zh-CN/",
+      "sourcePath": "publish/codex-258k-context/zh-CN.md",
+      "summary": "解释 258K 显示、500K 默认窗口与压缩阈值的区别，提供模型与配置排查步骤。",
+      "markdown": "# Codex 为什么显示 258K？默认 500K 怎么生效\n\n**258K 可以来自 272,000 × 95% = 258,400 的有效窗口折算，不代表模型最大只能处理 258K。Tibo 宣布的 500K 是 GPT-6.1 Sol 在 Codex 和 Work 中的默认窗口；按同一口径折算会显示 475K。先检查当前模型、配置覆盖和会话状态，再决定是否手动设置。** [计算依据](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/protocol/src/openai_models.rs#L515-L538) · [Tibo 原帖](https://x.com/thsottiaux/status/2109430343346581527)\n\n## 先查这三处\n\n**模型是否一致。** 公告针对 GPT-6.1 Sol。先看模型选择器；支持的客户端可用 `/status` 查看当前会话，记录容量的总数和已用量，不要把剩余额度当总窗口。[状态命令](https://learn.chatgpt.com/docs/reference/slash-commands)\n\n**旧配置是否覆盖默认值。** 检查 `~/.codex/config.toml` 和可信项目的 `.codex/config.toml`，重点找 `model_context_window`、`model_auto_compact_token_limit`。CLI 参数、项目配置和选中的 profile 都可能优先于个人配置；CLI 可用 `/debug-config` 查看配置层来源。若要跟随默认值，先记下旧窗口覆盖，再从设置它的配置层移除。[配置优先级](https://learn.chatgpt.com/docs/config-file/config-basic) · [诊断命令](https://learn.chatgpt.com/docs/developer-settings)\n\n**会话或模型目录是否不同。** 记下客户端版本，用同一模型比较新旧会话。[LINUX DO](https://linux.do/t/topic/3013574) 有新旧会话不同的报告；[GitHub issue](https://github.com/openai/codex/issues/53336) 还记录了同一会话从 475K 回到 258.4K。目录或缓存不一致是排查方向，但这些报告不能证明所有账号都是同一原因，也没有给出保证修好的最低版本。\n\n## 怎样手动设为 500K\n\n在实际生效的 `config.toml` **顶层**设置下列两项，放在 `[表名]` 之前；已有同名项就修改，不要重复追加。此例选择 GPT-6.1 Sol，其他设置保留。\n\n```toml\nmodel = \"gpt-6.1-sol\"\nmodel_context_window = 500000\n```\n\n`model_auto_compact_token_limit` 控制何时自动压缩，不是开启大窗口的开关。若以前手写过它，先记下原值；要恢复模型默认阈值，应移除这一覆盖，并检查更高优先级配置。[官方配置说明](https://learn.chatgpt.com/docs/config-file/config-reference)\n\n保存后重新启动客户端，用新会话核对容量；这只是排查步骤，不保证修复目录问题。窗口覆盖还会受模型目录的 `max_context_window` 限制，改本地数字不能扩大服务端能力。[覆盖实现](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/models-manager/src/model_info.rs#L19-L31)\n\n## FAQ\n\n### 设了 500K，却显示 475K，是失败了吗？\n\n不一定；按上述 95% 口径正好是 475K。它是有效容量，已有上下文还会占用它，不等于还能粘贴这么多 token。\n\n### 少掉的 5% 都是给 compaction 吗？\n\n不是；[代码注释](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/protocol/src/openai_models.rs#L466-L469) 说明它为系统提示、工具开销和模型输出留空间。所引版本在模型目录和配置都未指定阈值时，按窗口的 90% 计算：500K 对应 450K；目录或配置中的更低阈值会提前触发，这是该版本的规则，不是所有客户端的永久保证。[阈值实现](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/protocol/src/openai_models.rs#L515-L538)\n\n### API 写着 1,050,000，为什么 Codex 默认只有 500K？\n\n[API 模型规格](https://developers.openai.com/api/docs/models/gpt-6.1-sol)、产品默认窗口和客户端目录允许的覆盖上限是不同口径。不要把 API 的标称上限直接当作当前 Codex 会话的可用输入预算。\n\n### 改完仍是 258K，该怎么办？\n\n记录版本、模型、配置来源和新旧会话的容量，附到对应问题报告；后台对特定账号如何下发默认值，目前仍不确定。本文没有测试实际 500K 推理容量，也不把配置示例当作测试结果。\n\n## 窗口调好以后\n\n更大的窗口能留住更多历史，写入前仍要确认目标、文件状态和权限是否有效。继续读 [500K 快评](https://cooleryu.github.io/ContextAdapt/articles/codex-500k-context/zh-CN/) 与 [《计划没有错，世界已经变了》](https://cooleryu.github.io/ContextAdapt/articles/the-plan-was-valid/)。",
+      "evidencePaths": [
+        "sprint-01/evidence/task-08b/publication.json"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。"
+    },
+    {
+      "id": "codex-258k-context-en",
+      "title": "Why does Codex show 258K? Getting the 500K default to take effect",
+      "type": "article",
+      "language": "en",
+      "status": "published",
+      "publishedAt": "2026-10-15",
+      "publicUrl": "https://cooleryu.github.io/ContextAdapt/articles/codex-258k-context/",
+      "sourcePath": "publish/codex-258k-context/en.md",
+      "summary": "解释 258K 显示、500K 默认窗口与压缩阈值的区别，提供模型与配置排查步骤。",
+      "markdown": "# Why does Codex show 258K? Getting the 500K default to take effect\n\n**258K can be the usable-window calculation 272,000 × 95% = 258,400, rather than the model's maximum capacity. Tibo announced a 500K default for GPT-6.1 Sol in Codex and Work; the same calculation would display 475K. Check the selected model, configuration overrides and current session before setting a window manually.** [Calculation](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/protocol/src/openai_models.rs#L515-L538) · [Tibo's announcement](https://x.com/thsottiaux/status/2109430343346581527)\n\n## Check these three things first\n\n**The selected model.** The announcement concerns GPT-6.1 Sol. Check the model picker and, where supported, use `/status` to inspect the session. Record total capacity and usage separately: remaining context is not the total window. [Status command](https://learn.chatgpt.com/docs/reference/slash-commands)\n\n**Existing overrides.** Inspect `~/.codex/config.toml` and trusted projects' `.codex/config.toml`, particularly `model_context_window` and `model_auto_compact_token_limit`. CLI flags, project configuration and a selected profile can take precedence over personal settings. In the CLI, `/debug-config` shows configuration layers and their sources. To follow the default, note and remove an old window override from the layer that sets it. [Precedence](https://learn.chatgpt.com/docs/config-file/config-basic) · [Diagnostics](https://learn.chatgpt.com/docs/developer-settings)\n\n**Different sessions or model catalogs.** Record the client version and compare a fresh chat with the existing one using the same model. [LINUX DO users](https://linux.do/t/topic/3013574) report different capacities in new and old chats; a [GitHub issue](https://github.com/openai/codex/issues/53336) also records one chat dropping from 475K to 258.4K. Catalog or cache inconsistency is worth investigating, but these reports establish neither a universal cause nor a minimum version guaranteed to fix it.\n\n## Set a 500K window manually\n\nPut these entries at the **top level** of the configuration file that actually applies, before any `[table]` headers. Edit existing entries rather than adding duplicates. This example selects GPT-6.1 Sol; preserve your other settings.\n\n```toml\nmodel = \"gpt-6.1-sol\"\nmodel_context_window = 500000\n```\n\n`model_auto_compact_token_limit` controls when automatic compaction triggers; it does not enable a larger window. If you previously set it, note its value first. To return to the model's default threshold, remove that override and check higher-priority configuration layers. [Official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)\n\nAfter saving, restart the client and inspect a fresh chat. This is a diagnostic step, not a guaranteed catalog fix. The window override is also capped by the model catalog's `max_context_window`; editing a local number cannot expand the server's capacity. [Override implementation](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/models-manager/src/model_info.rs#L19-L31)\n\n## FAQ\n\n### I set 500K but see 475K. Did it fail?\n\nNot necessarily: 475K is exactly the result under the 95% calculation above. Existing context uses some of that capacity, so it is not a promise that you can paste another 475K tokens.\n\n### Is the missing 5% all reserved for compaction?\n\nNo: the [source comment](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/protocol/src/openai_models.rs#L466-L469) describes headroom for system prompts, tool overhead and model output. When neither model metadata nor configuration supplies a threshold, the cited version derives it at 90% of the window—450K for 500K; a lower catalog or configured limit can trigger compaction sooner, and this version-specific rule is not a permanent guarantee for every client. [Threshold implementation](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/protocol/src/openai_models.rs#L515-L538)\n\n### Why does the API list 1,050,000 while Codex defaults to 500K?\n\nThe [API model specification](https://developers.openai.com/api/docs/models/gpt-6.1-sol), product default and catalog's maximum override describe different limits. Do not treat the API specification as the usable input budget of your current Codex session.\n\n### What if it still shows 258K after the change?\n\nRecord the version, model, configuration sources and capacities in new and existing chats for the relevant issue report; how the backend assigns defaults to a particular account remains uncertain. This article does not test 500K inference capacity, and the configuration example is not a test result.\n\n## Once the window is set\n\nA larger window can retain more history; before writing, still check the current target, file state and permission. Read the [500K quick take](https://cooleryu.github.io/ContextAdapt/articles/codex-500k-context/) and [*The plan was valid. The world had changed*](https://cooleryu.github.io/ContextAdapt/articles/the-plan-was-valid/en/).",
+      "evidencePaths": [
+        "sprint-01/evidence/task-08b/publication.json"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。"
+    },
+    {
+      "id": "codex-500k-context-zh-CN",
+      "title": "Codex 默认 500K 之后：少压缩，不等于少犯错",
+      "type": "article",
+      "language": "zh-CN",
+      "status": "published",
+      "publishedAt": "2026-10-14",
+      "publicUrl": "https://cooleryu.github.io/ContextAdapt/articles/codex-500k-context/zh-CN/",
+      "sourcePath": "publish/500k-quick-take/zh-CN.md",
+      "summary": "把窗口容量与行动依据分开，介绍默认窗口、证据补充与写入前核对。",
+      "markdown": "# Codex 默认 500K 之后：少压缩，不等于少犯错\n\n**500K 的价值，是让长任务少一些中途压缩；要让下一步做对，还得在写入前确认目标、文件状态和权限有没有变。先用默认窗口，把缺失的材料补准，再决定要不要加大。装得下多少，与行动依据是否仍然有效，是两件事。**\n\n[Tibo 宣布](https://x.com/thsottiaux/status/2109430343346581527)，GPT-6.1 Sol 在 Codex 与 Work 中的默认上下文由 272K 提至 500K，以减少压缩、保留细节；用户仍可手动覆盖，最大为 1M。他随后说明，[订阅使用不收长上下文附加费](https://x.com/thsottiaux/status/2109430894604026039)。\n\n## 先用默认，再看任务缺什么\n\n如果任务没有反复丢失约束、依赖或早期决定，先保持默认。遇到遗漏，先补回那份文件、那条要求，再试更大窗口；局部修改、状态明确的任务，则可以试更精简的输入。不要为了用满容量，把无关材料一起塞进去。\n\n比较时，固定任务、初始提交、模型、工具和权限，提前写好验收测试。除了结果是否通过，也记录压缩、重读、全部重试的 token 和耗时。更大窗口是否值得，要看完成整个任务的代价；缩小输入和降低窗口上限也要分开记录。具体步骤见[上下文长度选择指南](https://cooleryu.github.io/ContextAdapt/guides/choosing-context-length-for-coding-agents/zh-CN/)。\n\n## 写入之前，再看一眼现在\n\n设想 Agent 已读完 staging 配置、准备修改，暂停期间用户却换了目标、撤销了权限。计划依然完整，但已经不适用。\n\n恢复工作时，别只问“还记不记得计划”，还要核对“现在改哪里、文件有没有变、授权还在不在”。发现冲突就停下刷新。窗口变大，可以留下更多历史，也可能把过期依据一起留下。我在另一篇文章[《计划没有错，世界已经变了》](https://cooleryu.github.io/ContextAdapt/articles/the-plan-was-valid/)里详细讨论过这个问题。\n\n## 旧数据给了什么提醒\n\nContextAdapt 的长输入探针曾让 `gpt-5.6-luna` 判断合成轨迹里的目标、权限和事实来源。这里的通过，是决策 JSON 符合预定答案；[逐次结果](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/experiments/long-context/results/luna-v1.jsonl)和[汇总](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/experiments/long-context/results/luna-v1-summary.json)可在公开仓库中查看。\n\n| 目标档位 | 实测最后一轮输入 token | 决策通过 |\n| --- | ---: | ---: |\n| 200K | 197,802–197,835 | 3/3 |\n| 400K | 393,709–393,747 | 3/3 |\n| 1M（目标负载） | 883,258–883,470 | 3/3 |\n\n更贴近“该留什么”的，是[已发表研究](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/)中的离线代码保留基准：30 个留出任务、12 个仓库，40% 源代码预算下，头尾截断通过 10/30，关键词检索和 ContextAdapt v3 都是 18/30。\n\n严格保留要求预算内留下源码中与问题精确匹配的所有行，以及参考补丁每个修改块的原文锚点。全部压缩预算平均曲线上，ContextAdapt 对关键词检索为 +7.1 个百分点，95% 区间 −2.3 至 +17.9，优势仍不确定。[结果账本](https://github.com/cooleryu/ContextAdapt/blob/258861ec7e732ff38c587558626b4db432c6b120/evidence/p0-results.md)和[实验协议](https://github.com/cooleryu/ContextAdapt/blob/258861ec7e732ff38c587558626b4db432c6b120/evidence/protocol-v3.json)已公开；逐项原始数据来自项目内部实验记录，尚未公开。\n\n对使用者最实在的提醒是：先试着找准材料，并保留简单检索作为对照，再判断是否需要更复杂的上下文方案。\n\n## FAQ\n\n**默认升到 500K，需要马上改配置吗？**\n先确认会话实际模型和容量，没有缺证据迹象就先用默认值。\n\n**500K 和 1M 怎么选？**\n让同任务验收结果决定；更大输入持续补回必要材料、改善结果，才值得调大。\n\n**为什么还显示 258K？**\n[LINUX DO 上也有人问到这个现象](https://linux.do/t/topic/3013574)。记录客户端版本、会话模型和配置覆盖，分开核对公布默认值、会话生效容量与可用输入预算；单凭显示值不能确定原因。\n\n**少 compaction 就少犯错吗？**\n还要看关键证据是否留下、旧状态是否被误用，以及任务最终是否通过。\n\n**怎样测实际需要多少上下文？**\n用可重复任务和独立验收器，逐步补回缺失证据，再比较支持的容量档位，并记录所有尝试。\n\n## 这篇文章没证明什么\n\n- 我们没有测试 Codex 500K，也没有测出它与其他档位的优劣。订阅费用说明不适用于 [API 的计费规则](https://developers.openai.com/api/docs/models/gpt-6.1-sol)。\n- 长输入实验每场景每档只跑一次，大档更多轮次、模型窗口配置相同，未真正改代码；1M 是目标档名，不是实际输入百万 token。\n- 代码基准预选了目标文件，按字符估算预算；保留通过不等于找到文件、修好问题或省下费用。\n- OMP 集成实验主要使用确定性 mock，检验的是写入前能否拦截动作，不是在线模型的长上下文质量；该记录尚未公开。staging 情形是示例，不能当作真实事故。\n\n继续阅读：[ContextAdapt 项目](https://github.com/cooleryu/ContextAdapt) · [代码证据保留研究](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/) · [上下文长度选择指南](https://cooleryu.github.io/ContextAdapt/guides/choosing-context-length-for-coding-agents/zh-CN/)。",
+      "evidencePaths": [
+        "publish/RELEASE-2026-10-14.md"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。"
+    },
+    {
+      "id": "codex-500k-context-en",
+      "title": "Codex at 500K: more room, but check the state before writing",
+      "type": "article",
+      "language": "en",
+      "status": "published",
+      "publishedAt": "2026-10-14",
+      "publicUrl": "https://cooleryu.github.io/ContextAdapt/articles/codex-500k-context/",
+      "sourcePath": "publish/500k-quick-take/en.md",
+      "summary": "把窗口容量与行动依据分开，介绍默认窗口、证据补充与写入前核对。",
+      "markdown": "# Codex at 500K: more room, but check the state before writing\n\n**A larger default window gives Codex more room before capacity-triggered compaction. Whether it makes the right edit still depends on current evidence and permission. Start with the default, restore missing evidence deliberately, and check what is still true before writing.**\n\n[Tibo says](https://x.com/thsottiaux/status/2109430343346581527) GPT-6.1 Sol's default in Codex and Work has increased from 272K to 500K to reduce compaction and preserve nuance, with overrides up to 1M. He also says [subscription usage has no long-context surcharge](https://x.com/thsottiaux/status/2109430894604026039).\n\n## Keep the default until the task gives you a reason\n\nIf the agent loses a dependency, constraint, or earlier decision that still matters, restore that evidence first. Then compare a larger input containing the same evidence and more surrounding material. Look for a better result, not simply a fuller window.\n\nFor a local change with clear current state, try more focused input. Reducing active material and lowering the host's window limit are different changes; record which you made. Count reacquisition and retries when judging the result.\n\n## More remembered history can include an expired plan\n\nImagine an agent reading a staging configuration and preparing an edit. Before it resumes, the user changes the target and revokes permission. The old plan still makes sense, and a large window may preserve every word. Its authority has expired.\n\nBefore writing, check the current target, relevant file state, and authorization; refresh conflicting evidence. I discuss this problem in more detail in [*The plan was valid. The world had changed*](https://cooleryu.github.io/ContextAdapt/articles/the-plan-was-valid/en/).\n\n## What our existing results show\n\nIn an earlier ContextAdapt experiment, `gpt-5.6-luna` resolved synthetic histories involving a changed target, revoked permission, or failed observation. Passing meant that its decision JSON matched the expected answer. The [individual results](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/experiments/long-context/results/luna-v1.jsonl) and [summary](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/experiments/long-context/results/luna-v1-summary.json) are public.\n\n| Target tier | Measured final-turn input tokens | Decision checks passed |\n| --- | ---: | ---: |\n| 200K | 197,802–197,835 | 3/3 |\n| 400K | 393,709–393,747 | 3/3 |\n| 1M target load | 883,258–883,470 | 3/3 |\n\nThe lesson is modest: explicitly marked state changes remained solvable in these runs.\n\nThe separate retention benchmark in our [published study](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/) used 30 held-out tasks from 12 repositories. At a 40% source budget, head-and-tail truncation passed strict retention on 10/30 tasks; lexical retrieval and ContextAdapt v3 both passed on 18/30.\n\nAcross the compressed-budget curve, ContextAdapt's advantage over lexical retrieval was 7.1 percentage points, with a 95% interval from −2.3 to +17.9. Include a simple relevance-based baseline before adding a complicated selector: that interval leaves the advantage uncertain. The [result ledger](https://github.com/cooleryu/ContextAdapt/blob/258861ec7e732ff38c587558626b4db432c6b120/evidence/p0-results.md) and [protocol](https://github.com/cooleryu/ContextAdapt/blob/258861ec7e732ff38c587558626b4db432c6b120/evidence/protocol-v3.json) are public; the underlying per-case data remain in internal project experiment records and are not yet public.\n\n## Run a comparison you can learn from\n\nKeep the task, starting commit, model, tools, permissions, and independent acceptance tests fixed. Compare the default input, a targeted evidence addition, and a larger input; repeat each condition. Our [context-length guide](https://cooleryu.github.io/ContextAdapt/guides/choosing-context-length-for-coding-agents/) walks through this process.\n\nRecord completed fixes, regressions, unauthorized actions, compactions, repeated reads, all attempts' tokens, and elapsed time. Missing telemetry stays unknown. Count the whole attempt history, not just the successful final request.\n\n## FAQ\n\n### Should I change settings immediately because the default is 500K?\n\nInspect the current session's model and effective capacity. Keep the default while establishing a baseline unless necessary evidence is missing.\n\n### Is 500K or 1M better for a coding agent?\n\nCompare matched tasks. Expand when the larger condition repeatedly improves independently verified outcomes.\n\n### Why does my client still show 258K?\n\n[A LINUX DO user raised the same question](https://linux.do/t/topic/3013574), but the display alone cannot identify the cause. Record client version, session model, capacity field, and overrides; distinguish the announced default, effective capacity, and available input budget.\n\n### Does less compaction mean fewer mistakes?\n\nCheck what survives, whether obsolete state is being used, and whether the task passes. Compaction count measures a process, not correctness.\n\n### How do I measure the context my task actually needs?\n\nUse a repeatable task and independent verifier, add missing evidence deliberately, then compare supported capacities. A single success does not establish the smallest safe context.\n\n## What this article has not established\n\n- We have not tested Codex 500K or ranked it against other capacities. The subscription announcement does not describe [API billing](https://developers.openai.com/api/docs/models/gpt-6.1-sol), and the 258K report does not establish a cause.\n- The input-load experiment checked decision JSON, executed no code changes, and ran each scenario once per tier. Context load and turn count changed while the configured window stayed constant; 1M was a target, not measured input.\n- Retention required exact issue lines, original-source anchors for every reference-patch hunk, and budget compliance. Files were preselected and budgets were character estimates; this does not demonstrate bug fixes or savings.\n- OMP integration used a deterministic provider to test enforcement before writes, not live-model context quality; that record is not yet public. The staging scenario is illustrative.\n\nFurther reading: [ContextAdapt on GitHub](https://github.com/cooleryu/ContextAdapt) · [Code-retention study](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/) · [Context-length guide](https://cooleryu.github.io/ContextAdapt/guides/choosing-context-length-for-coding-agents/).",
+      "evidencePaths": [
+        "publish/RELEASE-2026-10-14.md"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。"
+    },
+    {
+      "id": "the-plan-was-valid-zh-CN",
+      "title": "计划没有错，世界已经变了",
+      "type": "article",
+      "language": "zh-CN",
+      "status": "published",
+      "publishedAt": "2026-10-14",
+      "publicUrl": "https://cooleryu.github.io/ContextAdapt/articles/the-plan-was-valid/",
+      "sourcePath": "publish/the-plan-was-valid/zh-CN.md",
+      "summary": "讨论长期 Agent 任务中，目标、文件与权限变化如何让原本合理的计划过期。",
+      "markdown": "# 计划没有错，世界已经变了\n\n> 为什么长时程 Agent 的上下文问题，最终会变成执行问题\n\n**作者：cooleryu**\n\n一个 AI Agent 可以记得所有事实，仍然在错误的时刻执行一个“看起来完全正确”的动作。\n\n想象这样一段轨迹：\n\n- 10:02，Agent 读到当前环境是 `staging`，受保护配置允许修改；\n- 10:16，它拟定了一个修改 `staging/config.json` 的计划，但任务被中断；\n- 10:40，环境已经切换到 `production`，超时值改变，受保护配置也不再允许修改；\n- 11:05，旧计划恢复执行。\n\n这时，计划本身可能没有语法错误，路径也真实存在，甚至每一条旧事实都曾经是正确的。问题在于：**支撑这个动作的世界已经不存在了。**\n\n这就是我在构建 [ContextAdapt](https://github.com/cooleryu/ContextAdapt) 时逐渐形成的判断：长时程 Agent 的上下文问题，不只是“模型忘了什么”，也不只是“怎样把更多内容塞进窗口”。它还有一个更靠近执行层的问题：\n\n> 当 Agent 即将调用工具时，我们能否证明这个动作仍然由当前状态、当前指令和当前权限支持？\n\n这篇文章结合相关研究与 ContextAdapt 的早期 Python 原型实验，讨论已有证据及其边界。引用这些论文，不表示复现或改进了它们。\n\n## 01 / 上下文研究正在从“装得下”走向“管得住”\n\n早期讨论很容易把长上下文简化为窗口大小：只要模型能读更多 token，长期任务就会更稳定。但近期研究展示的是一个更复杂的图景。\n\n[LOCA-bench](https://arxiv.org/abs/2602.07962) 把环境增长本身作为可控制变量，研究 Agent 在动态长上下文中的表现。在其测得的模型与配置中，环境描述变长通常伴随性能下降；部分上下文管理策略可以改善结果。\n\n[ContextBench](https://arxiv.org/abs/2602.05892) 则构建了覆盖 66 个代码仓库、8 种语言、1,136 个任务的基准。它提出了一个很关键的区分：Agent 探索过某段上下文，不等于将它纳入最终声明用于生成补丁的上下文。“访问”与“声明使用”之间仍有断层。\n\n另一些工作开始让 Agent 主动编辑、外置或压缩自己的上下文。[ACM](https://arxiv.org/abs/2607.23809) 研究 Agent 控制的上下文编辑与外部记忆，[CoMem](https://arxiv.org/abs/2605.30842) 把记忆处理与主 Agent 解耦，[Active Context Compression](https://arxiv.org/abs/2601.07190) 让 Agent 通过工具主动发起压缩。这些方向都在回答同一类问题：**有限的注意力应该怎样分配？**\n\n而 [TRACE](https://arxiv.org/abs/2608.06503) 把问题又推进了一步：重复压缩可能削弱近期交互，引发动作受阻、重复探索或后续不稳定。它采用从同一状态出发的成对闭环延续，并用验证器测量压缩后新增的动作受阻与重复探索。\n\n把它们放在一起，可以看到研究重心正在移动：\n\n| 方向 | 它主要解决什么 | 在执行前仍需回答什么 |\n| --- | --- | --- |\n| 动态长上下文评测 | 上下文增长如何影响任务表现 | 当前动作到底依赖了哪一版状态 |\n| 检索与利用分析 | Agent 找到了什么、真正用了什么 | 被使用的证据是否仍然有效 |\n| 编辑、外置与压缩 | 如何降低注意力与延迟成本 | 压缩后是否保留了权限和时间关系 |\n| 闭环成对验证 | 改写上下文是否改变后续行为 | 如何在真实工具调用前强制执行结论 |\n\n这些工作与 ContextAdapt 不是相互替代的。它们更像是在上下文生命周期的不同位置上解决问题。\n\n## 02 / 管理上下文，不等于授权一个动作\n\n上下文可以被整理得很干净，却仍然包含一个已经失效的计划；摘要可以准确复述旧指令，却没有说明它后来被撤销；检索器可以找回正确文件，却把另一个实体的最新值绑定到当前任务。\n\n所以我更关心一个窄一些的问题：\n\n> **Context management 决定 Agent 看什么；execution authorization 决定 Agent 现在是否还能做。**\n\n两者需要连接，但不应被混为一谈。\n\nContextAdapt 的早期 Python 原型选择了“最后一个负责任的时刻”：计划已经形成、工具尚未执行。在这里，系统不再问“这段上下文总体上好不好”，而是要求一个动作给出最小来源说明：\n\n- `based_on_event`：这个动作依据哪一条状态或指令；\n- `permission_event`：涉及受保护操作时，当前权限来自哪里；\n- 这些依据是否属于同一个实体；\n- 它们是否已被更新事件取代；\n- 当前状态是否仍然允许这次操作。\n\n在受支持的动作契约内，证据不足会阻止执行，不会把“不知道”当作“安全”。\n\n## 03 / 我们先否定了一个最容易讲的故事\n\n“上下文太长，所以模型忘了。”这是一个很顺口的解释，也很适合做宣传。但我们的第一组实验并不支持这么简单的结论。\n\n在一组显式标记、可精确检索的超长输入测试中，我们对 `gpt-5.6-luna` 做了 9 次真实调用，输入规模约为 198K、398K 和 898K token。三个档位中，27 个权威事实全部被正确提取，没有出现陈旧来源错误。这组数据来自项目内部实验记录，完整记录尚未随本文公开。\n\n这项实验很窄：它不是现实 Agent 工作流，也没有复杂工具反馈。但它至少推翻了一个过度概括——**长度本身并不必然让明确标记的事实丢失。**\n\n真正值得追问的于是变成：如果正确事实仍然在窗口里，Agent 为什么还会做错？\n\n## 04 / 真正危险的不是“没看见”，而是“绑错了”\n\n我们随后构造了一组乱序事件存储轨迹。正确事实始终可见，但同时存在多个实体、多次更新、失败读取与旧状态。Agent 必须判断哪条信息属于当前对象、哪次读取可信、哪个值已经被替代。\n\n结果出现了明显分化：\n\n| 输入条件 | 精确正确 | 未要求受保护修改 | 错误来源 |\n| --- | ---: | ---: | ---: |\n| Raw 200K | 5/6 | 6/6 | 1/6 |\n| Raw 400K | 2/6 | 2/6 | 4/6 |\n| Raw 900K | 2/6 | 2/6 | 4/6 |\n| 从 900K 轨迹提取的当前状态 | 6/6 | 6/6 | 0/6 |\n\n表中 K 是原始轨迹的名义档位；规范化后输入已缩短，这里只评分动作 JSON，未执行写入。在相同状态哈希下，四个失败案例转为成功，没有反向退化。这组数据同样来自项目内部实验记录，完整轨迹与方法记录尚未随本文公开。\n\n这不是简单的“记忆丢失”。更接近的描述是：**正确事实仍在输入中，输出却采用了错误时间、实体或来源对应的值。**\n\n而且，单纯调整信息顺序也不够。在同一报告的等内容、仅顺序变化实验中，顺序改变了本次样本的错误计数和形态；但在 71 个有效实验单元里，六种看似合理的排列没有一种做到全对，每一种都至少出现过一次错误。排序是风险杠杆，不是安全机制。\n\n## 05 / 从故障归因到同状态成对重放\n\n如果一次失败真的是上下文造成的，那么修复上下文之后，从同一个环境状态继续，结果应该发生可重复的变化。否则，我们可能只是把工具故障、环境差异或随机波动错算成“上下文问题”。\n\n因此，我们做了一组更接近诊断流程的受控实验：\n\n1. 从失败轨迹里定位一段高摩擦区间；\n2. 冻结环境状态与任务目标；\n3. 分别向 Agent 提供原始轨迹尾段、结构化近期状态、摘要加近期状态；\n4. 成对执行，并用独立结果判断上下文干预是否改变了行为；\n5. 加入工具故障对照，避免把不可用工具误判为上下文因果。\n\n初始实验含 24 个不透明任务、8 个隐藏任务族；其中 8 任务保留集上，结构化近期状态的成功率为 87.5%，原始轨迹尾段为 25%。后续新建保留集的锚点精度为 4/4，剩余非锚点对照为 1/4。注入工具故障的对照在全部已测策略下均未通过任务验证，未被归因成上下文问题。这组数据来自项目内部实验记录，完整记录尚未随本文公开。\n\n这些数字很有启发，但边界同样重要：它们来自受控配置编辑任务，不代表真实世界中上下文故障的普遍发生率，也不证明不同模型都具有相同幅度的收益。\n\n## 06 / 最后一步：让验证结果真正拦住工具\n\n诊断报告只有在接上执行边界之后，才会变成工程防线。\n\n这个原型的最小路径是：\n\n```text\n不可变事件记录\n    ↓\n重建当前状态，并区分可信读取与失败观察\n    ↓\n检查动作来源、实体范围、时间顺序与当前权限\n    ↓\nALLOW 或 BLOCK\n    ↓\n受支持的工具调用只有 ALLOW 才继续\n```\n\n这份 Python 原型用以下命令演示这条路径：\n\n```bash\npython3 -m contextadapt demo\n```\n\n演示中的旧动作会被判为 `BLOCK`：一方面，当前权限不允许受保护修改；另一方面，它依赖的旧状态已经被后续事件取代。`contextadapt check TRACE.jsonl` 只有在证据充分且通过时才返回成功；`BLOCK` 或证据不足会以退出码 2 失败关闭。\n\n执行器验证把预制、已接受的关系样例接入工具边界：当时 Codex 的 `PreToolUse` 在 `apply_patch` 前检查陈旧上下文，OMP 的 `tool_call` 覆盖写入、编辑及可识别的变更型 shell。成对案例中，陈旧路径被拦且文件未变，当前路径放行并写入；不透明脚本和未覆盖工具不在结论内。机器可读结果见[执行器验证报告](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/artifacts/executor/real-executor-report.json)。项目的[执行器集成文档](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/docs/executor-integrations.md)可作为延伸阅读，但其中的当前实现说明不能直接代替这轮历史验证。\n\n这轮 OMP 执行器验证使用了确定性 mock provider，报告记载远程 Qwen 后端当时离线。它证明的是执行拦截链条，不是在线 Qwen 的决策质量。\n\n## 07 / 为什么还需要语义层，但不能偷偷把模型当安全证明\n\n有些关系无法仅靠字段比较得出，例如两段自然语言是否描述同一实体、某个新事件是否真正推翻旧指令。这个原型的 hybrid 路径允许宿主提供两次分开运行的语义分析：一次提出关系，一次核对关系。\n\n但确定性核心不会隐藏模型调用，也不会把缺失的语义分析当成安全证据。它会检查：\n\n- 引用是否逐字来自原始事件；\n- 时间顺序与实体范围是否一致；\n- 结构化值是否有证据支持；\n- 审查是否来自不同运行；\n- 审查内容是否由 SHA-256 摘要绑定到原提案；\n- 每个变化字段是否都被覆盖；\n- 是否仍有未解决问题。\n\n语义模型可以提出判断，机械检查与失败关闭由确定性核心执行；不同运行与哈希绑定本身不证明语义判断正确。当前项目的[Hybrid 语义关系文档](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/docs/hybrid-relations.md)介绍了相关契约；它已随实现演进，不能逐字代表这份早期原型。\n\n## 08 / ContextAdapt 现在还没有证明什么\n\n我不想把一个 alpha 项目描述成通用安全层。这些实验的证据只支持一组具体能力：\n\n- 发现动作依赖已经被取代的指令或状态；\n- 发现受保护修改缺少当前权限；\n- 在工具调用前以确定性规则执行 `ALLOW` / `BLOCK`；\n- 用同状态成对重放验证干预是否真的改变结果。\n\n它还没有证明：\n\n- 所有长时程 Agent 故障都来自陈旧上下文；\n- 验证器能理解任意自然语言中的全部语义关系；\n- 一条由恶意宿主伪造的事件轨迹可以被自动识破；\n- 当前受控实验的收益能直接外推到所有模型、框架和生产任务；\n- 只要装上 ContextAdapt，Agent 就会“安全”。\n\n特别是，事件轨迹仍然是宿主提供的可信记录。验证器可以检查内部一致性，却不能凭空认证一个被伪造的历史。\n\n## 09 / 一个更准确的问题\n\n过去我们常问：Agent 还记得多少？\n\n接下来也许应该多问一句：\n\n> 在它真正动手之前，我们能否看见这个动作依据了什么，并确认那些依据此刻仍然成立？\n\n长上下文、检索、摘要、外部记忆和压缩都很重要。它们帮助 Agent 形成更好的计划。但计划一旦跨越时间继续存活，就需要一个执行时的事实检查：世界有没有变，权限有没有变，旧证据有没有被替代。\n\n**The plan was valid. The world had changed.**\n\nContextAdapt 想做的，就是在旧计划碰到真实世界之前，给系统最后一次说“不”的机会。\n\n---\n\n## 参考资料与实验记录\n\n### 近期研究\n\n1. [LOCA-bench: Benchmarking Language Agents Under Controllable and Extreme Context Growth](https://arxiv.org/abs/2602.07962)\n2. [ContextBench: A Benchmark for Context Retrieval in Coding Agents](https://arxiv.org/abs/2602.05892)\n3. [CoMem: Context Management with A Decoupled Long-Context Model](https://arxiv.org/abs/2605.30842)\n4. [ACM: Agentic Context Management for Long Horizon Tasks](https://arxiv.org/abs/2607.23809)\n5. [Active Context Compression: Autonomous Memory Management in LLM Agents](https://arxiv.org/abs/2601.07190)\n6. [Toward Reliable Context Compression for Long-Horizon Agents: An Empirical Study of Execution Instability](https://arxiv.org/abs/2608.06503)\n\n### 项目实验记录与实现文档\n\n超长显式事实检索、隐藏时间与实体冲突、故障锚点与同状态成对重放这三组数据，来自 ContextAdapt 的内部实验记录。本文保留了结果与限制，但未提供完整记录的公开版本，读者目前无法仅凭本文独立检查这些实验。\n\n以下链接固定到同一仓库提交，避免后续更新改变所引用内容。其中，执行器报告记录历史验证；其余文档描述该提交中的项目实现，不代表它们与早期 Python 原型完全相同。\n\n- [执行器验证报告](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/artifacts/executor/real-executor-report.json)\n- [动作守卫契约](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/docs/action-guard.md)\n- [执行器集成与限制](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/docs/executor-integrations.md)\n- [Hybrid 语义关系协议](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/docs/hybrid-relations.md)",
+      "evidencePaths": [
+        "publish/RELEASE-2026-10-14.md"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。"
+    },
+    {
+      "id": "the-plan-was-valid-en",
+      "title": "The Plan Was Valid. The World Had Changed.",
+      "type": "article",
+      "language": "en",
+      "status": "published",
+      "publishedAt": "2026-10-14",
+      "publicUrl": "https://cooleryu.github.io/ContextAdapt/articles/the-plan-was-valid/en/",
+      "sourcePath": "publish/the-plan-was-valid/en.md",
+      "summary": "讨论长期 Agent 任务中，目标、文件与权限变化如何让原本合理的计划过期。",
+      "markdown": "# The Plan Was Valid. The World Had Changed.\n\n> Why context problems in long-horizon agents become execution problems\n\n**Author: cooleryu**\n\nAn AI agent can remember every fact and still execute an apparently correct action at the wrong time.\n\nConsider this sequence:\n\n- At 10:02, the agent reads that the current environment is `staging` and that protected configuration may be modified.\n- At 10:16, it plans a change to `staging/config.json`, but the task is interrupted.\n- At 10:40, the environment has switched to `production`, the timeout has changed, and modifying protected configuration is no longer permitted.\n- At 11:05, the old plan resumes.\n\nThe plan may be syntactically valid. The path may still exist. Every old fact may once have been correct. The problem is that **the world that justified the action no longer exists.**\n\nThis is the view I gradually arrived at while building [ContextAdapt](https://github.com/cooleryu/ContextAdapt). Context problems in long-horizon agents are not just about what a model forgets, or how much more text we can fit into its window. There is another question, closer to execution:\n\n> When an agent is about to call a tool, can we establish that the action is still supported by the current state, instructions, and permissions?\n\nThis article brings together related research and experiments from an early Python prototype of ContextAdapt, with their evidence and limitations. Citing these papers does not mean that we have reproduced or improved on their results.\n\n## 01 / From fitting more context to managing it\n\nEarly discussions often reduced long context to window size: if a model could read more tokens, long-running tasks would become more reliable. Recent research presents a more complicated picture.\n\n[LOCA-bench](https://arxiv.org/abs/2602.07962) treats growth in the environment itself as a controlled variable, studying agents under dynamic long-context conditions. Across the models and configurations it tested, longer environment descriptions generally accompanied worse performance; some context-management strategies improved the results.\n\n[ContextBench](https://arxiv.org/abs/2602.05892) spans 66 repositories, 8 programming languages, and 1,136 tasks. It draws a useful distinction: an agent's having explored a piece of context does not mean it includes that material in the context it ultimately declares for generating a patch. There is still a gap between visiting information and declaring its use.\n\nOther work gives agents a more active role in editing, externalizing, or compressing context. [ACM](https://arxiv.org/abs/2607.23809) studies agent-controlled context editing and external memory. [CoMem](https://arxiv.org/abs/2605.30842) separates memory processing from the main agent. [Active Context Compression](https://arxiv.org/abs/2601.07190) lets agents initiate compression through a tool. These approaches address a shared question: **how should limited attention be allocated?**\n\n[TRACE](https://arxiv.org/abs/2608.06503) goes a step further. Repeated compression can weaken recent interactions, leading to blocked actions, repeated exploration, or instability later in the run. TRACE uses paired closed-loop continuations from the same state, with verifiers measuring additional blocked actions and repeated exploration after compression.\n\nTaken together, these studies suggest a shift in emphasis:\n\n| Direction | Main question it addresses | Question still open before execution |\n| --- | --- | --- |\n| Dynamic long-context evaluation | How does context growth affect task performance? | Which version of the state does this action depend on? |\n| Retrieval and utilization analysis | What did the agent find, and what did it actually use? | Is the evidence it used still valid? |\n| Editing, externalization, and compression | How can attention and latency costs be reduced? | Did compression preserve permissions and temporal relationships? |\n| Paired closed-loop validation | Does rewriting context change subsequent behavior? | How can the finding be enforced before a real tool call? |\n\nThese approaches and ContextAdapt are not substitutes for one another. They address problems at different points in the context lifecycle.\n\n## 02 / Managing context is not the same as authorizing an action\n\nCarefully organized context can still contain an invalid plan. A summary can accurately repeat an old instruction without saying that it was later revoked. A retriever can find the right file but bind another entity's latest value to the current task.\n\nThat leads me to a narrower distinction:\n\n> **Context management determines what an agent sees. Execution authorization determines whether it may still act now.**\n\nThe two need to connect, but they should not be conflated.\n\nThe early Python prototype of ContextAdapt operates at the last responsible moment: after a plan has formed, before a tool executes. Instead of asking whether the context is good overall, it asks the action for a minimal account of its provenance:\n\n- `based_on_event`: which state or instruction does this action rely on?\n- `permission_event`: for a protected operation, where does the current permission come from?\n- Do those sources refer to the same entity?\n- Have later events superseded them?\n- Does the current state still permit this operation?\n\nWithin the supported action contracts, insufficient evidence blocks execution. Unknown is not treated as safe.\n\n## 03 / Our first experiment challenged the easiest story to tell\n\n“The context was too long, so the model forgot.” It is an appealing explanation and an easy story to promote. Our first experiments did not support such a simple conclusion.\n\nIn a test with explicitly marked, precisely retrievable facts in very long inputs, we made 9 real calls to `gpt-5.6-luna`, at roughly 198K, 398K, and 898K input tokens. Across those three sizes, all 27 authoritative facts were extracted correctly, with no stale-source errors. These results come from the project's internal experiment records; the complete records have not been published with this article.\n\nThe test was narrow. It was not a real agent workflow and did not include complex tool feedback. It nevertheless challenges an overgeneralization: **length alone does not necessarily cause clearly marked facts to be lost.**\n\nThe more useful question becomes: if the correct facts are still in the window, why does the agent act incorrectly?\n\n## 04 / The danger is not just missing a fact—it is binding it incorrectly\n\nWe next constructed event-store traces with events presented out of order. The correct facts remained visible, alongside multiple entities, successive updates, failed reads, and old state. The agent had to determine which information belonged to the current object, which reads were trustworthy, and which values had been superseded.\n\nThe results diverged:\n\n| Input condition | Exactly correct | No protected modification requested | Wrong source |\n| --- | ---: | ---: | ---: |\n| Raw 200K | 5/6 | 6/6 | 1/6 |\n| Raw 400K | 2/6 | 2/6 | 4/6 |\n| Raw 900K | 2/6 | 2/6 | 4/6 |\n| Current state extracted from the 900K trace | 6/6 | 6/6 | 0/6 |\n\nHere, K denotes the nominal size of the original trace. The normalized input was shorter. We scored action JSON only; no writes were executed. With the same state hash, four failed cases became successes, with no regressions in the other direction. These data also come from internal experiment records; the full traces and methodology records have not been published with this article.\n\nThis is not simply memory loss. A closer description is that **the correct facts remained in the input, but the output used a value associated with the wrong time, entity, or source.**\n\nChanging the order alone was not enough either. In an experiment in the same report that held content constant and varied only its order, ordering changed the error counts and error types in the tested sample. Yet across 71 valid experimental units, none of the six plausible arrangements was entirely correct; every arrangement produced at least one error. Ordering can affect risk, but it is not a safety mechanism.\n\n## 05 / From failure attribution to paired replay from the same state\n\nIf context really caused a failure, repairing it and continuing from the same environment state should produce a repeatable change in the result. Otherwise, we may be misclassifying a tool failure, an environmental difference, or random variation as a context problem.\n\nWe therefore ran a controlled experiment closer to a diagnostic workflow:\n\n1. Locate a high-friction interval in a failed trace.\n2. Freeze the environment state and task objective.\n3. Give the agent either the raw trace tail, structured recent state, or a summary plus recent state.\n4. Run paired executions and use an independent outcome check to determine whether the context intervention changed behavior.\n5. Add tool-failure controls so that unavailable tools are not mistaken for a context cause.\n\nThe initial experiment contained 24 opaque tasks across 8 hidden task families. On its 8-task holdout set, structured recent state achieved an 87.5% success rate, compared with 25% for the raw trace tail. In a subsequent, newly constructed holdout set, anchor precision was 4/4, with 1/4 for the remaining non-anchor controls. The injected tool-failure controls failed task validation under every tested strategy and were not attributed to context. These results come from internal experiment records; the complete records have not been published with this article.\n\nThe numbers are informative, but their scope matters. They come from controlled configuration-editing tasks. They do not estimate how often context failures occur in the real world, or establish that different models would see the same gains.\n\n## 06 / The final step: making validation stop a tool call\n\nA diagnostic report becomes an engineering safeguard only when it reaches the execution boundary.\n\nThe prototype's minimal path is:\n\n```text\nImmutable event log\n    ↓\nReconstruct current state; distinguish trusted reads from failed observations\n    ↓\nCheck action provenance, entity scope, temporal order, and current permissions\n    ↓\nALLOW or BLOCK\n    ↓\nSupported tool calls proceed only on ALLOW\n```\n\nThe Python prototype demonstrates that path with:\n\n```bash\npython3 -m contextadapt demo\n```\n\nThe stale action in the demonstration receives `BLOCK` for two reasons: current permissions do not allow the protected modification, and later events have superseded the state it relies on. `contextadapt check TRACE.jsonl` succeeds only when the evidence is sufficient and validation passes. A `BLOCK` result or insufficient evidence fails closed with exit code 2.\n\nThe executor validation connected prepared, already accepted relation examples to the tool boundary. In the Codex setup tested at the time, `PreToolUse` checked for stale context before `apply_patch`. OMP's `tool_call` covered writes, edits, and recognizable mutating shell commands. In the paired cases, the stale path was blocked and the file remained unchanged; the current path was allowed and wrote to the file. Opaque scripts and tools outside that coverage are excluded from the conclusion. Machine-readable results are in the [executor validation report](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/artifacts/executor/real-executor-report.json). The project's [executor integration documentation](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/docs/executor-integrations.md) provides further reading, but its description of the current implementation is not a substitute for that historical validation.\n\nThat OMP executor validation used a deterministic mock provider. The report records that the remote Qwen backend was offline at the time. It demonstrates the execution-blocking path, not the decision quality of an online Qwen model.\n\n## 07 / Why a semantic layer is still needed—and is not a safety proof\n\nSome relationships cannot be established by comparing fields alone: whether two passages refer to the same entity, for example, or whether a new event truly overrides an earlier instruction. The prototype's hybrid path lets the host supply semantic analyses from two separate runs: one proposes relationships; the other reviews them.\n\nThe deterministic core does not make hidden model calls or treat a missing semantic analysis as evidence of safety. It checks:\n\n- whether quotations match the original events verbatim;\n- whether temporal order and entity scope are consistent;\n- whether structured values have evidential support;\n- whether the review comes from a separate run;\n- whether a SHA-256 digest binds the reviewed content to the original proposal;\n- whether every changed field is covered;\n- whether any unresolved issues remain.\n\nA semantic model can propose a judgment. The deterministic core performs the mechanical checks and fails closed. Separate runs and hash binding do not, by themselves, establish that the semantic judgment is correct. The project's [hybrid semantic-relations documentation](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/docs/hybrid-relations.md) describes the relevant contracts. It has evolved with the implementation and should not be read as an exact description of this early prototype.\n\n## 08 / What ContextAdapt has not established\n\nI do not want to present an alpha project as a universal safety layer. The evidence supports a specific set of capabilities:\n\n- Detecting when an action depends on superseded instructions or state.\n- Detecting when a protected modification lacks current permission.\n- Enforcing deterministic `ALLOW` / `BLOCK` rules before a tool call.\n- Using paired replay from the same state to test whether an intervention changes the outcome.\n\nIt has not established that:\n\n- all failures in long-horizon agents come from stale context;\n- the verifier can understand every semantic relationship in arbitrary natural language;\n- a trace fabricated by a malicious host can be detected automatically;\n- gains in these controlled experiments generalize directly to all models, frameworks, and production tasks;\n- installing ContextAdapt makes an agent “safe.”\n\nIn particular, the event trace remains a trusted record supplied by the host. The verifier can check internal consistency, but it cannot authenticate a fabricated history from nothing.\n\n## 09 / A more precise question\n\nWe have often asked: how much does the agent still remember?\n\nPerhaps we should also ask:\n\n> Before it acts, can we see what the action is based on and confirm that those grounds still hold now?\n\nLong context, retrieval, summaries, external memory, and compression all matter. They help agents form better plans. But when a plan survives across time, it needs a check at execution: has the world changed, have permissions changed, or has newer evidence superseded the old?\n\n**The plan was valid. The world had changed.**\n\nContextAdapt aims to give the system one last opportunity to say no before an old plan meets the real world.\n\n---\n\n## References and experiment records\n\n### Recent research\n\n1. [LOCA-bench: Benchmarking Language Agents Under Controllable and Extreme Context Growth](https://arxiv.org/abs/2602.07962)\n2. [ContextBench: A Benchmark for Context Retrieval in Coding Agents](https://arxiv.org/abs/2602.05892)\n3. [CoMem: Context Management with A Decoupled Long-Context Model](https://arxiv.org/abs/2605.30842)\n4. [ACM: Agentic Context Management for Long Horizon Tasks](https://arxiv.org/abs/2607.23809)\n5. [Active Context Compression: Autonomous Memory Management in LLM Agents](https://arxiv.org/abs/2601.07190)\n6. [Toward Reliable Context Compression for Long-Horizon Agents: An Empirical Study of Execution Instability](https://arxiv.org/abs/2608.06503)\n\n### Project experiment records and implementation documentation\n\nThe three groups of results—explicit fact retrieval in very long inputs, hidden temporal and entity conflicts, and failure anchors with paired replay from the same state—come from ContextAdapt's internal experiment records. This article reports the results and limitations, but does not provide a public version of the complete records. Readers cannot currently audit these experiments independently from the article alone.\n\nThe links below are pinned to the same repository commit so that later updates do not change the cited material. The executor report records historical validation. The other documents describe the implementation at that commit; they do not imply that it is identical to the early Python prototype.\n\n- [Executor validation report](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/artifacts/executor/real-executor-report.json)\n- [Action guard contract](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/docs/action-guard.md)\n- [Executor integrations and limitations](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/docs/executor-integrations.md)\n- [Hybrid semantic-relations protocol](https://github.com/cooleryu/ContextAdapt/blob/960309fddf7115d730043501122c50f2d35955eb/docs/hybrid-relations.md)",
+      "evidencePaths": [
+        "publish/RELEASE-2026-10-14.md"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。"
+    },
+    {
+      "id": "context-length-guide-zh-CN",
+      "title": "AI 编程 Agent 的上下文长度怎么选",
+      "type": "guide",
+      "language": "zh-CN",
+      "status": "published",
+      "publishedAt": "2026-10-10",
+      "publicUrl": "https://cooleryu.github.io/ContextAdapt/guides/choosing-context-length-for-coding-agents/zh-CN/",
+      "sourcePath": "publish/release-checkout/source/guides/context-length-guide.zh-CN.md",
+      "summary": "按具体编码任务选择材料，解释上下文预算、检索、验证和失败后的下一步。",
+      "markdown": "# AI 编程 Agent 的上下文长度怎么选\n\n已发布 · 2026 年 10 月 10 日\n\n**先选这次修改需要的材料，不要先选最大的窗口。** 收集相关代码、当前指令和测试。检查这些材料能否放进当前工具的可用窗口。再运行任务，验证结果。更大的窗口是一个待测选项，不是正确修复的保证。\n\n这篇指南帮助你准备第一次输入，并判断失败后该做什么。内容结合了我们在 [ContextAdapt](https://github.com/cooleryu/ContextAdapt) 中的实践。[已发表的研究文章](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/)比较了不同方法能保留哪些代码证据。它没有证明所有编程 Agent 都适用同一个上下文长度。\n\n## AI 编程需要多长的上下文\n\n我们不能给所有编程任务推荐同一个 token 数。你可以用下面的清单准备第一次尝试。这是一套起步方法，不是已经验证的最小值。\n\n### 按任务选择材料\n\n每个任务都先写清四件事：预期行为、当前约束、允许修改的范围、验收方法。然后补充相关代码和测试：\n\n| 任务 | 先收集哪些材料 |\n| --- | --- |\n| 修复一个范围明确的错误 | 失败输入或报错、相关实现、直接调用方，以及能复现错误的测试。 |\n| 修改多个模块之间的行为 | 上述材料，再加上受影响的接口、配置、依赖关系，以及关联模块的测试。 |\n| 迁移整个仓库 | 迁移范围、受影响的模块、当前版本和目标版本、兼容要求，以及迁移验收项。处理到哪一部分，再补充对应源码。 |\n\n例如，假设解析器遇到空输入就出错。先提供解析函数、传入空输入的调用方和失败测试。这是教学示例，不是 ContextAdapt 的实验结果。不要预先认定只给一个函数就够，也不要认定必须把整个仓库放进去。\n\n接着，统计组装后输入的 token 数。工具提供计数功能时，优先使用它。把指令、对话历史和工具返回内容一起计算。按服务商的规则预留输出空间。**窗口容量**是可用上限。**实际输入**是你送入的内容。**任务证据**是完成任务所需的信息。这三者不同。检查当前服务商和工具的限制，不要只看模型名称。窗口概念可参考 [Google 的上下文指南](https://ai.google.dev/gemini-api/docs/long-context)。\n\n### 失败后，先检查原因\n\n- **缺了必需文件：** 先检索并补充，再重试。补充相关材料不一定需要更大的窗口。\n- **必需材料放不下：** 测试更大的可用预算。依赖关系允许时，也可以拆分任务。两种做法都要验证结果。\n- **环境或权限阻止了执行：** 有授权时修复测试环境；没有所需权限时停止并请求授权。增加 token 不能解决这些问题。\n\n### 我们的实验能补充什么\n\n在 30 个留出任务中，同样给定 40% 的源代码预算，头尾截断有 10 个任务通过严格证据保留指标，关键词检索有 18 个，ContextAdapt v3 也有 18 个。相关源文件已预先选定。这里的**通过是保留了证据，不是修好了问题**。这个结果支持我们比较材料选择方法，但不能证明 ContextAdapt 在这个预算下优于关键词检索。完整实验和限制见[研究文章](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/)。这不是 200K 与 1M 的对比实验。\n\n## 大模型上下文长度应该怎么选\n\n**先规定怎么验收，再选择上下文策略。** 策略包括检索什么、保留什么、何时补充材料。窗口上限本身不能回答这些问题。\n\n先填写一张任务卡。下面是一个假设示例：\n\n| 项目 | 修改 API 适配器的示例 |\n| --- | --- |\n| 预期结果 | 支持新的响应格式，同时保留旧格式支持。 |\n| 第一次输入 | 两种格式的说明、适配器代码、直接调用方和相关测试。 |\n| 验收方法 | 新格式测试、旧格式回归测试，以及修改范围检查。 |\n| 限制 | 不得修改已保存的客户数据或无关模块。 |\n\n统计完整请求，不要只统计源码。指令、历史消息和工具结果也会占用上下文。可参考 [VS Code 的官方说明](https://code.visualstudio.com/docs/agents/concepts/context)。按服务商规则预留输出空间。\n\n准备两个候选。第一个只包含上表中的相关材料。第二个再加入可能解释失败的关联依赖。使用同一初始状态的独立副本运行。固定模型、工具和测试。记录是否完成、是否越界、全部成本和总耗时。\n\n如果精简输入通过验收，再用另一个有代表性的任务检查这套策略。如果失败原因是缺少依赖，先检索补齐，不要直接认定窗口太小。如果必须更换模型才能扩大窗口，就把结果称为两套配置的比较。不能把差异全部归因于上下文长度。\n\n## 200K 上下文写代码够用吗\n\n**必需输入放得下，并且 Agent 能通过验收时，它就可能够用。** 这是两个条件。没有超限，不代表材料选对了，也不代表 Agent 会正确使用这些材料。\n\n下面是假设的 token 预算，不是 ContextAdapt 的实测结果。假设当前配置允许输入和输出共用 200K token，并允许分配 16K 输出空间：\n\n| 内容 | token 数 |\n| --- | ---: |\n| 指令、工具定义和已有历史 | 12K |\n| 选定的源码 | 68K |\n| 测试结果和报错细节 | 4K |\n| 预留的输出额度 | 16K |\n| 合计分配 | 100K |\n\n当前输入为 84K token。按这个假设，共享窗口还剩 100K 空间。但这不保证后续每次工具返回都能放下。会话增长后要重新计数，也要检查单独的输入和输出限制。优先使用当前模型的计数工具。可参考 [Google 的请求计数和返回用量说明](https://ai.google.dev/gemini-api/docs/tokens)。\n\n在这个例子中，先用已整理的材料运行测试。不要为了填满窗口而加入无关文件。缺少调用方，就检索该调用方。必需材料仍然放不下，再比较更大的可用预算。缺少环境依赖导致测试无法启动，就先在授权范围内修复环境。缺少权限，就停止并请求授权。单凭其中一种失败，不能认定 200K 不够用。\n\n## 200K 和 1M 上下文编程怎么选\n\n**比较任务结果，不要只比较窗口标签。** 这里的 200K、400K 和 1M 是容量示例。只有当前配置支持时才能测试。可用上限是 1M，不代表每次必须输入 1M token。\n\n以跨模块迁移为例。先定位受影响的接口、调用方和测试。如果相关材料能放进较小预算，先测试这个候选。如果必需的关联信息无法一起保留，再测试更大的候选。也可以沿着能独立验收的边界拆分任务。\n\n让下面三种策略处理同一组有代表性的任务：\n\n| 策略 | 待测试的规则 |\n| --- | --- |\n| 固定较小上限 | 在较小上限内检索并保留相关材料。 |\n| 固定较大上限 | 允许保留更多相关材料，但不刻意填满空间。 |\n| 按条件扩大 | 先用较小预算；记录到缺失证据或材料放不下时，再判断是否扩大。 |\n\n运行前规定重试次数。第一次尝试、检索、准备和每次重试都要计入成本。尽量固定模型和工具。只有确实需要比较中间档时，才增加 400K 候选。\n\n也要检查工具怎样压缩历史。[VS Code 官方文档](https://code.visualstudio.com/docs/agents/concepts/context)说明，历史摘要可能压缩或遗漏早期细节。扩大上限与改进摘要策略，是两种不同的修改。\n\n最后选择能满足预定验收和安全标准，且总成本可接受的策略。动态调整只是待测方案，不是预定赢家。我们[已发表的证据保留实验](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/)没有证明哪个窗口档位更好。\n\n## 上下文窗口越大代码生成效果越好吗\n\n**有时会，但更大的窗口不保证补丁正确。** 如果它能补回任务需要的信息，就可能有帮助。信息进入了上下文，不代表 Agent 一定会正确使用。\n\nGoogle 与 Sourcegraph 在 2024 年公布的案例中，长上下文的 Cody 配置改善了技术问答。这个结果适用于当时的配置和任务，不能直接当作所有错误修复的结论。Google 的上下文指南也指出，检索多条信息可能比只找一条更不稳定。[编程助手案例](https://developers.googleblog.com/en/supercharging-ai-coding-assistants-with-massive-context/) · [检索限制](https://ai.google.dev/gemini-api/docs/long-context#long-context-limitations)\n\n增加上下文前，可以在同一任务上比较三份输入：\n\n1. 当前输入。\n2. 当前输入，加上具体缺失的证据，例如调用方或失败测试。\n3. 包含这些证据及更多周边代码的较大输入。\n\n固定模型、起始代码、工具和验收测试。重复测试每种输入。比较修复是否通过、是否引入回归、是否越权，以及总成本和耗时。如果只有精准补充有效，这支持的是材料选择方法，不是把窗口填满。如果较大输入多次改善结果，再判断改善是否值得额外成本。\n\n下面的已发表实验回答一个更窄的问题：选择上下文后，哪些代码证据被保留下来。它不衡量任务是否修复。\n\n### 我们的留出实验实际发现了什么\n\n在 2026 年 9 月 2 日冻结的实验中，我们使用来自 12 个仓库的 30 个 SWE-bench Lite 留出任务，比较上下文选择方法。同样给定 40% 的源代码预算，严格证据保留指标的结果如下：\n\n| 上下文选择方法 | 满足证据保留条件的任务数 |\n| --- | ---: |\n| 头尾截断 | 10 / 30 |\n| 根据问题关键词检索 | 18 / 30 |\n| ContextAdapt v3 | 18 / 30 |\n\n通过这个指标，需要同时满足：不超预算、保留源代码中与问题描述精确匹配的所有行，以及为参考补丁的每个修改块至少保留一行标记为删除的原代码。它**不等于 Agent 修好了问题**。相关文件已根据参考补丁预先选定；选择器只看到问题和原始源码，补丁内容仅用于评分。这一步没有测试全仓库定位，也没有执行生成补丁。\n\n这个对照给了我们一个实际理由：除了问“上下文有多长”，还要测“留下了什么”。它也对我们自己的设计提出了挑战：在这个预算下，更复杂的方法没有胜过关键词检索。对全部七个压缩预算取平均，ContextAdapt 相对关键词检索的优势为 7.1 个百分点，95% 置信区间为 −2.3 到 +17.9，仍不能确认存在提升。\n\n对正在选方案的开发者，我的建议是先加入一个简单的相关性检索基线，再判断复杂方案是否值得用。仅仅胜过截断，还不足以作出这个判断。这里的百分比是按字符数估算 token 后分配的源代码预算，不是对 200K 和 1M 窗口的直接比较。完整结果见[结果账本](https://cooleryu.github.io/ContextAdapt/evidence/p0-results.md)与[冻结协议](https://cooleryu.github.io/ContextAdapt/evidence/protocol-v3.json)。\n\n## 大模型上下文长度的成本延迟和准确率怎么权衡\n\n**先定可接受的完成率和安全要求，再比较总成本与耗时。** 单次请求便宜，不代表完成一个任务更便宜。\n\n每次任务尝试都保留一条记录：\n\n| 记录项 | 包含什么 |\n| --- | --- |\n| 结果 | 独立验收结果、新增回归、约束违反情况，以及失败原因。 |\n| 用量和费用 | 全部输入与输出 token、缓存用量、准备调用、检索、重试和升级。实际费用与估算费用分开。 |\n| 耗时 | 从开始到最终结果，包括工具执行和重试。首 token 延迟单独记录。 |\n| 条件 | 模型、上下文策略、任务版本，以及缓存状态。 |\n\nGoogle 指出，Gemini 的较长请求通常会增加首 token 延迟；缓存可以降低重复输入的成本。这两点都不能直接给出你的编程流程总耗时或总费用。仍要检查当前服务商的规则，并测量完整流程。[延迟说明](https://ai.google.dev/gemini-api/docs/long-context#does-the-context-length-affect-the-model-latency) · [缓存文档](https://ai.google.dev/gemini-api/docs/caching)\n\n一个实用指标是：**包含失败尝试的全部实测成本 ÷ 通过验收的任务数。**\n\n举一个虚构算例。方案 A 在十个任务上花费 2 美元，完成八个，每个完成任务的成本是 0.25 美元。方案 B 在同样十个任务上花费 1.50 美元，完成五个，每个完成任务的成本是 0.30 美元。A 的总支出更高，但每个完成任务的成本更低。这只是计算示例，不是 ContextAdapt 的实验结果，也不是服务商报价。\n\n在这个比值旁边，同时展示完成率、安全失败，以及常见和较慢运行的耗时。如果没有任务完成，比值就没有定义。违反必需安全条件的方案，即使平均成本低，也不应被选中。\n\n## 如何评估编程任务需要的最小上下文\n\n测量目标是：**在固定验收条件下，找出能通过的最小已测上下文**。它不是通用最小值。先选一个边界清楚的小修复，再选一个较难的跨文件修改。\n\n1. 固定两个任务、初始代码版本、必过测试、受保护文件和成功标准。不要用预期补丁来挑选输入。\n2. 选择几个环境支持的输入预算。每次模型请求都使用对应预算，不只限制第一条提示。固定模型、工具、输出预留空间、检索和摘要规则。同时改变材料选择方法和长度，会混入两个因素。\n3. 每次从干净的初始状态运行。提前规定重复次数、重试上限和升级条件。保留每次失败。\n4. 保存实际上下文和全部尝试。记录检索、准备、审查、重试、输入输出用量、费用和总耗时。\n5. 比较完成情况、约束违规和成本。先在未参与调试的任务上重复验证，再给出更广的建议。\n\n每个任务、候选和重复轮次各记一行：\n\n| 记录项 | 保存什么 |\n| --- | --- |\n| 设置 | 任务、代码版本、模型、材料选择方法、输入预算 |\n| 结果 | 必过测试、受保护文件检查、失败原因 |\n| 完整尝试 | 实际输入、输出用量、重试、费用、总耗时 |\n\n不要假设上下文越长，成功率就持续上升。仅靠二分搜索不能证明最小值。一次成功也不能证明稳定可靠。\n\n保留证据和完成修复是两种测量。[ContextBench](https://arxiv.org/abs/2602.05892)也单独测量过程中的上下文检索，不只看最终成功。\n\n在我们的冻结实验中，ContextAdapt v3 对 30 个留出任务中的 8 个，在已测预算中需要保留**预先选定的完整源码**，才能覆盖参考补丁每个修改块的原代码行。这不等于 8 个真实 Agent 必须读取整个仓库。它说明需要上面的真实 Agent 实验，不能作为自动停止增加上下文的规则。[冻结结果](https://cooleryu.github.io/ContextAdapt/evidence/p0-results.md)\n\n## 有哪些开源工具可以测试 AI Agent 上下文长度\n\n先决定要测什么，再选工具。这三个项目都不能自动替你的应用找出最优上下文窗口。\n\n| 工具 | 测量对象 | 不能据此证明 | 从哪里开始 |\n| --- | --- | --- | --- |\n| [RULER](https://github.com/NVIDIA/RULER) | 长度和复杂度可控的合成长上下文任务 | Agent 能否安全修复你的仓库 | 从 README 指向的当前评测分支开始 |\n| [SWE-bench](https://www.swebench.com/SWE-bench/guides/evaluation/) | 将生成补丁应用到真实仓库，再执行测试 | 结果由哪种上下文策略造成，或完整成本是多少 | 阅读 Lite 评测和补丁提交格式 |\n| [ContextAdapt](https://github.com/cooleryu/ContextAdapt) | 已发表实验测量固定源代码预算下保留的修改证据 | 真实修复提升、账单节省或通用最小窗口 | 查看[证据包](https://cooleryu.github.io/ContextAdapt/evidence/)和冻结对照 |\n\nRULER 帮助测试模型的长上下文表现。SWE-bench 检查提交的补丁能否解决其任务。ContextAdapt 的已发表实验比较不同材料选择方法保留源码证据的情况。三者可以配合使用，分数不能互相替代。\n\n我们的实验本身使用了 SWE-bench Lite 任务。它不是 SWE-bench 的替代品，也不存在“胜过其评测框架”的结论。\n\n第一次编程实验，可以使用上一节的两个任务和记录表。让每个候选生成补丁，再运行相同的独立测试。Agent 失败后，分别检查它检索的上下文和它生成的补丁。如果还需要研究长上下文检索，再加入合成基准。\n\n运行上游基准前，先检查硬件、存储、凭证和模型调用费用。阅读结果与亲自复现，是两个不同步骤。",
+      "evidencePaths": [
+        "publish/RELEASE-2026-10-14.md",
+        "publish/SITE-PLAN.md"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。"
+    },
+    {
+      "id": "context-length-guide-en",
+      "title": "Choosing context length for AI coding agents",
+      "type": "guide",
+      "language": "en",
+      "status": "published",
+      "publishedAt": "2026-10-10",
+      "publicUrl": "https://cooleryu.github.io/ContextAdapt/guides/choosing-context-length-for-coding-agents/",
+      "sourcePath": "publish/release-checkout/source/guides/context-length-guide.en.md",
+      "summary": "按具体编码任务选择材料，解释上下文预算、检索、验证和失败后的下一步。",
+      "markdown": "# Choosing context length for AI coding agents\n\nPublished · 10 October 2026\n\n**Start with the material needed for the change, not the model's largest window.** Gather the relevant code, current instructions, and tests. Check whether that material fits within your active tool's limits. Then run the task and verify the result. A larger window is a candidate to test, not a guarantee of a correct fix.\n\nThis guide helps you choose the first input and decide what to do if it fails. It draws on our work on [ContextAdapt](https://github.com/cooleryu/ContextAdapt). Our [published study](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/) tests which code evidence different selection methods retain. It does not establish a universal context length for coding agents.\n\n## How much context does an AI coding agent need\n\nThere is no single token count we can recommend for every coding task. Use the following checklist to prepare a first attempt. It is a starting procedure, not a proven minimum.\n\n### Choose the material for the task\n\nFor every task, include the requested behavior, current constraints, permitted changes, and how you will check completion. Then add the relevant code and tests:\n\n| Task | Material to gather first |\n| --- | --- |\n| A bounded bug fix | The failing input or error, relevant implementation, direct callers, and a test that reproduces the failure. |\n| A change across modules | The material above, plus the affected interfaces, configuration, dependencies, and tests for the connected modules. |\n| A repository-wide migration | The migration scope, affected modules, current and target versions, compatibility requirements, and migration checks. Retrieve source as each part needs it. |\n\nFor example, suppose a parser fails on empty input. Include the parsing function, the caller that supplies the input, and the failing test. This is a hypothetical teaching example, not a ContextAdapt result. Do not assume that either one function or the entire repository is always the right input.\n\nNext, measure the assembled input with the active tool's token counter, if available. Include instructions, conversation history, and tool results in the accounting. Leave output space according to the provider's rules. **Window capacity** is the available limit. **Actual input** is what you send. **Required evidence** is what the task needs. These are different quantities. Check the current provider and tool limits; a model name alone is not enough. See [Google's context guide](https://ai.google.dev/gemini-api/docs/long-context) for the window concept.\n\n### If the attempt fails, check the cause\n\n- **A needed file is missing:** retrieve it and retry. Adding relevant material does not always require a larger window.\n- **Indispensable material will not fit:** test a larger supported budget, or split the work where its dependencies permit. Verify the result in either case.\n- **The environment or permissions block the task:** repair the test setup if authorized, or stop for permission. More tokens do not resolve these failures.\n\n### What our experiment adds\n\nAt a 40% source budget, our 30-task held-out comparison recorded strict evidence-retention passes for 10 tasks with head-and-tail truncation, 18 with lexical retrieval, and 18 with ContextAdapt v3. The relevant source file was preselected. These were **retention passes, not completed fixes**. This result motivates comparing selection methods; it does not prove that ContextAdapt is better than lexical retrieval at this budget. Read the [study and its limitations](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/) for the full experiment. It is not a 200K-versus-1M test.\n\n## How to choose context window size for coding tasks\n\n**Choose a context policy against a clear completion test.** A policy includes what you retrieve, what you keep, and when you add more. The window limit alone does not specify any of these.\n\nStart with this task card. The example is hypothetical:\n\n| Item | Example for an API adapter change |\n| --- | --- |\n| Required result | Accept the new response format while preserving the existing format. |\n| First input | Both format specifications, adapter code, direct callers, and relevant tests. |\n| Verification | New-format tests, old-format regression tests, and a check of the changed files. |\n| Limits | Do not edit stored customer data or unrelated modules. |\n\nCount the complete request, not just the source files. Instructions, history, and tool results also occupy context, as [VS Code's documentation explains](https://code.visualstudio.com/docs/agents/concepts/context). Reserve output space under the provider's rules.\n\nPrepare two candidates: the focused material above, and that material plus relevant dependencies that may explain a failure. Run them from separate copies of the same starting state. Keep the model, tools, and tests fixed. Record completion, constraint violations, total cost, and elapsed time.\n\nIf the focused input passes, test that policy on another representative task. If it fails because a dependency is missing, retrieve it before assuming a larger window is necessary. If you must switch models to get a larger window, label the result as a comparison of two setups, not proof of a context-length effect.\n\n## Is 200K context enough for coding agents\n\n**It can be enough when the necessary input fits and the agent passes the task checks.** These are separate conditions. Fitting within a limit does not prove that the input contains the right evidence or that the agent can use it.\n\nHere is a hypothetical budget, not a measured ContextAdapt run. Assume the active setup permits 200K tokens shared between input and output, and permits a 16K output allocation:\n\n| Component | Tokens |\n| --- | ---: |\n| Instructions, tool definitions, and existing history | 12K |\n| Selected source code | 68K |\n| Test results and error details | 4K |\n| Reserved output allowance | 16K |\n| Total allocated | 100K |\n\nThe current input is 84K tokens. This allocation leaves 100K before the assumed shared limit. It does not guarantee space for every later tool result. Recount as the session grows, and check separate input and output limits. Use the active model's counter when available; [Google documents request counting and response usage](https://ai.google.dev/gemini-api/docs/tokens).\n\nFor this example, start with the assembled material and run the tests. Do not add unrelated files to fill the window. If a caller is missing, retrieve that caller. If indispensable material no longer fits, compare a larger supported budget. If tests cannot start because a dependency is absent, fix the authorized environment first. If permission is missing, stop and ask. None of these failures, by itself, proves that 200K is insufficient.\n\n## How to choose between 200K and 1M for coding\n\n**Compare task outcomes, not window labels.** Here, 200K, 400K, and 1M are example capacity limits. Use them only if your active setup supports them. A 1M limit does not require sending 1M tokens.\n\nFor a cross-module migration, first locate the affected interfaces, callers, and tests. If the relevant material fits within the smaller budget, try that candidate. If necessary relationships cannot be retained together, test a larger candidate or split the work along verifiable boundaries.\n\nCompare these policies on the same representative tasks:\n\n| Policy | Rule to test |\n| --- | --- |\n| Fixed smaller limit | Retrieve relevant material within the smaller limit. |\n| Fixed larger limit | Allow more relevant material, without filling space deliberately. |\n| Conditional enlargement | Start smaller; add capacity only when a recorded missing-evidence or fit problem justifies it. |\n\nSpecify retry limits before running. Count the first attempt, retrieval, preparation, and every retry. Keep the model and tools fixed where possible. Include an intermediate 400K candidate only if it helps answer a real decision.\n\nCheck the tool's summarization behavior too. [VS Code documents](https://code.visualstudio.com/docs/agents/concepts/context) that older conversation details may be compressed or lost when it summarizes history. A larger limit and a better summary policy are different changes.\n\nSelect the policy that meets your declared completion and safety criteria at an acceptable total cost. An adaptive policy is a candidate, not an assumed winner. Our [published retention experiment](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/) does not establish which of these window sizes wins.\n\n## Does a longer context window improve coding accuracy\n\n**Sometimes, but a larger window is not a guarantee of a correct patch.** It can help when it restores information the task needs. It does not prove that the agent will use that information correctly.\n\nA 2024 Google and Sourcegraph case study reported better technical question answering with a long-context Cody setup. That is evidence for that setup and task, not a universal improvement in bug fixing. Google's context guide also warns that retrieving several pieces of information can be less reliable than finding one. [Coding assistant case study](https://developers.googleblog.com/en/supercharging-ai-coding-assistants-with-massive-context/) · [Retrieval limits](https://ai.google.dev/gemini-api/docs/long-context#long-context-limitations)\n\nBefore paying for more context, compare three inputs on the same task:\n\n1. The current input.\n2. The same input plus specific missing evidence, such as a caller or failing test.\n3. A larger collection that includes that evidence and more surrounding code.\n\nKeep the model, starting code, tools, and acceptance tests fixed. Repeat each condition. Compare verified fixes, regressions, unauthorized actions, cost, and time. If only the focused addition helps, the result favors that selection policy; it does not justify filling the window. If larger inputs help repeatedly, test whether the gain is worth their total cost.\n\nOur published study below answers a narrower question: which code evidence survives selection. It does not measure completed repairs.\n\n### What our held out comparison actually found\n\nIn our study frozen on 2 September 2026, we tested context selection on 30 held-out SWE-bench Lite tasks from 12 repositories. At the same 40% source budget, the strict evidence-retention results were:\n\n| Context selection policy | Tasks meeting the retention criteria |\n| --- | ---: |\n| Head and tail truncation | 10 of 30 |\n| Lexical intent retrieval | 18 of 30 |\n| ContextAdapt v3 | 18 of 30 |\n\nA pass required staying within budget, preserving every exact issue line found in the source, and retaining at least one original line marked for removal in each reference-patch hunk. It did **not** mean the agent fixed the issue. The relevant file was preselected using the reference patch; the selector saw the issue and original source, while patch contents remained evaluator-only. Repository search and patch execution were outside this test.\n\nThis comparison gives a practical reason to test **which context you keep**, not just how much. It also challenges our own design: at this budget, the more elaborate policy did not beat lexical retrieval. Averaged over all seven compressed budgets, its advantage over lexical retrieval was 7.1 percentage points, with a 95% confidence interval of −2.3 to +17.9; that improvement remains inconclusive.\n\nFor a builder choosing a policy, the implication is to include a simple relevance-based baseline before adding complexity. Beating truncation alone is not enough. These percentages are source-allocation budgets using a character-based token estimate, not comparisons of literal 200K and 1M windows. See the [result ledger](https://cooleryu.github.io/ContextAdapt/evidence/p0-results.md) and [frozen protocol](https://cooleryu.github.io/ContextAdapt/evidence/protocol-v3.json) for the full comparison.\n\n## How to balance context length cost latency and accuracy\n\n**Choose an acceptable completion rate and safety requirement first. Then compare total cost and time.** The cheapest request is not necessarily the cheapest completed task.\n\nKeep one record per task attempt:\n\n| Record | What to include |\n| --- | --- |\n| Outcome | Independent test result, regressions, constraint violations, and failure reason. |\n| Usage and charges | All input and output tokens, cached usage, preparation calls, retrieval, retries, and escalations. Record actual charges separately from estimates. |\n| Time | Start to final outcome, including tools and retries. Keep first-token latency separate. |\n| Conditions | Model, context policy, task version, and cache state. |\n\nFor Gemini, Google notes that longer requests generally increase time to first token, while caching can reduce repeated-input costs. Neither claim gives the total time or price of your coding workflow. Check the active provider's rules and measure the full run. [Latency guidance](https://ai.google.dev/gemini-api/docs/long-context#does-the-context-length-affect-the-model-latency) · [Caching documentation](https://ai.google.dev/gemini-api/docs/caching)\n\nA useful summary is **total measured cost, including failed attempts, divided by verified completions**.\n\nFor a fictional example, policy A spends $2 across ten tasks and completes eight: $0.25 per verified completion. Policy B spends $1.50 on the same ten tasks and completes five: $0.30 per completion. A costs more overall but less per completed task. This is arithmetic, not a ContextAdapt result or a provider quote.\n\nReport completion rate, safety failures, and typical and slow-run times beside that ratio. If no task completes, the ratio is undefined. A policy that violates a required safety condition remains unacceptable even when its average cost is low.\n\n## How to measure the minimum context for a coding task\n\nMeasure the **smallest tested context that meets a fixed acceptance rule**, not a universal minimum. Start with one bounded fix and one harder cross-file change.\n\n1. Freeze both tasks, starting commits, required tests, protected files, and success thresholds. Keep expected patches out of context selection.\n2. Choose several supported input budgets. Apply each budget to every model request, not just the opening prompt. Fix the model, tools, output allowance, retrieval, and summarization rules. Changing the selection policy as well as the size tests two factors.\n3. Run each candidate from a clean state. Set repetitions, retry limits, and escalation rules before starting. Keep every failure.\n4. Save the actual context and all attempts. Count retrieval, preparation, review, retries, input/output usage, cost, and end-to-end time.\n5. Compare completion, constraint violations, and cost. Repeat promising candidates on unseen tasks before making a broader recommendation.\n\nUse one row per task, candidate, and repetition:\n\n| Record | Save |\n| --- | --- |\n| Setup | Task, commit, model, selection policy, input budget |\n| Outcome | Required tests, protected-file checks, failure reason |\n| Full attempt | Actual input, output usage, retries, cost, elapsed time |\n\nDo not assume that success rises steadily with context length. A binary search alone cannot establish the minimum. One successful attempt is also not evidence of reliability.\n\nRetained evidence and completed repairs are different measurements. [ContextBench](https://arxiv.org/abs/2602.05892) likewise measures intermediate context retrieval rather than relying only on final success.\n\nIn our frozen retention study, ContextAdapt v3 required the full **preselected source** for 8 of 30 held-out tasks among tested budgets to retain every reference-patch hunk anchor. This does not mean eight live Agents required a full repository. It motivates the real-Agent test above, not an automatic stopping rule. [Frozen results](https://cooleryu.github.io/ContextAdapt/evidence/p0-results.md)\n\n## Which open source tools help evaluate agent context length\n\nChoose a tool by what you need to measure. These three do not automatically identify the optimal context window for your application.\n\n| Tool | Measured unit | Does not establish | Where to start |\n| --- | --- | --- | --- |\n| [RULER](https://github.com/NVIDIA/RULER) | Synthetic long-context tasks with controlled length and complexity | Whether an Agent can safely repair your repository | Follow the current evaluation branches linked from its README |\n| [SWE-bench](https://www.swebench.com/SWE-bench/guides/evaluation/) | Generated patches applied to real repositories and checked with tests | Which context policy caused the result or its total cost | Read the Lite evaluation and prediction-format instructions |\n| [ContextAdapt](https://github.com/cooleryu/ContextAdapt) | In the published study: retained edit evidence under fixed source budgets | Live repair gains, bill savings, or a universal minimum window | Inspect the [evidence package](https://cooleryu.github.io/ContextAdapt/evidence/) and frozen comparison |\n\nRULER helps test a model's long-context behavior. SWE-bench checks whether submitted patches resolve its tasks. ContextAdapt's published study compares how material-selection methods preserve source evidence. These are complementary jobs, not interchangeable scores.\n\nOur study itself uses SWE-bench Lite tasks. It does not replace SWE-bench or claim to outperform its evaluation framework.\n\nFor your first coding experiment, use the two tasks and record format above. Produce a patch for each candidate, then run the same independent tests. If the Agent fails, examine its retrieved context separately from its patch. Add a synthetic benchmark when you also need to investigate long-context retrieval.\n\nCheck hardware, storage, credentials, and model-call costs before running an upstream benchmark. Reading its results is a different step from reproducing them.",
+      "evidencePaths": [
+        "publish/RELEASE-2026-10-14.md",
+        "publish/SITE-PLAN.md"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。"
+    },
+    {
+      "id": "code-context-study",
+      "title": "How Much Code Context Does an AI Agent Need?",
+      "type": "research",
+      "language": "en",
+      "status": "published",
+      "publishedAt": "2026-09-02",
+      "publicUrl": "https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/",
+      "sourcePath": "publish/release-checkout/source/how-much-code-context.md",
+      "summary": "报告 2,160 个留出评估单元上的严格代码证据保留；不等于真实修复成功率或费用节省。",
+      "markdown": "# How Much Code Context Does an AI Agent Need?\n\n> Evidence from 2,160 held-out evaluations\n\nWhen people discuss long context, the first question is usually whether a model can accept 200K, 400K, or even one million tokens.\n\nFor an agent that edits code and calls tools, that may not be the question that matters most.\n\nThe practical question is this:\n\n> **Does this task actually need 200K, 400K, or something close to one million tokens? Can an agent work from a smaller context without losing the evidence that could change—or veto—its next action?**\n\nThat is the product question behind [ContextAdapt](https://github.com/cooleryu/ContextAdapt). It is not another attempt to create a larger context window. It is an attempt to identify the smallest defensible context candidate for a task, preserve the evidence that matters, and check that evidence again before execution.\n\nThis article reports our first strict held-out evaluation of the context-construction part of that idea.\n\nThe result is promising but deliberately narrow: across seven compressed source budgets, ContextAdapt improved strict evidence retention by **22.4 percentage points** over head-and-tail truncation. It did **not** establish that an agent completed more tasks, found the universally shortest safe context, or reduced a real provider bill.\n\nThat distinction is the point of the work.\n\n## The question we originally made too simple\n\nOur first intuition was attractive: preserve the user request, file paths, exact values, and a few critical code spans; compress everything else; then declare the smallest passing candidate the “shortest safe context.”\n\nOnly half of that intuition survived contact with the evidence.\n\nShort contexts can clearly fail through omission. A recent goal can be truncated. `timeout=60` can become a vague summary. A revoked write permission can disappear. But a large context is not automatically safe either. An agent may have access to the new evidence and still spend its limited verification effort elsewhere. It may continue organizing an apparently coherent action around an old goal, an old file state, or an old permission.\n\nSo “is the context sufficient?” is actually three different questions:\n\n1. Did the critical evidence enter the context?\n2. Did the agent inspect and use that evidence correctly?\n3. Did the eventual tool call remain consistent with the current evidence?\n\nThis experiment measures the first question. It creates the foundation for testing the second and third, but it does not silently claim them.\n\n## Four papers changed four parts of the design\n\nWe did not add recent paper titles to a README after the experiment. Each of these papers changed a concrete constraint in the protocol.\n\n- [When Stale Constraints Go Unchecked](https://arxiv.org/abs/2608.25553v3) pushed us to separate evidence being accessible from evidence actually being verified under a limited budget. That led to explicit risk ranking and an execution gate, rather than merely displaying the freshest record.\n- [Paritok-4B](https://arxiv.org/abs/2608.24188v1) made a simple comparison between 200K, 400K, and one million tokens look insufficient. Within the same budget, we also need to compare how policies preserve verbatim code, edit anchors, and exact values.\n- [JIT-Agent](https://arxiv.org/abs/2608.25593v1) reinforced the need to freeze everything outside the context policy. If memory, planning, tools, and the action protocol all change together, any improvement becomes impossible to attribute.\n- [PILOT in the Loop](https://arxiv.org/abs/2608.26530v1) made the cost boundary explicit. Observation, recovery, retries, and verification must be counted separately. A supervisor that consumes all the savings cannot be hidden inside “system overhead.”\n\nThe resulting principle was simple: change the context policy, freeze the rest, and label the evidence at the level the experiment actually supports.\n\n## How we avoided designing the test after seeing the answers\n\nThe evaluation had two layers.\n\nFirst, we reanalyzed 900 frozen Luna trajectories. We ignored the labels already stored in the dataset and recomputed outcomes from the records the model selected and the answers it produced. This showed an external failure pattern: for the same model, the problem was sometimes not missing memory but scarce verification attention being allocated away from the evidence most capable of vetoing an action.\n\nThat reanalysis was not counted as a ContextAdapt product win.\n\nThe second layer moved to real code. We used **23 development tasks** to repair the method. We then froze the renderer, evaluator, data split, source-file inventory, metrics, thresholds, and statistical procedure before running the **30-task holdout once**.\n\nThose 30 tasks came from 12 repositories. We compared nine context policies at eight source budgets, producing **2,160 held-out evaluation cells**.\n\nThe critical isolation rule was this:\n\n> The renderer could see the issue and the baseline source tree. Only the evaluator could see the gold patch.\n\nContextAdapt therefore could not inspect the answer and then pretend it had discovered the relevant code independently.\n\n## What counted as a strict pass\n\nWe used a stricter criterion than “the keyword still appears.” A candidate context had to satisfy all three conditions:\n\n- stay within its allocated source budget;\n- preserve every issue line that could be matched exactly in the source;\n- preserve at least one pre-change source line from every hunk that was actually modified.\n\nThis is still an **evidence-retention metric**. A passing candidate has retained the material needed to reason about the change; it has not yet generated a patch, run tests, or completed the task.\n\n## Results: better than positional truncation, not magic\n\nThe clearest budget points are below.\n\n| Source budget | ContextAdapt strict pass | Lexical intent retrieval | Head + tail | ContextAdapt hunk coverage | Estimated total input ratio, including issue |\n| ---: | ---: | ---: | ---: | ---: | ---: |\n| 10% | 10/30 (33%) | 6/30 (20%) | 4/30 (13%) | 41.7% | 14.9% |\n| 20% | 12/30 (40%) | 10/30 (33%) | 8/30 (27%) | 50.0% | 24.4% |\n| 40% | 18/30 (60%) | 18/30 (60%) | 10/30 (33%) | 67.8% | 43.2% |\n| 60% | 22/30 (73%) | 20/30 (67%) | 12/30 (40%) | 85.0% | 62.2% |\n| 100% | 30/30 (100%) | 30/30 (100%) | 30/30 (100%) | 100.0% | 100.0% |\n\nAcross the seven compressed budgets, ContextAdapt exceeded head-and-tail truncation by **22.4 percentage points** in strict evidence retention. A repository-clustered bootstrap gave a 95% confidence interval of **[+2.4, +40.6]**.\n\nThat is real progress. When full source was unavailable, organizing context around exact evidence and code structure was materially better than keeping only the beginning and end.\n\nThree less flattering results matter even more.\n\n### 1. The lexical baseline remained competitive\n\nContextAdapt exceeded the simpler lexical-intent retriever by only **7.1 percentage points**, with a 95% confidence interval of **[-2.3, +17.9]**. Because the interval crosses zero, we cannot claim that the structured policy reliably beats that baseline. At the 40% budget, both passed 18 of 30 tasks.\n\n### 2. Eight tasks still required the full source\n\nEight of the 30 holdout tasks needed 100% of the selected source files to retain every modified hunk. A better renderer can improve the hit rate, but it cannot yet know in advance which tasks are unsafe to compress.\n\n### 3. The oracle exposed a large remaining gap\n\nAn evaluator-only anchor oracle—allowed to use the answer—outperformed ContextAdapt by **42.9 percentage points**, with a 95% confidence interval of **[+29.8, +55.8]**. The oracle is not deployable. Its value is diagnostic: the difficult problem remains identifying which code will truly matter without seeing the future patch.\n\n## Checks designed to make a flattering result harder\n\nThe holdout also included tests aimed at breaking the method.\n\n- All **840 budget-monotonicity checks** passed: increasing the budget never removed evidence that had already been retained.\n- All **480 oracle-isolation checks** passed.\n- No delivered context exceeded its assigned budget.\n- No candidate dropped exact issue evidence that the protocol required it to preserve.\n- A misleading traceback placed in the correct file still caused one regression at the 40% budget, showing that unverified location hints cannot be trusted blindly.\n\nThe complete frozen ledger and protocol are available in the [evidence package](../../evidence/).\n\n## What this experiment falsified\n\nIt falsified a conclusion we wanted to believe:\n\n> Preserve the request, create a clever structured slice, and you can immediately know the shortest safe context.\n\nWe cannot make that claim.\n\nContextAdapt can now construct a shorter, auditable context candidate that retains strict code evidence more effectively than positional truncation. It can enforce a source budget, preserve specified evidence verbatim, and prevent evidence from disappearing as the budget grows.\n\nBut evidence being present does not mean an agent will use it correctly. A pre-change source line being present does not mean the generated patch will pass its tests.\n\nThe honest label is therefore:\n\n```text\nREAL_CODE_RETENTION_HOLDOUT\n```\n\nNot:\n\n```text\nIMPROVED\n```\n\nThis is not a defensive footnote. It is the input to the next product decision.\n\n## What the user-facing product should eventually say\n\nA useful ContextAdapt experience should not show users a complicated evidence table. It should do the work in the background and say something like:\n\n```text\nStart with 200K.\nThe current goal, permission, exact values, and latest successful state are present.\nIf verification fails, upgrade once to 400K and count the cost of both attempts.\nBefore writing, check the target, permission, and evidence source again.\n```\n\nTo make those four lines a real promise, the next experiment must close the loop:\n\n1. Generate concrete 200K, 400K, and one-million-token candidates.\n2. Run the same real agent, host, and tool protocol from the smallest candidate first.\n3. Let a deterministic verifier decide whether the task completed.\n4. Upgrade at most once after failure.\n5. Recheck goal, permission, and provenance immediately before mutating tools run.\n6. Count failed first attempts, review, recovery, retries, larger windows, latency, and provider input cost.\n7. Compare blindly against “always use the largest window” and “always use the smallest window.”\n\nOnly if ContextAdapt reduces end-to-end cost without lowering completion rate or safety should the evidence label move from retention to improvement.\n\n## Four explicit limits\n\n- This stage made no new Luna or task-model calls. The 900 Luna trajectories came from frozen external experimental data.\n- The real-code study used source-budget ratios from 10% to 100%; it did not rerun a provider at literal 200K, 400K, and one-million-token windows.\n- Token cost in the table is estimated as characters divided by four. It is neither a provider tokenizer result nor a real bill.\n- Gold-patch files were preselected, so this stage did not test repository-wide file search. Evidence retention is not patch generation, passing tests, or task completion.\n\nThese constraints mean we have a more credible context-candidate generator and a clearer map of where it fails. We do not yet have the final user savings number.\n\n## The most useful result was not the largest number\n\nIf the goal were a clean demo, we could select a few tasks that pass at a 20% budget and announce an 80% saving.\n\nBut a system that intends to stand between an agent and a real tool cannot depend on selecting friendly tasks.\n\nThe most useful result was not the 22.4-point lift. It was narrowing the product claim to something testable:\n\n> **ContextAdapt is getting better at constructing context candidates. The next step is to make a real agent, a real verifier, and the full cost ledger determine which candidate is actually the shortest defensible one.**\n\nResearch should not manufacture a cleaner story for the product. It should tell us which sentence we have earned the right to say next.\n\n---\n\n## Reproduce, challenge, or extend the work\n\n- [Browse the evidence package](../../evidence/)\n- [Read the frozen result ledger](../../evidence/p0-results.md)\n- [Inspect the frozen protocol](../../evidence/protocol-v3.json)\n- [View ContextAdapt on GitHub](https://github.com/cooleryu/ContextAdapt)\n- [Open a methodological question or counterexample](https://github.com/cooleryu/ContextAdapt/issues)\n\nIf you maintain a coding agent, I am especially interested in failure traces where the correct evidence was technically available but the agent verified the wrong thing, used an obsolete state, or acted from a permission that had already changed.\n\n*Editorial note: this English edition was prepared with AI-assisted translation and editing from the original Chinese research note. The author is responsible for the argument, and every experimental claim was checked against the frozen result ledger.*",
+      "evidencePaths": [
+        "publish/RELEASE-2026-10-14.md"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。",
+      "dateNote": "源稿 date 为 2026-09-02，updated 为 2026-09-03；当前本地发布记录核对可达性于 2026-10-14。"
+    },
+    {
+      "id": "site-home",
+      "title": "ContextAdapt — AI Agent Reliability Field Notes by cooleryu",
+      "type": "homepage",
+      "language": "en",
+      "status": "published",
+      "publishedAt": null,
+      "publicUrl": "https://cooleryu.github.io/ContextAdapt/",
+      "sourcePath": "publish/release-checkout/index.html",
+      "summary": "文章与实验证据的统一入口。浏览器标题已在 10-14 加入 ContextAdapt；可见首屏仍以抽象标语开头。",
+      "markdown": "# Make the context answerable.\n\nI study the moment an AI agent turns context into action: what evidence survived, what it actually used, and whether that evidence is still current before a tool touches the world.\n\nContextAdapt is an open-source project for identifying smaller context candidates without silently discarding action-critical evidence—and for checking goal, permission, and provenance again before execution.\n\n[Explore ContextAdapt](https://github.com/cooleryu/ContextAdapt)\n\n首页已提供双语指南、258K 解答、500K 快评、计划篇和研究文章入口。",
+      "evidencePaths": [
+        "sprint-01/evidence/task-07-title.json",
+        "publish/SITE-PLAN.md"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。",
+      "updatedAt": "2026-10-15",
+      "dateNote": "首页首次发布日期未在本轮资料中确认；10-14 更新标题，10-15 增补文章入口。",
+      "markdownIsExcerpt": true
+    },
+    {
+      "id": "x-500k-article",
+      "title": "Codex at 500K: more room, but check the state before writing",
+      "type": "social_article",
+      "language": "en",
+      "status": "published",
+      "publishedAt": "2026-10-14T13:10:07+08:00",
+      "publicUrl": "https://x.com/idkatbro/status/2110236687947174159",
+      "sourcePath": "sprint-01/actions.md",
+      "summary": "X Article：较大上下文窗口能减少压缩，但执行前仍需确认目标、状态和授权。",
+      "markdown": "# Codex at 500K: more room, but check the state before writing\n\nA larger context window gives Codex more room before compaction. It does not make an old plan current. Before an agent writes, check whether its target, file state and permission still hold.\n\n[Tibo's announcement](https://x.com/thsottiaux/status/2109430343346581527) describes the larger default as a way to reduce compaction and preserve context and nuance. That is useful. It answers a different question from whether the next edit is justified.\n\nWe have not tested Codex at 500K. Here is the practical advice I take from our earlier ContextAdapt work.\n\n**Keep the default until the task gives you a reason**\n\nIf the agent loses a dependency, constraint or earlier decision that still matters, restore that evidence first. Then compare a larger input containing the same evidence and more surrounding material.\n\nFor a local change with clear current state, try more focused input. Reducing active material and lowering the window limit are different changes. Record which you made, and count repeated reads and retries.\n\n**A remembered plan can have expired**\n\nImagine an agent preparing an edit for staging. Before it resumes, the user changes the target and revokes permission. The old plan may remain perfectly preserved in context. It is no longer authorized.\n\nThis is an illustrative scenario. Before writing, check the current target, relevant files and authorization, then refresh conflicting evidence. I explore the problem in [The plan was valid. The world had changed](https://cooleryu.github.io/ContextAdapt/articles/the-plan-was-valid/en/).\n\n**What the evidence-retention result actually says**\n\nIn a separate offline code-evidence benchmark, at a 40% source budget:\n\n- Head-and-tail truncation: 10/30.\n- Lexical retrieval: 18/30.\n- ContextAdapt: 18/30.\n\nContextAdapt tied lexical retrieval at this budget. These were strict evidence-retention results, not successful bug fixes. The files were preselected, and budgets were character estimates.\n\nThe [study](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/) and [result ledger](https://github.com/cooleryu/ContextAdapt/blob/258861ec7e732ff38c587558626b4db432c6b120/evidence/p0-results.md) are public. The underlying per-case data remain in internal experiment records and are not yet public. Include a simple relevance-based baseline before adding a more complicated selector.\n\n**Run a comparison you can learn from**\n\nKeep the task, starting commit, model, tools, permissions and independent acceptance tests fixed. Compare the default input, a targeted evidence addition and a larger input. Repeat each condition.\n\nTrack completed fixes, regressions, unauthorized actions, compactions, repeated reads, tokens across all attempts and elapsed time. Missing telemetry stays unknown. Our [context-length guide](https://cooleryu.github.io/ContextAdapt/guides/choosing-context-length-for-coding-agents/) explains the process.\n\nLess compaction is a process change. Judge the work by what remains true and whether the task passes.\n\n**What this does not establish**\n\n- We have not tested Codex 500K or ranked it against other capacities.\n- Evidence retention does not establish bug-fix success or savings.\n- The staging example illustrates stale authorization; it is not a measured Codex outcome.\n\n[Read the original article with the full results and sources](https://cooleryu.github.io/ContextAdapt/articles/codex-500k-context/).",
+      "evidencePaths": [
+        "sprint-01/evidence/x-500k-published/publication.json"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。"
+    },
+    {
+      "id": "x-500k-quote",
+      "title": "500K gives Codex more room before compaction",
+      "type": "social_post",
+      "language": "en",
+      "status": "published",
+      "publishedAt": "2026-10-14T13:12:04+08:00",
+      "publicUrl": "https://x.com/idkatbro/status/2110237180178415939",
+      "sourcePath": "sprint-01/actions.md",
+      "summary": "已发布的引用转发，连接到英文 500K 快评。",
+      "markdown": "500K gives Codex more room before compaction. Before it writes, the question is: are the target, file state and permission still current?\n\nWe haven't tested Codex 500K. Our take:\nhttps://cooleryu.github.io/ContextAdapt/articles/codex-500k-context/",
+      "evidencePaths": [
+        "sprint-01/evidence/x-500k-published/publication.json"
+      ],
+      "publicationNote": "发布状态来自本地发布记录；本次整理未重新访问线上。"
+    }
+  ],
+  "questions": [
+    {
+      "id": "l1-01",
+      "tier": "L1",
+      "language": "en",
+      "query": "ContextAdapt",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:21.931Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "CONTEXTADAPT: EVALUATING CONTEXTUAL ADAPTATION AND VALUE ALIGNMENT IN LLMs",
+          "url": "https://browse-export.arxiv.org/pdf/2609.38260#5#1",
+          "domain": "browse-export.arxiv.org",
+          "isHomonym": true,
+          "rerankScore": 1.687633991241455
+        },
+        {
+          "position": 2,
+          "title": "ContextAdapt: Evaluating Contextual Adaptation and Value Alignment in LLMs",
+          "url": "https://paper.dou.ac/p/2609.38260v1",
+          "domain": "paper.dou.ac",
+          "isHomonym": true,
+          "rerankScore": 1.3048746585845947
+        },
+        {
+          "position": 3,
+          "title": "ContextAdapter",
+          "url": "https://docs.orloj.dev/reference/resources/context-adapter#how-it-works",
+          "domain": "docs.orloj.dev",
+          "isHomonym": false,
+          "rerankScore": 1.289576292037964
+        }
+      ],
+      "homonymCount": 3,
+      "maxRerankScore": 1.687633991241455,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l1-01.json",
+      "matchingAssetIds": [
+        "site-home"
+      ]
+    },
+    {
+      "id": "l1-02",
+      "tier": "L1",
+      "language": "en",
+      "query": "ContextAdapt GitHub",
+      "resultCount": 42,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:22.603Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "CONTEXTADAPT: EVALUATING CONTEXTUAL ADAPTATION AND VALUE ALIGNMENT IN LLMs",
+          "url": "https://browse-export.arxiv.org/pdf/2609.38260#5#1",
+          "domain": "browse-export.arxiv.org",
+          "isHomonym": true,
+          "rerankScore": 0.8275619149208069
+        },
+        {
+          "position": 2,
+          "title": "ContextAdapt: Evaluating Contextual Adaptation and Value Alignment in LLMs",
+          "url": "https://paper.dou.ac/p/2609.38260v1",
+          "domain": "paper.dou.ac",
+          "isHomonym": true,
+          "rerankScore": 0.6518874168395996
+        },
+        {
+          "position": 3,
+          "title": "ContextAdapt: Evaluating Contextual Adaptation and Value Alignment in LLMs",
+          "url": "https://papers.cool/arxiv/2609.38260",
+          "domain": "papers.cool",
+          "isHomonym": true,
+          "rerankScore": 0.5509984493255615
+        }
+      ],
+      "homonymCount": 3,
+      "maxRerankScore": 0.8275619149208069,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l1-02.json",
+      "matchingAssetIds": [
+        "site-home"
+      ]
+    },
+    {
+      "id": "l1-03",
+      "tier": "L1",
+      "language": "en",
+      "query": "cooleryu ContextAdapt",
+      "resultCount": 13,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:23.195Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "v3.3.0 - AI-Cultivation/cultivation-world-simulator",
+          "url": "https://mygit.top/release/317894015",
+          "domain": "mygit.top",
+          "isHomonym": false,
+          "rerankScore": 0.309916615486145
+        },
+        {
+          "position": 2,
+          "title": "可以边练打字边记单词的一个网站，练习肌肉记忆的同时还可以学习",
+          "url": "https://www.hrdmv.com/archiver/?tid-18580.html",
+          "domain": "www.hrdmv.com",
+          "isHomonym": false,
+          "rerankScore": 0.3061675727367401
+        },
+        {
+          "position": 3,
+          "title": "闪电联盟软件论坛",
+          "url": "http://bbs2.sdbeta.com/m/index.php?a=read&tid=590874",
+          "domain": "bbs2.sdbeta.com",
+          "isHomonym": false,
+          "rerankScore": 0.26171875
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 0.309916615486145,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l1-03.json",
+      "matchingAssetIds": [
+        "site-home"
+      ]
+    },
+    {
+      "id": "l1-04",
+      "tier": "L1",
+      "language": "zh-CN",
+      "query": "ContextAdapt 上下文",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:23.905Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "CONTEXTADAPT: EVALUATING CONTEXTUAL ADAPTATION AND VALUE ALIGNMENT IN LLMs",
+          "url": "https://browse-export.arxiv.org/pdf/2609.38260#5#1",
+          "domain": "browse-export.arxiv.org",
+          "isHomonym": true,
+          "rerankScore": 1.4449070692062378
+        },
+        {
+          "position": 2,
+          "title": "通过上下文，您可以为适配器API实现诸如超时控制等功能",
+          "url": "https://casbin.org/pdf/Casbin_Docs_zh.pdf#23#11",
+          "domain": "casbin.org",
+          "isHomonym": false,
+          "rerankScore": 1.274011731147766
+        },
+        {
+          "position": 3,
+          "title": "In 5.1.1 war aber auch klargemacht worden, dass die Kalibrierung als Kontextadaption in einigen Fällen durchaus wieder Interpret...",
+          "url": "https://mediatum.ub.tum.de/download/601764/601764.pdf#41#21",
+          "domain": "mediatum.ub.tum.de",
+          "isHomonym": false,
+          "rerankScore": 1.2109375
+        }
+      ],
+      "homonymCount": 3,
+      "maxRerankScore": 1.4449070692062378,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l1-04.json",
+      "matchingAssetIds": [
+        "site-home"
+      ]
+    },
+    {
+      "id": "l2-zh01",
+      "tier": "L2",
+      "language": "zh-CN",
+      "query": "Codex 默认上下文升到 500K 还需要手动配置吗",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:24.684Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "OpenAI宣布GPT-6.1 Sol默认上下文长度从272k提升至500k - OpenAI宣布GPT-6.1 Sol默认上下文长度从272k提升至500k",
+          "url": "https://www.163.com/dy/article/L91D7U9B0511B8LM.html?clickfrom=w_tech#1",
+          "domain": "www.163.com",
+          "isHomonym": false,
+          "rerankScore": 2.4781924191250857
+        },
+        {
+          "position": 2,
+          "title": "GPT-6.1 Sol：Codex 的默认上下文现在为 500,000",
+          "url": "https://www.orcarouter.ai/zh-CN/blog/gpt-6-1-sol-500k-default-context",
+          "domain": "www.orcarouter.ai",
+          "isHomonym": false,
+          "rerankScore": 2.373849441603729
+        },
+        {
+          "position": 3,
+          "title": "OpenAI 宣布 GPT-6.1 Sol 默认上下文长度从 272k 提升至 500k，增加约 80%",
+          "url": "https://www.ithome.com/1/011/736.htm",
+          "domain": "www.ithome.com",
+          "isHomonym": false,
+          "rerankScore": 2.321677952843051
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 2.4781924191250857,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l2-zh01.json",
+      "matchingAssetIds": [
+        "codex-500k-context-zh-CN",
+        "codex-500k-context-en"
+      ]
+    },
+    {
+      "id": "l2-zh02",
+      "tier": "L2",
+      "language": "zh-CN",
+      "query": "Codex 500K 和 1M 上下文怎么选",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:25.423Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "OpenAI宣布GPT-6.1 Sol默认上下文长度从272k提升至500k - OpenAI宣布GPT-6.1 Sol默认上下文长度从272k提升至500k",
+          "url": "https://www.163.com/dy/article/L91D7U9B0511B8LM.html?clickfrom=w_tech#1",
+          "domain": "www.163.com",
+          "isHomonym": false,
+          "rerankScore": 2.070382833480835
+        },
+        {
+          "position": 2,
+          "title": "GitHub - Kaixxrua/excel-codex-bridge: 防降智插件(已失效) 交流群:966195257 · GitHub - `gpt-6-luna` | `gpt-6-luna-1m-excel` | `gpt-6-luna`",
+          "url": "https://github.com/Kaixxrua/excel-codex-bridge#2",
+          "domain": "github.com",
+          "isHomonym": false,
+          "rerankScore": 1.9565070867538452
+        },
+        {
+          "position": 3,
+          "title": "OpenAI 宣布 GPT-6.1 Sol 默认上下文长度从 272k 提升至 500k",
+          "url": "https://www.sohu.com/a/1086537626_100106801?scm=10001.7746_13-119000.0.0-0-0-0-0.0&spm=smpc.channel_354.block3_32_P7Ovbu_1_fd.15.1791767642285wqDykiF_7746",
+          "domain": "www.sohu.com",
+          "isHomonym": false,
+          "rerankScore": 1.827447772026062
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 2.070382833480835,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l2-zh02.json",
+      "matchingAssetIds": [
+        "codex-500k-context-zh-CN",
+        "codex-500k-context-en"
+      ]
+    },
+    {
+      "id": "l2-zh03",
+      "tier": "L2",
+      "language": "zh-CN",
+      "query": "Codex 默认 500K 为什么还显示 258K",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:26.141Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "GPT-5.6 Sol 到底是 1.05M 还是 258K？Codex 上下文差异终于搞清楚了",
+          "url": "https://cloud.tencent.com.cn/developer/article/2728426#1",
+          "domain": "cloud.tencent.com.cn",
+          "isHomonym": false,
+          "rerankScore": 2.132854461669922
+        },
+        {
+          "position": 2,
+          "title": "fix(codex): raise GPT-6.1 Sol generated context default to 500k by Larry-Labs · Pull Request #8033 · Wei-Shaw/sub2api",
+          "url": "https://github.com/Wei-Shaw/sub2api/pull/8033",
+          "domain": "github.com",
+          "isHomonym": false,
+          "rerankScore": 2.12625424722443
+        },
+        {
+          "position": 3,
+          "title": "[Bug]: 上下文长度显示错误 · Issue #751 · BigPizzaV3/CodexPlusPlus",
+          "url": "https://github.com/BigPizzaV3/CodexPlusPlus/issues/751",
+          "domain": "github.com",
+          "isHomonym": false,
+          "rerankScore": 2.085979461669922
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 2.132854461669922,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l2-zh03.json",
+      "matchingAssetIds": [
+        "codex-258k-context-zh-CN",
+        "codex-258k-context-en"
+      ]
+    },
+    {
+      "id": "l2-zh04",
+      "tier": "L2",
+      "language": "zh-CN",
+      "query": "Codex 500K 上下文会减少自动压缩 compaction 吗",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:26.885Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "OpenAI宣布GPT-6.1 Sol默认上下文长度从272k提升至500k - OpenAI宣布GPT-6.1 Sol默认上下文长度从272k提升至500k",
+          "url": "https://www.163.com/dy/article/L91D7U9B0511B8LM.html?clickfrom=w_tech#1",
+          "domain": "www.163.com",
+          "isHomonym": false,
+          "rerankScore": 2.257854461669922
+        },
+        {
+          "position": 2,
+          "title": "OpenAI 宣布 GPT-6.1 Sol 默认上下文长度从 272k 提升至 500k",
+          "url": "https://www.sohu.com/a/1086537626_100106801?scm=10001.7746_13-119000.0.0-0-0-0-0.0&spm=smpc.channel_354.block3_32_P7Ovbu_1_fd.15.1791767642285wqDykiF_7746",
+          "domain": "www.sohu.com",
+          "isHomonym": false,
+          "rerankScore": 2.148479461669922
+        },
+        {
+          "position": 3,
+          "title": "Premature auto-compaction and incorrect token trigger counts by the auto-compaction flow · Issue #54825 · openai/codex",
+          "url": "https://github.com/openai/codex/issues/54825",
+          "domain": "github.com",
+          "isHomonym": false,
+          "rerankScore": 1.8881815671920776
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 2.257854461669922,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l2-zh04.json",
+      "matchingAssetIds": [
+        "codex-500k-context-zh-CN",
+        "codex-500k-context-en"
+      ]
+    },
+    {
+      "id": "l2-zh05",
+      "tier": "L2",
+      "language": "zh-CN",
+      "query": "怎么测量 coding agent 实际需要多少上下文",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:27.954Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "ctxfire - ctxfire",
+          "url": "https://pypi.org/project/ctxfire/0.1.3/#1",
+          "domain": "pypi.org",
+          "isHomonym": false,
+          "rerankScore": 2.195354461669922
+        },
+        {
+          "position": 2,
+          "title": "agent-cost-tracker - agent-cost",
+          "url": "https://pypi.org/project/agent-cost-tracker/0.8.0/#files#1",
+          "domain": "pypi.org",
+          "isHomonym": false,
+          "rerankScore": 2.164104461669922
+        },
+        {
+          "position": 3,
+          "title": "tiktoken-context-window - tiktoken-context-window",
+          "url": "https://pypi.org/project/tiktoken-context-window/#1",
+          "domain": "pypi.org",
+          "isHomonym": false,
+          "rerankScore": 2.101604461669922
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 2.195354461669922,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l2-zh05.json",
+      "matchingAssetIds": [
+        "context-length-guide-zh-CN",
+        "context-length-guide-en",
+        "code-context-study"
+      ]
+    },
+    {
+      "id": "l2-en01",
+      "tier": "L2",
+      "language": "en",
+      "query": "Do I need to configure Codex for the new 500K default context window?",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:28.708Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "fix(codex): raise GPT-6.1 Sol generated context default to 500k by Larry-Labs · Pull Request #8033 · Wei-Shaw/sub2api",
+          "url": "https://github.com/Wei-Shaw/sub2api/pull/8033",
+          "domain": "github.com",
+          "isHomonym": false,
+          "rerankScore": 1.9337319135665896
+        },
+        {
+          "position": 2,
+          "title": "openai-codex: GPT-6.1 Sol still uses 272K after Codex default increased to 500K · Issue #10840 · earendil-works/pi",
+          "url": "https://github.com/earendil-works/pi/issues/10840",
+          "domain": "github.com",
+          "isHomonym": false,
+          "rerankScore": 1.4822298288345337
+        },
+        {
+          "position": 3,
+          "title": "500k context length for GPT-6.1 Sol: Day 7 of 28 days of Quality of Life improvements and/or a full Reset - Announcements - OpenAI Developer Community",
+          "url": "https://community.openai.com/t/500k-context-length-for-gpt-6-1-sol-day-7-of-28-days-of-quality-of-life-improvements-and-or-a-full-reset/1403525/42",
+          "domain": "community.openai.com",
+          "isHomonym": false,
+          "rerankScore": 1.4747653007507324
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 1.9337319135665896,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l2-en01.json",
+      "matchingAssetIds": [
+        "codex-500k-context-zh-CN",
+        "codex-500k-context-en"
+      ]
+    },
+    {
+      "id": "l2-en02",
+      "tier": "L2",
+      "language": "en",
+      "query": "Codex 500K vs 1M context window which should I use?",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:29.432Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "GitHub - Kaixxrua/excel-codex-bridge: 防降智插件(已失效) 交流群:966195257 · GitHub - `gpt-6-luna` | `gpt-6-luna-1m-excel` | `gpt-6-luna`",
+          "url": "https://github.com/Kaixxrua/excel-codex-bridge#2",
+          "domain": "github.com",
+          "isHomonym": false,
+          "rerankScore": 1.8578146696090696
+        },
+        {
+          "position": 2,
+          "title": "Codex raises Sol’s default context to 500K tokens",
+          "url": "https://www.ai-primer.com/engineer/stories/sol-500k-default-context",
+          "domain": "www.ai-primer.com",
+          "isHomonym": false,
+          "rerankScore": 1.4747653007507324
+        },
+        {
+          "position": 3,
+          "title": "好家伙 GPT-6.1 Sol默认上下文直接从272k拉到500k 订阅里开1M也不收长上下文附加费了",
+          "url": "http://www.cocoloop.cn/t/topic/22394/9",
+          "domain": "www.cocoloop.cn",
+          "isHomonym": false,
+          "rerankScore": 1.4449070692062378
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 1.8578146696090696,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l2-en02.json",
+      "matchingAssetIds": [
+        "codex-500k-context-zh-CN",
+        "codex-500k-context-en"
+      ]
+    },
+    {
+      "id": "l2-en03",
+      "tier": "L2",
+      "language": "en",
+      "query": "Why does Codex still show 258K after the 500K default context update?",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:30.198Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "GPT-5.6 Sol 到底是 1.05M 还是 258K？Codex 上下文差异终于搞清楚了 - genvis ai 开发者",
+          "url": "https://cloud.tencent.cn/developer/article/2728426?policyId=1003#1",
+          "domain": "cloud.tencent.cn",
+          "isHomonym": false,
+          "rerankScore": 2.085979461669922
+        },
+        {
+          "position": 2,
+          "title": "Codex Desktop local threads ignore ~/.codex/config.toml and stay at model_context_window=258400 · Issue #14133 · openai/codex - Skip to content",
+          "url": "https://github.com/openai/codex/issues/14133?plain=1#1",
+          "domain": "github.com",
+          "isHomonym": false,
+          "rerankScore": 2.070382833480835
+        },
+        {
+          "position": 3,
+          "title": "GPT-5.5 model context length is unstable · Issue #21770 · openai/codex",
+          "url": "https://github.com/openai/codex/issues/21770#1",
+          "domain": "github.com",
+          "isHomonym": false,
+          "rerankScore": 2.040015935897827
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 2.085979461669922,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l2-en03.json",
+      "matchingAssetIds": [
+        "codex-258k-context-zh-CN",
+        "codex-258k-context-en"
+      ]
+    },
+    {
+      "id": "l2-en04",
+      "tier": "L2",
+      "language": "en",
+      "query": "Does a 500K context window reduce Codex compaction?",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:30.909Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "fix(codex): raise GPT-6.1 Sol generated context default to 500k by Larry-Labs · Pull Request #8033 · Wei-Shaw/sub2api",
+          "url": "https://github.com/Wei-Shaw/sub2api/pull/8033",
+          "domain": "github.com",
+          "isHomonym": false,
+          "rerankScore": 1.842631220817566
+        },
+        {
+          "position": 2,
+          "title": "Codex runtime model limits",
+          "url": "https://raw.githubusercontent.com/huggingface/tau/33dbea28a298c204bc95cda46403c24aeb15c799/dev-notes/architecture/codex-runtime-model-limits.md#1",
+          "domain": "raw.githubusercontent.com",
+          "isHomonym": false,
+          "rerankScore": 1.7032105922698977
+        },
+        {
+          "position": 3,
+          "title": "OpenAI 28-Day Sprint Day 7: Sol's default context expanded to 500K, subscription removes long-context surcharge",
+          "url": "https://en.theblockbeats.news/flash/371276",
+          "domain": "en.theblockbeats.news",
+          "isHomonym": false,
+          "rerankScore": 1.5798097848892212
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 1.842631220817566,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l2-en04.json",
+      "matchingAssetIds": [
+        "codex-500k-context-zh-CN",
+        "codex-500k-context-en"
+      ]
+    },
+    {
+      "id": "l2-en05",
+      "tier": "L2",
+      "language": "en",
+      "query": "How can I measure how much context a coding agent actually needs?",
+      "resultCount": 50,
+      "projectHit": false,
+      "rank": null,
+      "aiCited": null,
+      "measurementAt": "2026-10-18T03:13:31.718Z",
+      "provider": "DeepSeek Search API",
+      "topSources": [
+        {
+          "position": 1,
+          "title": "ctxfire - ctxfire",
+          "url": "https://pypi.org/project/ctxfire/0.1.3/#1",
+          "domain": "pypi.org",
+          "isHomonym": false,
+          "rerankScore": 2.132854461669922
+        },
+        {
+          "position": 2,
+          "title": "agent-cost-tracker - agent-cost",
+          "url": "https://pypi.org/project/agent-cost-tracker/0.8.0/#files#1",
+          "domain": "pypi.org",
+          "isHomonym": false,
+          "rerankScore": 2.101604461669922
+        },
+        {
+          "position": 3,
+          "title": "know-cli - know — 3x Fewer Tokens for AI Coding Agents",
+          "url": "https://pypi.org/project/know-cli/0.7.0/#files#1",
+          "domain": "pypi.org",
+          "isHomonym": false,
+          "rerankScore": 2.085979461669922
+        }
+      ],
+      "homonymCount": 0,
+      "maxRerankScore": 2.132854461669922,
+      "evidencePath": "sprint-01/evidence/deepseek-search-2026-10-18/raw/l2-en05.json",
+      "matchingAssetIds": [
+        "context-length-guide-zh-CN",
+        "context-length-guide-en",
+        "code-context-study"
+      ]
+    }
+  ],
+  "observations": [
+    {
+      "id": "deepseek-2026-10-18",
+      "measurementAt": "2026-10-18T03:13:21.931Z",
+      "measurementCompletedAt": "2026-10-18T03:13:31.718Z",
+      "provider": "DeepSeek Search API",
+      "comparableGroup": "deepseek-search-v1-count50-fixed14",
+      "queryCount": 14,
+      "hitCount": 0,
+      "resultCount": 655,
+      "rank": null,
+      "aiCited": null,
+      "sourcePath": "sprint-01/evidence/deepseek-search-2026-10-18/summary.json",
+      "querySetVersion": "2026-10-12-sprint01-v1",
+      "conditions": {
+        "endpoint": "https://api.deepseek.com/v1/tools/search",
+        "count": 50,
+        "need_content": false,
+        "one_exact_query_per_call": true,
+        "samples_per_query": 1,
+        "calls_planned": 14,
+        "sequential": true,
+        "min_gap_seconds": 0.25,
+        "retry_policy": "3 attempts on 429/5xx only; other 4xx preserved",
+        "login_actions_performed": false,
+        "comparable_to_2026_10_12_baseline": false,
+        "comparability_note": "Different search surface and different parameters than the 2026-10-12 baseline (undisclosed web__run.search_query). This run is the D0 baseline for the DeepSeek Search API surface and must not be read as a D+n remeasurement of that earlier tool."
+      },
+      "comparabilityNote": "这是 DeepSeek 入口 D0；目前没有同入口后续数据。不能与 10-12 旧工具计算趋势。",
+      "tierResults": [
+        {
+          "tier": "L1",
+          "queryCount": 4,
+          "hitCount": 0
+        },
+        {
+          "tier": "L2",
+          "queryCount": 10,
+          "hitCount": 0
+        }
+      ]
+    },
+    {
+      "id": "web-tool-2026-10-12",
+      "measurementAt": "2026-10-12T13:06:18Z",
+      "measurementCompletedAt": "2026-10-12T13:06:39Z",
+      "provider": "web__run.search_query（底层引擎未披露）",
+      "comparableGroup": "web-search-tool-2026-10-12",
+      "queryCount": 14,
+      "hitCount": 4,
+      "resultCount": 324,
+      "rank": null,
+      "aiCited": null,
+      "sourcePath": "sprint-01/baseline.json",
+      "querySetVersion": "2026-10-12-sprint01-v1",
+      "comparabilityNote": "不同入口与参数，单列历史参考，不计算趋势。4 次命中均为仓库链接，不是站点或 AI 引用。",
+      "tierResults": [
+        {
+          "tier": "L1",
+          "queryCount": 4,
+          "hitCount": 4
+        },
+        {
+          "tier": "L2",
+          "queryCount": 10,
+          "hitCount": 0
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "no-returns",
+      "title": "14 条固定问题，本次均未返回项目",
+      "detail": "2026-10-18 DeepSeek Search API 成功执行 14 题，共返回 655 条结果，项目域名和仓库命中 0/14。这只说明本次返回中未出现项目，无法确定内部索引状态。",
+      "kind": "observation",
+      "evidencePaths": [
+        "sprint-01/evidence/deepseek-search-2026-10-18/summary.json"
+      ]
+    },
+    {
+      "id": "homonym",
+      "title": "3 条品牌问题的首位是同名论文",
+      "detail": "4 条 L1 品牌问题中，3 条首位为 arXiv:2609.38260。作者 Olivia Macmillan-Scott、Mirco Musolesi 的论文与 cooleryu/ContextAdapt 无关。",
+      "kind": "observation",
+      "evidencePaths": [
+        "sprint-01/evidence/deepseek-search-2026-10-18/summary.json",
+        "sprint-01/baseline.json"
+      ]
+    },
+    {
+      "id": "content-exists",
+      "title": "相关答案已经写好并发布",
+      "detail": "已有 9 个文章/指南页面，其中 6 页于 10-14 / 10-15 发布。258K / 500K 解答直接覆盖固定题中的问题，先利用现有内容，不需要重复写一轮相同主题。",
+      "kind": "observation",
+      "evidencePaths": [
+        "publish/RELEASE-2026-10-14.md",
+        "sprint-01/evidence/task-08b/publication.json",
+        "publish/SITE-PLAN.md"
+      ]
+    },
+    {
+      "id": "crawl-separate",
+      "title": "抓取失败和站点故障要分开",
+      "detail": "10-18 DeepSeek Fetch 对项目首页与研究文章返回 404；同轮记录中直连两页为 200。这不能据此认定站点宕机，失败原因也尚未确定。",
+      "kind": "observation",
+      "evidencePaths": [
+        "sprint-01/evidence/deepseek-search-2026-10-18/REPORT.md",
+        "sprint-01/evidence/deepseek-search-2026-10-18/diagnostics/diagnostics.json"
+      ]
+    },
+    {
+      "id": "title-done",
+      "title": "首页品牌标题已改过，首屏身份仍可更直白",
+      "detail": "10-14 已将浏览器标题改为 ContextAdapt — AI Agent Reliability Field Notes by cooleryu。当前本地发布副本的 H1 是 Make the context answerable.；可以把项目名、作者和用途放到首屏。后半句为改进建议，尚无效果证据。",
+      "kind": "observation_and_recommendation",
+      "evidencePaths": [
+        "sprint-01/evidence/task-07-title.json",
+        "publish/release-checkout/index.html"
+      ]
+    },
+    {
+      "id": "submission-done",
+      "title": "索引请求已有回执，最终收录仍未知",
+      "detail": "10-14 的 4 页和 10-15 的 2 页均记录了 Google 请求编入索引成功；10-14 Bing sitemap 状态 Success，发现 10 个 URL。请求接受和 sitemap 可读都不等于最终收录或排名改善。",
+      "kind": "observation",
+      "evidencePaths": [
+        "sprint-01/actions.md",
+        "sprint-01/evidence/task-08b/publication.json",
+        "sprint-01/evidence/task-07/bing.json"
+      ]
+    },
+    {
+      "id": "need-same-surface",
+      "title": "需要第二个同入口时间点才能看变化",
+      "detail": "10-12 使用另一个未披露底层引擎的工具，品牌题 4/4 命中仓库；10-18 DeepSeek 为 0/4。两个数字不能相减。当前没有同入口、同参数的改进后观测。",
+      "kind": "observation",
+      "evidencePaths": [
+        "sprint-01/baseline.json",
+        "sprint-01/evidence/deepseek-search-2026-10-18/summary.json"
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "id": "entity",
+      "title": "项目身份辨认",
+      "status": "actionable",
+      "description": "首页首屏可明确项目名、作者与用途，减少同名混淆。",
+      "relatedFindingId": "homonym",
+      "proposedTaskId": "clarify-contextadapt-home"
+    },
+    {
+      "id": "daily-series",
+      "title": "同入口连续观察",
+      "status": "missing_data",
+      "description": "DeepSeek 仅有 10-18 一个时间点，尚无改进后同条件观测。",
+      "relatedFindingId": "need-same-surface"
+    },
+    {
+      "id": "citations",
+      "title": "AI 回答中的实际引用",
+      "status": "not_tested",
+      "description": "尚未测试真实 AI 回答引用，不能显示为 0。"
+    },
+    {
+      "id": "index",
+      "title": "Google / Bing 最终收录与排名",
+      "status": "not_verified",
+      "description": "已有请求回执和 sitemap 读取记录，但最终收录、排名未知。"
+    },
+    {
+      "id": "conversion",
+      "title": "真实访问与转化",
+      "status": "not_measured",
+      "description": "尚无真实引荐、访问或转化数据。"
+    }
+  ],
+  "proposal": {
+    "id": "clarify-contextadapt-home",
+    "title": "把项目身份和已有答案放到首页第一屏",
+    "status": "draft",
+    "rationale": "品牌搜索出现同名论文，现有首页 title 已改好，但首屏标语没有直接说明项目名与作者。集中调整首屏，让访问者先辨认项目，再进入已有答案；能否影响搜索返回，需要后续观察。",
+    "targetAssetId": "site-home",
+    "targetUrl": "https://cooleryu.github.io/ContextAdapt/",
+    "targetSourcePath": "publish/release-checkout/index.html",
+    "before": "# Make the context answerable.\n\nI study the moment an AI agent turns context into action: what evidence survived, what it actually used, and whether that evidence is still current before a tool touches the world.\n\nRead the first note · Explore ContextAdapt",
+    "after": "# ContextAdapt: evidence for the next coding-agent action\n\nContextAdapt is an open-source project by cooleryu. We study how coding agents can retain action-critical evidence and check current goals, file state, and permission before taking an action.\n\nStart with a question:\n\n- [Why does Codex show 258K?](https://cooleryu.github.io/ContextAdapt/articles/codex-258k-context/) · [中文解答](https://cooleryu.github.io/ContextAdapt/articles/codex-258k-context/zh-CN/)\n- [How should I choose context length?](https://cooleryu.github.io/ContextAdapt/guides/choosing-context-length-for-coding-agents/) · [中文指南](https://cooleryu.github.io/ContextAdapt/guides/choosing-context-length-for-coding-agents/zh-CN/)\n- [What has the project actually measured?](https://cooleryu.github.io/ContextAdapt/articles/how-much-code-context-does-an-ai-agent-need/)\n\n[Source code: cooleryu/ContextAdapt](https://github.com/cooleryu/ContextAdapt)\n\nOur published study measures code-evidence retention. It does not prove improved bug-fix success or reduced real provider costs.",
+    "changes": [
+      {
+        "id": "hero",
+        "title": "明确项目名、作者与用途",
+        "detail": "将首屏 H1 和导语替换为审阅稿，明确这是 cooleryu 的 coding-agent 开源项目。"
+      },
+      {
+        "id": "entry",
+        "title": "把现成答案作为第一屏入口",
+        "detail": "提供 258K 解答、上下文长度指南和研究证据的直达链接，不重复创作已有主题。"
+      },
+      {
+        "id": "boundary",
+        "title": "保留证据适用范围",
+        "detail": "说明已发表研究测量的是代码证据保留，不宣传未经验证的修复成功率或费用节省。"
+      }
+    ],
+    "evidencePaths": [
+      "publish/release-checkout/index.html",
+      "sprint-01/evidence/deepseek-search-2026-10-18/summary.json",
+      "publish/RELEASE-2026-10-14.md",
+      "sprint-01/evidence/task-08b/publication.json"
+    ],
+    "successCriteria": [
+      "实施记录包含实际修改内容、公开 URL 和实施时间。",
+      "同一 DeepSeek 入口、14 条固定问题、count=50、need_content=false，每天最多观察一次。",
+      "若品牌题首次出现目标仓库或站点，记录对应来源位置；连续两次出现再标记为可重复变化。",
+      "7 天内没有变化，回顾抓取与发现路径；不自动追加更多改稿。"
+    ],
+    "limitations": [
+      "这是一项可审阅草稿，尚未修改源项目、发布或提交。",
+      "首页更清晰是内容改进假设，不保证收录、排名或引用。",
+      "前后变化仅为相关观察，不能单独证明由这项修改造成。",
+      "搜索结果位置不等同于 Google/Bing 排名。"
+    ],
+    "requiresExternalPublicationApproval": true
+  },
+  "monitoringPlan": {
+    "provider": "DeepSeek Search API",
+    "comparableGroup": "deepseek-search-v1-count50-fixed14",
+    "baselineObservationId": "deepseek-2026-10-18",
+    "queryIds": [
+      "l1-01",
+      "l1-02",
+      "l1-03",
+      "l1-04",
+      "l2-zh01",
+      "l2-zh02",
+      "l2-zh03",
+      "l2-zh04",
+      "l2-zh05",
+      "l2-en01",
+      "l2-en02",
+      "l2-en03",
+      "l2-en04",
+      "l2-en05"
+    ],
+    "schedule": {
+      "frequency": "daily",
+      "timezone": "Asia/Shanghai",
+      "time": "09:00",
+      "durationDays": 7
+    },
+    "conditions": {
+      "count": 50,
+      "need_content": false,
+      "samplesPerQuery": 1
+    },
+    "estimatedCostCnyPerRun": 0.07,
+    "status": "not_scheduled",
+    "note": "这里只定义监控计划；数据整理未启动收费请求或创建外部自动化。真实复测需按当前授权与费用设置执行。",
+    "noDataLabel": "尚无新观测",
+    "successLabel": "检测到可重复变化",
+    "failureLabel": "本次未完成，保留上一条真实观测",
+    "dryRunCommand": "python3 sprint-01/tools/remeasure_deepseek_search.py --dry-run",
+    "toolPath": "sprint-01/tools/remeasure_deepseek_search.py"
+  },
+  "boundaries": [
+    "全部资料来自当前工作区，整理时未执行外部请求。",
+    "9 个文章/指南页面按语言分别计数；另列首页和 2 项 X 内容，共 12 项已产出资产。",
+    "已发布是历史发布记录的确认，不代表本次重新访问了线上。",
+    "DeepSeek 0/14 只说明本次返回未命中，不证明任何引擎内部没有收录。",
+    "10-12 与 10-18 的入口不同，禁止连线成趋势或计算升降。",
+    "AI 实际引用、Google/Bing 搜索排名保持 null / 未测。",
+    "第三方来源只保留标题、链接与返回位置，不复制原始搜索长文。",
+    "原 REPORT.md 有“索引里没有它”的过度推断；本产品数据依据可观测事实收窄结论，不改历史证据。",
+    "后续每日数据尚未发生，不伪造效果、趋势或实施状态。"
+  ]
+}

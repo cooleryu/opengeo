@@ -30,13 +30,42 @@ These are the content we want to evaluate, not evidence that GEO has worked.
 
 ## Current status
 
-Early-stage project setup. The first topic-discovery Skill and scenario-routing specification are available:
+OpenGEO now includes a local application for the ContextAdapt case study. It connects an approved question set, saved search evidence, diagnosis, draft review, implementation records, and follow-up measurements.
+
+The two feedback loops are:
+
+- **Draft quality:** revise from review findings and review the complete candidate again. Stop when the target is reached, quality stops improving, or three rounds are used. An edited candidate must be reviewed again before acceptance.
+- **Observed outcomes:** compare complete, compatible live measurements before and after a user-confirmed implementation. Save the result as a strategy experience and supply the latest relevant experience to the next diagnosis and recommendation. Historical replay does not count as a new outcome, and an observed change does not establish causation.
+
+Automated search currently uses DeepSeek Search API. ChatGPT, Google, and Gemini entries are saved observations, not automatic collectors for those products. Search and model calls are separate operations and may both incur charges; follow-up collection is off until explicitly enabled.
+
+**Live validation on 2026-10-22 passed:** two real DeepSeek searches returned successfully, followed by model diagnosis, a candidate edit, independent review, and a complete review after a deliberate text edit. Initial and edited-candidate review scores were 82.3 and 82.5. No content was published and no post-implementation effect was measured. See the [bounded live validation report](docs/validation/2026-10-22-live-workflow.md).
+
+## Run the local application
+
+```sh
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+Open http://127.0.0.1:4327 . See [OPENGEO.md](OPENGEO.md) for configuration and the workflow. Keep API keys in the local configuration; do not commit them.
+
+The bundled sample contains the project's published content and saved measurement metadata. Full historical evidence is kept in the original local GEO workspace and is not distributed with this repository. Missing evidence is shown as unavailable rather than reconstructed. Set `GEO_WORKSPACE` to that workspace if it is available; new live evidence is saved in the ignored local `data/geo-evidence/` directory.
+
+## Topic-discovery instructions
+
+The existing Skill and scenario-routing specification remain available:
 
 - [Repository topic-discovery Skill](skills/repository-topic-discovery/SKILL.md): start from one GitHub repository, investigate its actual capabilities and existing contributions, and propose questions with traceable evidence.
 - [Scenario-routing specification](skills/SCENARIOS.md): select an investigation approach for repositories, commerce, company services, or personal content. Only the repository Skill is currently documented.
 
-These are workflow instructions, not an integrated application or a proven ranking method. The Skill has passed a format check and a small offline simulation; a real-repository workflow has not yet been validated with this version.
+The Skill is a separate set of workflow instructions. Its earlier format check and offline simulation do not validate a real-repository run of the Skill or establish a ranking method.
 
-Next: run the Skill on a real repository, review its proposed questions, then connect the validated workflow to search measurements. We will remove private information and check third-party permissions before sharing experiment records.
+## Foundation and attribution
+
+The application extends [Vane](https://github.com/ItzCrazyKns/Vane) with the OpenGEO workflow. Vane's existing model adapters, Next.js application, SQLite storage, and related functionality are retained. The upstream [MIT license and copyright notice](LICENSE) are preserved.
+
+The workflow also draws on a source review of [GEOFlow](https://github.com/yaojingang/GEOFlow); its quality and observation concepts were implemented independently in this application.
 
 Maintained by [cooleryu](https://github.com/cooleryu).
