@@ -1,0 +1,140 @@
+{
+  "type": "object",
+  "properties": {
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "line": {
+            "type": "string",
+            "enum": [
+              "capability",
+              "contribution",
+              "brand"
+            ]
+          },
+          "trigger_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "original",
+              "rewrite",
+              "inferred"
+            ]
+          },
+          "original_need": {
+            "type": "object",
+            "properties": {
+              "need_id": {
+                "type": "string"
+              },
+              "intent_change": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "scope",
+                  "audience",
+                  "goal"
+                ]
+              },
+              "explanation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "need_id",
+              "intent_change",
+              "explanation"
+            ],
+            "additionalProperties": false
+          },
+          "answer_fit": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "tool",
+                  "explanation",
+                  "instructions",
+                  "comparison",
+                  "reference"
+                ]
+              },
+              "target_url": {
+                "type": "string"
+              },
+              "helps_with": {
+                "type": "string"
+              },
+              "unmet": {
+                "type": "string"
+              },
+              "assessment": {
+                "type": "string",
+                "enum": [
+                  "satisfies",
+                  "partial",
+                  "mismatch",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "target_url",
+              "helps_with",
+              "unmet",
+              "assessment"
+            ],
+            "additionalProperties": false
+          },
+          "priority_reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "query",
+          "line",
+          "trigger_ids",
+          "source_ids",
+          "origin",
+          "original_need",
+          "answer_fit",
+          "priority_reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "excluded_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "candidates",
+    "excluded_notes"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,324 @@
+.qm-search-workspace {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #63636d;
+}
+.qm-search-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+.qm-search-workspace > .qm-note {
+  margin: 8px 0 0;
+}
+.qm-search-settings,
+.qm-money-fields,
+.qm-money-amount,
+.qm-exchange-rate,
+.qm-provider-field,
+.qm-tracking-fields,
+.qm-time-field {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.qm-search-settings {
+  gap: 12px;
+}
+.qm-provider-field,
+.qm-money-amount {
+  white-space: nowrap;
+}
+.qm-search-workspace input:not([type='checkbox']),
+.og-app .qm-search-workspace .og-select-button {
+  height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #dedee2;
+  border-radius: 5px;
+  color: #242426;
+  background: #fff;
+  font: inherit;
+}
+.og-app .qm-search-workspace .og-select-button {
+  width: auto;
+  min-height: 34px;
+}
+.qm-money-amount input {
+  width: 78px;
+}
+.qm-exchange-rate input {
+  width: 112px;
+}
+.qm-budget-error {
+  color: #ad3737;
+}
+.qm-search-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+  gap: 10px 16px;
+}
+.qm-search-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.qm-search-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid #dedee2;
+  border-radius: 12px;
+  color: #27272a;
+  background: #fff;
+  box-shadow: 0 24px 80px #0002;
+  overflow-y: auto;
+}
+.qm-search-dialog::backdrop {
+  background: #18181b66;
+}
+.qm-search-dialog form {
+  padding: 24px;
+}
+.qm-search-dialog header,
+.qm-search-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.qm-search-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.qm-search-dialog-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: 0;
+  color: #63636d;
+  background: transparent;
+  cursor: pointer;
+}
+.qm-search-confirm-scope {
+  margin: 12px 0;
+  font-size: 13px;
+}
+.qm-search-confirm-questions {
+  color: #63636d;
+  line-height: 1.6;
+}
+.qm-search-confirm-questions summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.qm-search-confirm-questions ol {
+  max-height: 180px;
+  margin: 12px 0 0;
+  padding-left: 20px;
+  overflow-y: auto;
+}
+.qm-search-confirm-questions li + li {
+  margin-top: 8px;
+}
+.qm-search-confirm-budget {
+  padding-top: 15px;
+}
+.qm-search-budget-setting {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #ececf0;
+}
+.qm-budget-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: #27272a;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.qm-budget-toggle:focus-visible {
+  outline: 2px solid #519681;
+  outline-offset: 5px;
+}
+.qm-budget-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 20px;
+  background: #d6d9dc;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.qm-budget-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px #0002;
+  transition: transform 0.15s;
+}
+.qm-budget-toggle[aria-checked='true'] .qm-budget-switch {
+  background: #428975;
+}
+.qm-budget-toggle[aria-checked='true'] .qm-budget-switch::after {
+  transform: translateX(14px);
+}
+.qm-budget-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .qm-budget-switch,
+  .qm-budget-switch::after {
+    transition: none;
+  }
+}
+.qm-search-confirm-budget .qm-budget-error {
+  margin-bottom: 0;
+}
+.qm-search-confirm-note {
+  margin: 12px 0 0;
+  color: #63636d;
+  line-height: 1.7;
+}
+.qm-search-dialog footer {
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+.qm-tracking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.qm-tracking-settings {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #dedee2;
+  border-radius: 8px;
+  background: #fafafa;
+}
+.qm-tracking-settings > header,
+.qm-tracking-plans > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.qm-tracking-settings strong,
+.qm-tracking-plans strong {
+  color: #27272a;
+  font-size: 13px;
+  font-weight: 600;
+}
+.qm-tracking-settings > header button,
+.qm-plan-refresh {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+  color: #63636d;
+}
+.qm-tracking-scope {
+  margin: 12px 0;
+}
+.qm-tracking-fields {
+  gap: 16px;
+}
+.qm-tracking-save {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+.qm-paid-consent {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1.6;
+}
+.qm-paid-consent input {
+  accent-color: #242426;
+}
+.qm-tracking-settings > .qm-note {
+  margin: 8px 0 0;
+}
+.qm-tracking-notice {
+  color: #18765c;
+  margin: 12px 0 0;
+}
+.qm-tracking-plans {
+  margin-top: 20px;
+}
+.qm-tracking-plans > header {
+  margin-bottom: 9px;
+}
+.qm-tracking-table summary {
+  cursor: pointer;
+}
+.qm-tracking-table td {
+  font-size: 12px;
+}
+.qm-tracking-table td:first-child {
+  min-width: 170px;
+}
+.qm-tracking-table ol {
+  margin: 10px 0;
+  padding-left: 20px;
+  min-width: 230px;
+  max-width: 420px;
+  line-height: 1.7;
+}
+.qm-plan-error {
+  margin-top: 5px;
+  color: #ad3737;
+}
+.qm-plan-error p {
+  max-width: 300px;
+  white-space: normal;
+  line-height: 1.6;
+}
+.qm-tracking-table .qm-note {
+  margin-top: 4px;
+}
+@media (max-width: 700px) {
+  .qm-search-dialog form {
+    padding: 20px;
+  }
+  .qm-tracking-toggle {
+    margin-left: 0;
+  }
+  .qm-search-settings,
+  .qm-tracking-fields {
+    align-items: flex-start;
+  }
+  .qm-search-actions {
+    gap: 10px;
+    flex-basis: 100%;
+  }
+  .qm-search-action {
+    flex-wrap: wrap;
+  }
+}

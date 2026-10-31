@@ -69,8 +69,9 @@ const ModelSelect = ({
           </p>
         </div>
         <Select
+          label={type === 'chat' ? 'Chat model' : 'Embedding model'}
           value={selectedModel}
-          onChange={(event) => handleSave(event.target.value)}
+          onChange={handleSave}
           options={
             type === 'chat'
               ? providers.flatMap((provider) =>

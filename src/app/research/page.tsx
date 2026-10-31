@@ -1,2 +1,5 @@
-import ChatWindow from '@/components/ChatWindow';
-export default function ResearchPage() { return <ChatWindow />; }
+import { redirect } from 'next/navigation';
+
+export default function ResearchPage() {
+  redirect('/?view=settings');
+}

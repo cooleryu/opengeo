@@ -1,0 +1,36 @@
+{
+  "project": {
+    "id": "example-project",
+    "name": "示例项目",
+    "description": "用于演示界面的占位项目，不代表真实产品、文章或搜索结果。",
+    "siteUrl": "https://example.com/example-project",
+    "repositoryUrl": "https://example.com/repositories/example-project",
+    "owner": "example",
+    "asOf": "2026-10-31"
+  },
+  "assets": [],
+  "questions": [],
+  "observations": [],
+  "findings": [],
+  "gaps": [],
+  "proposal": {
+    "id": "example-project-unreviewed",
+    "title": "尚无改进方案",
+    "status": "unreviewed",
+    "rationale": "尚未添加项目材料或开展研究。",
+    "targetAssetId": "",
+    "targetUrl": "",
+    "before": "",
+    "after": "",
+    "changes": [],
+    "evidencePaths": [],
+    "successCriteria": [],
+    "limitations": [
+      "示例项目未开展采集、审核或效果验证。"
+    ]
+  },
+  "monitoringPlan": [],
+  "boundaries": [
+    "这是占位示例，未包含真实项目资料、观测、审核或效果记录。"
+  ]
+}

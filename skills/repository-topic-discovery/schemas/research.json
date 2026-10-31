@@ -1,0 +1,244 @@
+{
+  "type": "object",
+  "properties": {
+    "repository_revision": {
+      "type": "string"
+    },
+    "product": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "contributions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "helps_with": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "url",
+              "helps_with"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "name",
+        "summary",
+        "capabilities",
+        "limits",
+        "contributions"
+      ],
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "repository",
+              "content",
+              "demand",
+              "official_event"
+            ]
+          },
+          "access": {
+            "type": "string",
+            "enum": [
+              "full",
+              "partial",
+              "unavailable"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "checked_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "title",
+          "kind",
+          "access",
+          "summary",
+          "checked_at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "triggers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "constraint": {
+            "type": "string"
+          },
+          "desired_outcome": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "source",
+              "user_context",
+              "inference"
+            ]
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "time_status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unverified",
+              "not_applicable"
+            ]
+          },
+          "timing_note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "audience",
+          "event",
+          "constraint",
+          "desired_outcome",
+          "provenance",
+          "source_ids",
+          "time_status",
+          "timing_note"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "needs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "trigger_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requested_help": {
+            "type": "string",
+            "enum": [
+              "tool",
+              "explanation",
+              "instructions",
+              "comparison",
+              "reference"
+            ]
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "inferred",
+              "user_context"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "source_ids",
+          "trigger_ids",
+          "requested_help",
+          "outcome",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "uncertainties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "repository_revision",
+    "product",
+    "sources",
+    "triggers",
+    "needs",
+    "uncertainties"
+  ],
+  "additionalProperties": false
+}

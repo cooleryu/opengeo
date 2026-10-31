@@ -1,0 +1,924 @@
+.og-task-workspace {
+  --task-ink: #242424;
+  --task-muted: #717171;
+  --task-accent: #3d4d43;
+  --task-line: #e7e7e7;
+  color: var(--task-ink);
+  font-size: 13px;
+}
+.og-task-workspace .og-page-heading {
+  margin-bottom: 22px;
+  min-height: 38px;
+}
+.og-b-workspace .og-task-workspace .og-page-heading:not(:has(button)) {
+  display: none;
+}
+.og-task-workspace .og-workspace-subtitle {
+  margin-top: 9px;
+  color: var(--task-muted);
+  font-size: 14px;
+  line-height: 1.8;
+}
+.og-task-workspace .og-workspace-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 4px 0;
+  color: var(--task-muted);
+  font-size: 13px;
+}
+.og-task-workspace .og-workspace-back:hover {
+  color: var(--task-accent);
+}
+.og-task-workspace .og-history-context {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  background: #f7f7f7;
+  border-radius: 6px;
+  color: #686d74;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.og-history-context svg {
+  flex-shrink: 0;
+}
+.og-task-workspace .og-workspace-empty {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: #fff;
+  border: 1px solid var(--task-line);
+  border-radius: 8px;
+  padding: 24px;
+}
+.og-workspace-empty-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 7px;
+  background: #f4f4f4;
+  color: #737373;
+  flex-shrink: 0;
+}
+.og-task-workspace .og-workspace-empty h2 {
+  color: var(--task-ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+.og-task-workspace .og-workspace-empty p {
+  margin-top: 6px;
+  color: var(--task-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.og-workspace-empty > .og-button {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.og-workspace-task-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.og-workspace-task-card {
+  min-width: 0;
+  padding: 25px;
+  border: 1px solid var(--task-line);
+  border-radius: 14px;
+  background: #fff;
+}
+.og-workspace-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--task-muted);
+  font-size: 12px;
+}
+.og-task-workspace .og-workspace-task-card h2 {
+  margin: 18px 0;
+  font-size: 19px;
+  font-weight: 550;
+  line-height: 1.6;
+}
+.og-workspace-task-card h2 button {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  width: 100%;
+  text-align: left;
+}
+.og-workspace-task-card h2 svg {
+  flex-shrink: 0;
+  margin-top: 7px;
+  color: var(--task-accent);
+}
+.og-workspace-task-card dl {
+  display: grid;
+  gap: 16px;
+}
+.og-workspace-task-card dl > div {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 12px;
+}
+.og-workspace-task-card dt {
+  padding-top: 2px;
+  color: var(--task-muted);
+  font-size: 12px;
+}
+.og-workspace-task-card dd {
+  margin: 0;
+  color: #4b4b4b;
+  font-size: 14px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.og-workspace-task-card dd span {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--task-muted);
+}
+.og-workspace-task-card footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding-top: 20px;
+  margin-top: 22px;
+  border-top: 1px solid var(--task-line);
+}
+.og-task-workspace .og-workspace-task-card footer p {
+  color: var(--task-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.og-workspace-task-card footer .og-button {
+  flex-shrink: 0;
+}
+.og-history-list {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--task-line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.og-task-workspace .og-history-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 16px;
+  padding: 14px 18px;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  text-align: left;
+  transition:
+    border-color 150ms,
+    background 150ms;
+  border-bottom: 1px solid var(--task-line);
+  min-height: 70px;
+}
+.og-task-workspace .og-history-row:hover {
+  border-color: #c9d5ce;
+  background: #fafbfa;
+}
+.og-history-icon {
+  width: 28px;
+  height: 30px;
+  border-radius: 5px;
+  background: #f5f5f5;
+  color: #777;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.og-history-copy {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.og-history-copy strong {
+  font-size: 14px;
+  color: var(--task-ink);
+  font-weight: 500;
+  line-height: 1.5;
+}
+.og-history-copy > span,
+.og-history-row time {
+  color: var(--task-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.og-history-row > svg {
+  color: #777;
+  flex-shrink: 0;
+}
+.og-monitor-task-list {
+  display: grid;
+  gap: 24px;
+}
+.og-monitor-task-card {
+  border: 1px solid var(--task-line);
+  border-radius: 15px;
+  background: #fff;
+  padding: 26px;
+  min-width: 0;
+}
+.og-monitor-task-card > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+}
+.og-monitor-task-card > header span {
+  font-size: 12px;
+  color: var(--task-muted);
+}
+.og-task-workspace .og-monitor-task-card h2 {
+  font-size: 19px;
+  font-weight: 550;
+  margin-top: 9px;
+}
+.og-monitor-task-card > footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 25px;
+  margin-top: 21px;
+  border-top: 1px solid var(--task-line);
+  padding-top: 18px;
+  color: var(--task-muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.og-outcome-history {
+  margin-top: 24px;
+  border-top: 1px solid var(--task-line, #e7e7e7);
+  padding-top: 22px;
+}
+.og-outcome-history > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.og-app .og-outcome-history h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 550;
+  color: #343434;
+}
+.og-outcome-history > header > span {
+  color: #727272;
+  font-size: 12px;
+}
+.og-outcome-chart-scroll {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+.og-outcome-chart {
+  width: 100%;
+  height: 230px;
+  display: block;
+}
+.og-outcome-chart line {
+  stroke: #e7e7e7;
+}
+.og-outcome-chart text {
+  fill: #727272;
+  font-size: 11px;
+}
+.og-outcome-chart rect {
+  fill: #72a990;
+}
+.og-outcome-chart .og-outcome-value {
+  fill: #35654c;
+  font-size: 13px;
+  font-weight: 600;
+}
+.og-app .og-outcome-caption {
+  color: #727272;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 8px 0 17px;
+}
+.og-outcome-empty {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 29px 22px;
+  background: #fafafa;
+  border-radius: 12px;
+  margin-top: 16px;
+}
+.og-outcome-empty > svg {
+  color: #7b7b7b;
+  flex-shrink: 0;
+}
+.og-outcome-empty strong {
+  font-size: 15px;
+  font-weight: 500;
+  color: #343434;
+}
+.og-app .og-outcome-empty p {
+  font-size: 13px;
+  color: #727272;
+  line-height: 1.8;
+  margin-top: 6px;
+}
+.og-outcome-runs {
+  margin-top: 18px;
+}
+.og-outcome-questions {
+  padding: 0;
+  list-style: none;
+  margin-top: 16px;
+}
+.og-outcome-questions li {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-top: 1px solid #ededed;
+}
+.og-outcome-questions li > span {
+  flex: 1;
+  font-size: 13px;
+}
+.og-outcome-questions li > strong {
+  font-size: 12px;
+  font-weight: 500;
+  color: #515151;
+  white-space: nowrap;
+}
+.og-task-workspace .og-current-task {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  margin-bottom: 24px;
+}
+.og-task-workspace .og-task-title-row h2 {
+  color: var(--task-ink);
+  font-size: 18px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.og-task-workspace .og-task-object {
+  color: var(--task-muted);
+  font-size: 13px;
+  margin-top: 8px;
+}
+.og-task-workspace .og-stage-tabs {
+  margin-top: 26px;
+  border-bottom: 1px solid var(--task-line);
+  gap: 14px;
+  padding-bottom: 0;
+}
+.og-task-workspace .og-stage-tabs button {
+  padding: 13px 9px 15px;
+  color: var(--task-muted);
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+}
+.og-task-workspace .og-stage-tabs button.active {
+  color: #262626;
+  border-bottom-color: #333;
+  background: transparent;
+}
+.og-task-workspace .og-stage-tabs button > span {
+  background: #f1f1f1;
+  color: #717171;
+}
+.og-task-workspace .og-stage-tabs button.active > span {
+  background: #ececec;
+  color: #3b3b3b;
+}
+.og-task-workspace .og-task-stage {
+  padding: 18px 20px;
+  border: 1px solid var(--task-line);
+  border-radius: 8px;
+  box-shadow: none;
+}
+.og-task-workspace .og-task-stage h2 {
+  color: var(--task-ink);
+  font-size: 18px;
+  font-weight: 550;
+  line-height: 1.5;
+}
+.og-task-workspace .og-muted,
+.og-task-workspace .og-task-footnote {
+  color: var(--task-muted);
+}
+.og-task-workspace .og-task-lead {
+  color: #4d4d4d;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.og-task-workspace .og-review-context {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: 16px 28px;
+  margin: 23px 0;
+  padding: 0 0 22px;
+  border-bottom: 1px solid var(--task-line);
+}
+.og-task-workspace .og-review-context > div {
+  display: block;
+  padding: 0;
+}
+.og-task-workspace .og-review-context > div:last-child {
+  grid-column: 1 / -1;
+}
+.og-task-workspace .og-review-context > div > span {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: var(--task-muted);
+}
+.og-task-workspace .og-review-context p {
+  font-size: 14px;
+  color: #4b4b4b;
+  line-height: 1.8;
+}
+.og-task-workspace .og-review-draft {
+  border: 1px solid var(--task-line);
+  border-radius: 12px;
+}
+.og-task-workspace .og-review-draft > header {
+  background: #fafafa;
+  padding: 12px 16px;
+}
+.og-task-workspace .og-review-draft > header h3 {
+  color: #303030;
+  font-size: 14px;
+  font-weight: 550;
+}
+.og-body-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.og-body-comparison > section {
+  min-width: 0;
+  padding: 20px;
+}
+.og-body-comparison > section + section {
+  border-left: 1px solid var(--task-line);
+  background: #fcfcfc;
+}
+.og-task-workspace .og-body-comparison h4 {
+  color: var(--task-muted);
+  font-size: 12px;
+  font-weight: 500;
+  margin: 0 0 13px;
+}
+.og-task-workspace .og-body-comparison > section + section h4 {
+  color: var(--task-accent);
+}
+.og-task-workspace .og-body-comparison .og-markdown {
+  color: #363636;
+  font-size: 14px;
+  line-height: 1.85;
+  max-height: 430px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.og-body-comparison textarea {
+  width: 100%;
+  min-height: 300px;
+  padding: 13px;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  color: #363636;
+  background: #fff;
+  font-size: 14px;
+  line-height: 1.85;
+  resize: vertical;
+}
+.og-task-workspace .og-review-next {
+  padding: 16px;
+  margin-top: 20px;
+  background: #fafafa;
+  border-radius: 6px;
+}
+.og-task-workspace .og-review-next h3 {
+  font-size: 14px;
+  color: #333;
+}
+.og-task-workspace .og-review-next > p {
+  color: #666;
+  font-size: 13px;
+}
+.og-task-workspace .og-review-next .og-workflow-notice {
+  background: #fff;
+  border-color: #e5e5e5;
+}
+.og-task-workspace .og-review-process {
+  margin-top: 24px;
+  border-color: var(--task-line);
+}
+.og-task-workspace .og-review-process > summary strong {
+  font-size: 14px;
+  color: #555555;
+}
+.og-task-workspace .og-review-process > summary span {
+  color: var(--task-muted);
+}
+.og-task-workspace .og-monitor-summary {
+  border: 1px solid var(--task-line);
+  border-radius: 6px;
+  background: #fafafa;
+}
+.og-task-workspace .og-monitor-summary strong {
+  font-size: 20px;
+  color: #424242;
+}
+.og-task-workspace .og-publish-steps {
+  background: #fafafa;
+  border-color: var(--task-line);
+}
+.og-task-workspace .og-tag.blue {
+  color: #4a5f53;
+  background: #f0f4f1;
+}
+.og-task-workspace .og-tag.neutral {
+  color: #686868;
+  background: #f1f1f1;
+}
+.og-task-workspace .og-button.primary {
+  color: #fff;
+  background: #242424;
+  border-color: #242424;
+  box-shadow: none;
+}
+.og-task-workspace .og-button.primary:hover:not(:disabled) {
+  background: #3b3b3b;
+}
+.og-task-workspace .og-button.secondary {
+  color: #363636;
+  background: #fff;
+  border-color: #e1e1e1;
+}
+.og-task-workspace .og-text-button,
+.og-task-workspace .og-text-link {
+  color: #515151;
+}
+.og-task-workspace :is(button, a, textarea):focus-visible {
+  outline: 2px solid #717171;
+  outline-offset: 3px;
+}
+@media (max-width: 1150px) {
+  .og-workspace-task-list {
+    grid-template-columns: 1fr;
+  }
+  .og-task-workspace .og-workspace-empty {
+    flex-wrap: wrap;
+  }
+  .og-workspace-empty > .og-button {
+    margin-left: 72px;
+  }
+}
+@media (max-width: 760px) {
+  .og-task-workspace .og-task-stage {
+    padding: 22px 18px;
+  }
+  .og-task-workspace .og-workspace-empty {
+    padding: 25px;
+    gap: 18px;
+  }
+  .og-workspace-empty > .og-button {
+    margin-left: 0;
+  }
+  .og-task-workspace .og-history-row {
+    gap: 13px;
+    padding: 21px 18px;
+  }
+  .og-history-icon {
+    display: none;
+  }
+  .og-history-row time {
+    display: none;
+  }
+  .og-history-copy strong {
+    font-size: 15px;
+  }
+  .og-task-workspace .og-review-context {
+    grid-template-columns: 1fr;
+  }
+  .og-body-comparison {
+    grid-template-columns: 1fr;
+  }
+  .og-body-comparison > section + section {
+    border-left: 0;
+    border-top: 1px solid var(--task-line);
+  }
+  .og-task-workspace .og-stage-tabs {
+    gap: 3px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+  .og-task-workspace .og-stage-tabs button {
+    white-space: nowrap;
+    font-size: 12px;
+  }
+  .og-task-workspace .og-stage-tabs button small {
+    display: none;
+  }
+  .og-monitor-task-card {
+    padding: 21px 18px;
+  }
+  .og-monitor-task-card > header {
+    flex-wrap: wrap;
+  }
+  .og-outcome-empty {
+    align-items: flex-start;
+    padding: 23px 17px;
+  }
+  .og-outcome-questions li {
+    flex-wrap: wrap;
+  }
+  .og-outcome-questions li > span {
+    flex-basis: 100%;
+  }
+}
+
+/* Keep each task's reason, target, observation and next action together. */
+.og-task-workspace .og-task-register {
+  display: block;
+  border: 1px solid var(--task-line);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.og-task-register-head,
+.og-task-register-row {
+  display: grid;
+  grid-template-columns:
+    minmax(160px, 1fr) minmax(200px, 1.3fr) minmax(120px, 0.75fr)
+    minmax(180px, 1fr) minmax(135px, 0.8fr);
+  gap: 16px;
+  padding: 15px 18px;
+  align-items: start;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.og-task-register-head {
+  padding-block: 12px;
+  background: #f9fafb;
+  color: var(--task-muted);
+  font-size: 12px;
+}
+.og-task-register-row {
+  border-top: 1px solid var(--task-line);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.og-task-register-name small {
+  color: var(--task-muted);
+  font-size: 12px;
+}
+.og-task-workspace .og-task-register-name h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 4px 0 8px;
+  line-height: 1.5;
+}
+.og-task-register-name button {
+  text-align: left;
+}
+.og-task-register-name button:hover {
+  text-decoration: underline;
+}
+.og-task-register-problem > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.og-task-register-problem details {
+  font-size: 12px;
+  margin-top: 8px;
+}
+.og-task-register-problem summary {
+  color: var(--task-muted);
+  cursor: pointer;
+}
+.og-task-register-problem dl {
+  margin-top: 12px;
+}
+.og-task-register-problem dt {
+  font-weight: 600;
+  margin-top: 8px;
+}
+.og-task-register-problem dd {
+  margin: 4px 0 0;
+}
+.og-task-register-tracking {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.og-task-register-tracking strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.og-task-register-tracking > span,
+.og-task-workspace .og-task-register-tracking > p {
+  margin: 0;
+  color: var(--task-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.og-task-workspace .og-task-register-next {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+  padding: 0;
+  color: var(--task-accent);
+}
+.og-task-register-next svg {
+  flex-shrink: 0;
+}
+.og-task-workspace .og-button.primary {
+  background: #242424;
+  color: #fff;
+  border-color: #242424;
+}
+.og-task-workspace .og-button.secondary {
+  color: #363636;
+  border-color: #e1e1e1;
+}
+@media (max-width: 1250px) {
+  .og-task-register-head {
+    display: none;
+  }
+  .og-task-register-row {
+    grid-template-columns: 1fr 1.3fr;
+    gap: 16px 24px;
+  }
+  .og-task-register-next {
+    grid-column: 2;
+  }
+}
+@media (max-width: 650px) {
+  .og-task-register-row {
+    grid-template-columns: 1fr;
+  }
+  .og-task-register-next {
+    grid-column: auto;
+  }
+  .og-task-workspace .og-history-row {
+    padding: 18px 14px;
+    gap: 12px;
+  }
+  .og-history-row time {
+    display: none;
+  }
+}
+.og-task-workspace .og-task-stage:has(> .og-tracking-panel),
+.og-task-workspace
+  .og-workflow-workspace
+  .og-workflow-stage:has(> .og-tracking-panel) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.og-task-workspace .og-history-context {
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  background: #f7f7f7;
+}
+.og-task-workspace .og-current-task {
+  margin-bottom: 18px;
+}
+.og-task-workspace .og-current-task .og-task-title-row h2 {
+  font-size: 19px;
+}
+.og-task-workspace .og-current-task .og-workflow-details {
+  margin: 10px 0;
+  font-size: 12px;
+}
+.og-task-workspace .og-stage-tabs {
+  margin-top: 14px;
+}
+.og-task-workspace .og-stage-tabs > button {
+  padding: 12px 4px;
+  font-size: 12px;
+}
+.og-task-workspace .og-stage-tabs > button.active {
+  border-color: #333;
+  color: #262626;
+}
+
+.og-app .og-task-workspace .og-page-heading h1 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.25px;
+}
+.og-task-workspace .og-history-row:last-child {
+  border-bottom: 0;
+}
+.og-app .og-task-workspace .og-button {
+  min-height: 32px;
+  padding: 7px 11px;
+  border-radius: 6px;
+  font-size: 12px !important;
+}
+.og-app .og-task-workspace .og-text-button,
+.og-app .og-task-workspace .og-text-link {
+  color: #515151;
+  font-size: 12px !important;
+}
+.og-app .og-task-workspace .og-page-heading {
+  margin-bottom: 20px;
+}
+.og-app .og-task-workspace :is(button, a, textarea):focus-visible {
+  outline-color: #717171;
+}
+
+/* Task context is a compact, readable table; longer evidence stays expandable. */
+.og-task-workspace .og-task-summary-table {
+  margin: 12px 0 0;
+  border: 1px solid var(--task-line);
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+.og-task-workspace .og-task-summary-table > div {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 14px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.og-task-workspace .og-task-summary-table > div + div {
+  border-top: 1px solid var(--task-line);
+}
+.og-task-workspace .og-task-summary-table dt {
+  color: var(--task-muted);
+  font-weight: 400;
+}
+.og-task-workspace .og-task-summary-table dd {
+  margin: 0;
+  color: var(--task-ink);
+  overflow-wrap: anywhere;
+}
+.og-task-workspace .og-task-summary-table a {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.og-task-workspace .og-task-context-table {
+  margin: 4px 0 12px;
+  border: 0;
+  border-radius: 0;
+}
+.og-task-workspace .og-task-context-table > div {
+  padding-inline: 0;
+}
+.og-task-workspace .og-task-finding-detail {
+  margin-top: 7px;
+  font-size: 12px;
+}
+.og-task-workspace .og-task-finding-detail summary {
+  color: var(--task-muted);
+  cursor: pointer;
+}
+.og-task-workspace .og-task-finding-detail p {
+  margin: 8px 0;
+}
+.og-task-workspace .og-task-context-note,
+.og-task-workspace .og-task-source-details {
+  margin: 10px 0;
+}
+.og-task-workspace .og-task-context-note > summary,
+.og-task-workspace .og-task-source-details > summary {
+  font-size: 12px;
+  padding: 10px 12px;
+}
+@media (max-width: 650px) {
+  .og-task-workspace .og-task-summary-table > div {
+    grid-template-columns: 62px minmax(0, 1fr);
+    gap: 8px;
+  }
+}
+.og-workflow-workspace .og-round-setting { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 14px 0; }
+.og-workflow-workspace .og-round-setting .og-field-label,
+.og-workflow-workspace .og-round-setting p { margin: 0; }
+.og-workflow-workspace .og-round-setting .og-select-button { width: 92px; }
+.og-app .og-workflow-workspace .og-radio-cards button.selected { background: #f6f6f7; border-color: #74777d; box-shadow: none; }

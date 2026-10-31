@@ -1,0 +1,107 @@
+.og-implementation-form .ir-target {
+  border-bottom: 1px solid #e6e6e6;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+.og-implementation-form .ir-target > span {
+  color: #737a76;
+  font-size: 12px;
+}
+.og-implementation-form .ir-target h3 {
+  margin: 4px 0 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 600;
+  color: #252525;
+}
+.og-implementation-form summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #5f5f5f;
+}
+.og-implementation-form .ir-candidate {
+  margin-top: 12px;
+  padding: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  border-radius: 6px;
+  background: #f8f8f8;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.og-implementation-form .ir-mode {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.og-app .og-implementation-form .ir-mode button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e1e1e1;
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+.og-app .og-implementation-form .ir-mode button[aria-pressed='true'] {
+  border-color: #696969;
+  background: #f6f6f6;
+  color: #242424;
+}
+.ir-check {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #c5c5c5;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.og-implementation-form .ir-boundary {
+  font-size: 12px;
+  color: #6e7771;
+  margin-top: 10px;
+  line-height: 1.7;
+}
+.og-implementation-form .ir-date-help {
+  color: #6e7771;
+  font-size: 12px;
+  margin: 5px 0 12px;
+}
+.og-implementation-form .og-note-input {
+  min-height: 88px;
+}
+.og-implementation-form :is(input, textarea)[readonly] {
+  background: #f7f7f7;
+  color: #666;
+}
+.og-app .og-modal:has(.og-implementation-form) .og-button.primary,
+.og-app .og-modal:has(#monitor-time) .og-button.primary {
+  background: #242424;
+  color: #fff;
+}
+.og-app .og-modal:has(#monitor-time) .og-radio-cards button.selected {
+  border-color: #696969;
+  background: #f6f6f6;
+}
+.og-app
+  .og-modal:has(#monitor-time)
+  .og-radio-cards
+  button.selected
+  .og-radio-dot {
+  border-color: #565656;
+  background: #565656;
+}
+.og-app .og-modal:has(#monitor-time) .og-cost-note {
+  background: #f8f8f8;
+  border-color: #e7e7e7;
+  color: #626262;
+}
+@media (max-width: 500px) {
+  .og-implementation-form .ir-mode {
+    flex-direction: column;
+  }
+}

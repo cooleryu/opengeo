@@ -79,8 +79,9 @@ const SettingsSelect = ({
           </p>
         </div>
         <Select
+          label={field.name}
           value={value}
-          onChange={(event) => handleSave(event.target.value)}
+          onChange={handleSave}
           options={field.options.map((option) => ({
             value: option.value,
             label: option.name,

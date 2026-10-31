@@ -176,6 +176,7 @@ const SettingsDialogue = ({
                     />
                   </button>
                   <Select
+                    label="Settings section"
                     options={sections.map((section) => {
                       return {
                         value: section.key,
@@ -184,9 +185,7 @@ const SettingsDialogue = ({
                       };
                     })}
                     value={activeSection}
-                    onChange={(e) => {
-                      setActiveSection(e.target.value);
-                    }}
+                    onChange={setActiveSection}
                     className="!text-xs lg:!text-sm"
                   />
                 </div>

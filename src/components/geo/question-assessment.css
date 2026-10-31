@@ -1,0 +1,56 @@
+.qa-assessment {
+  margin: 18px 0;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.qa-assessment h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.qa-assessment dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 24px;
+  margin: 0;
+}
+.qa-assessment dl > div:last-child {
+  grid-column: 1 / -1;
+}
+.qa-assessment dt,
+.qa-assessment figcaption,
+.qa-assessment-note {
+  color: #71717a;
+  font-size: 12px;
+}
+.qa-assessment dd,
+.qa-assessment dd p {
+  margin: 5px 0 0;
+}
+.qa-assessment figure {
+  margin: 8px 0;
+}
+.qa-assessment blockquote {
+  margin: 0;
+  border-left: 2px solid #d7d7da;
+  padding-left: 12px;
+  white-space: pre-wrap;
+}
+.qa-assessment-evidence,
+.qa-assessment-gaps {
+  margin-top: 16px;
+}
+.qa-assessment ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.qa-assessment-note {
+  margin: 16px 0;
+  line-height: 1.7;
+}
+@media (max-width: 700px) {
+  .qa-assessment dl {
+    grid-template-columns: 1fr;
+  }
+}

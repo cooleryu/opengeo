@@ -1,0 +1,10 @@
+{
+  "inputLimitBytes": 98304,
+  "maxCandidates": 24,
+  "maxObservations": 128,
+  "maxModelRequests": 4,
+  "apiTimeoutMs": 45000,
+  "subscriptionTimeoutMs": 180000,
+  "temperature": 0,
+  "maxTokens": 8000
+}

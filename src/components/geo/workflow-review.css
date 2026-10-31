@@ -1,0 +1,789 @@
+.og-workflow-workspace {
+  --review-ink: #202226;
+  --review-muted: #62676e;
+  --review-line: #e2e4e7;
+  color: var(--review-ink);
+  min-width: 0;
+}
+.og-task-workspace .og-workflow-workspace .og-current-task {
+  padding: 0;
+  margin-bottom: 16px;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+}
+.og-task-workspace .og-workflow-workspace .og-task-title-row h2 {
+  font-size: 18px;
+  line-height: 1.45;
+  color: var(--review-ink);
+}
+.og-task-workspace .og-workflow-workspace .og-task-title-row {
+  margin-bottom: 0;
+}
+.og-task-workspace .og-workflow-workspace .og-task-object {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--review-muted);
+}
+.og-task-workspace .og-workflow-workspace .og-workflow-tabs {
+  margin-top: 12px;
+  gap: 18px;
+  border-bottom: 1px solid var(--review-line);
+  overflow-x: auto;
+}
+.og-task-workspace .og-workflow-workspace .og-workflow-tabs button {
+  padding: 10px 0;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #60656b;
+  background: transparent;
+}
+.og-task-workspace .og-workflow-workspace .og-workflow-tabs button.active {
+  color: #202226;
+  border-bottom-color: #30343a;
+}
+.og-task-workspace .og-workflow-workspace .og-workflow-tabs button > span {
+  width: 20px;
+  height: 20px;
+  color: #5a6067;
+  background: #f1f2f3;
+}
+.og-task-workspace
+  .og-workflow-workspace
+  .og-workflow-tabs
+  button.active
+  > span {
+  color: #fff;
+  background: #33373c;
+}
+.og-task-workspace .og-workflow-workspace .og-workflow-tabs button small {
+  display: none;
+}
+.og-task-workspace .og-workflow-workspace .og-workflow-stage {
+  padding: 16px;
+  border-radius: 8px;
+  border-color: var(--review-line);
+  background: #fff;
+}
+.og-task-workspace .og-workflow-workspace .og-workflow-stage h2 {
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--review-ink);
+}
+.og-task-workspace .og-workflow-workspace .og-task-lead {
+  font-size: 13px;
+  line-height: 1.65;
+  color: #454a51;
+}
+.og-task-workspace
+  .og-workflow-workspace
+  .og-workflow-step-3
+  .og-publish-steps {
+  margin: 18px 0;
+  padding: 0;
+  gap: 0;
+  border: 1px solid var(--review-line);
+  border-radius: 6px;
+  background: #fff;
+}
+.og-task-workspace
+  .og-workflow-workspace
+  .og-workflow-step-3
+  .og-publish-steps
+  li {
+  padding: 13px 16px;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid var(--review-line);
+  border-radius: 0;
+  font-size: 13px;
+}
+.og-task-workspace
+  .og-workflow-workspace
+  .og-workflow-step-3
+  .og-publish-steps
+  li:last-child {
+  border-bottom: 0;
+}
+.og-workflow-workspace .og-review-workspace {
+  min-width: 0;
+}
+.og-workflow-workspace .og-review-workspace .og-review-heading {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.og-workflow-workspace .og-review-workspace .og-review-heading h2 {
+  margin: 0;
+}
+.og-workflow-workspace .og-review-status,
+.og-workflow-workspace .og-independent-review > header > span {
+  font-size: 12px;
+  color: #565c63;
+  font-weight: 500;
+}
+.og-workflow-workspace .is-passed {
+  color: #27724f !important;
+}
+.og-workflow-workspace .og-review-origin {
+  margin: 12px 0 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  padding: 8px 0;
+  border-top: 1px solid var(--review-line);
+  border-bottom: 1px solid var(--review-line);
+}
+.og-workflow-workspace .og-review-origin > div {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.og-workflow-workspace .og-review-origin dt {
+  color: var(--review-muted);
+}
+.og-workflow-workspace .og-review-origin dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.og-workflow-workspace .og-review-origin a {
+  color: #202226;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.og-workflow-workspace .og-review-working-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  align-items: start;
+  gap: 16px;
+  margin: 16px 0;
+}
+.og-workflow-workspace .og-review-working-grid > * {
+  min-width: 0;
+}
+.og-workflow-workspace .og-review-workspace .og-review-draft {
+  margin: 0;
+  border: 1px solid var(--review-line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+.og-workflow-workspace .og-review-workspace .og-review-draft > header {
+  padding: 10px 12px;
+  background: #fafafa;
+  border-bottom: 1px solid var(--review-line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.og-workflow-workspace .og-review-workspace h3 {
+  color: var(--review-ink);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+  font-weight: 600;
+}
+.og-workflow-workspace .og-review-draft > header h3 span {
+  margin-left: 5px;
+  font-size: 12px;
+  color: var(--review-muted);
+  font-weight: 400;
+}
+.og-workflow-workspace .og-review-draft > header .og-text-button {
+  font-size: 12px;
+  color: #454b53;
+}
+.og-workflow-workspace .og-review-workspace .og-body-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+.og-workflow-workspace .og-review-workspace .og-body-comparison > section {
+  padding: 12px;
+  min-width: 0;
+  background: #fff;
+}
+.og-workflow-workspace
+  .og-review-workspace
+  .og-body-comparison
+  > section
+  + section {
+  border-left: 1px solid var(--review-line);
+  background: #fcfcfc;
+}
+.og-workflow-workspace .og-review-workspace .og-body-comparison h4 {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--review-muted);
+  margin: 0 0 12px;
+}
+.og-workflow-workspace .og-review-workspace .og-body-comparison .og-markdown {
+  max-height: 560px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--review-ink);
+  overflow-wrap: anywhere;
+}
+.og-workflow-workspace .og-body-comparison .og-markdown > :first-child {
+  margin-top: 0;
+}
+.og-workflow-workspace .og-review-workspace .og-body-comparison textarea {
+  width: 100%;
+  min-height: 340px;
+  font-size: 13px;
+  line-height: 1.8;
+  border: 1px solid #c8ccd1;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--review-ink);
+  padding: 10px;
+  resize: vertical;
+}
+.og-workflow-workspace .og-review-workspace .og-review-next {
+  margin: 0;
+  padding: 10px 0 0;
+  border: 0;
+  background: transparent;
+}
+.og-workflow-workspace .og-review-workspace .og-review-next > p {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: none;
+  color: #444a51;
+}
+.og-workflow-workspace
+  .og-review-workspace
+  .og-review-next
+  .og-workflow-notice {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.og-workflow-workspace
+  .og-review-workspace
+  .og-review-next
+  .og-workflow-notice
+  > p {
+  color: var(--review-muted);
+  margin: 7px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.og-workflow-workspace
+  .og-review-workspace
+  .og-review-next
+  .og-task-primary-action {
+  margin-top: 9px;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.og-workflow-workspace .og-review-next .og-muted {
+  font-size: 12px;
+}
+.og-workflow-workspace .og-independent-review {
+  border: 1px solid var(--review-line);
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+.og-workflow-workspace .og-independent-review > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: #fafafa;
+  border-bottom: 1px solid var(--review-line);
+}
+.og-workflow-workspace .og-review-score-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 13px 12px;
+  font-size: 12px;
+  color: var(--review-muted);
+}
+.og-workflow-workspace .og-review-score-line strong {
+  font-size: 23px;
+  color: var(--review-ink);
+  line-height: 1;
+}
+.og-workflow-workspace .og-review-score-line small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--review-muted);
+}
+.og-workflow-workspace .og-review-score-line > span:last-child {
+  margin-left: auto;
+}
+.og-workflow-workspace .og-review-dimensions {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.og-workflow-workspace .og-review-dimensions th,
+.og-workflow-workspace .og-review-dimensions td {
+  text-align: left;
+  padding: 9px 13px;
+  border-bottom: 1px solid #eceef0;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.og-workflow-workspace .og-review-dimensions th {
+  font-weight: 500;
+}
+.og-workflow-workspace .og-review-dimensions thead {
+  color: var(--review-muted);
+  background: #fafafa;
+}
+.og-workflow-workspace .og-review-dimensions td:last-child {
+  color: var(--review-muted);
+}
+.og-workflow-workspace .og-review-dimensions .needs-attention td {
+  color: #8f3c35;
+}
+.og-workflow-workspace .og-review-small,
+.og-workflow-workspace .og-review-footnote {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--review-muted);
+  overflow-wrap: anywhere;
+}
+.og-workflow-workspace .og-independent-review > .og-review-small,
+.og-workflow-workspace .og-independent-review > .og-review-footnote {
+  margin: 11px 13px;
+}
+.og-workflow-workspace .og-review-stale {
+  margin: 11px 13px;
+  padding-left: 8px;
+  border-left: 2px solid #9b663c;
+  font-size: 12px;
+  color: #775434;
+}
+.og-workflow-workspace .og-review-issues {
+  list-style: none;
+  margin: 0;
+  padding: 0 13px;
+}
+.og-workflow-workspace .og-review-issues li {
+  padding: 13px 0;
+  border-top: 1px solid var(--review-line);
+}
+.og-workflow-workspace .og-review-issues li > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.og-workflow-workspace .og-review-issues strong {
+  font-weight: 600;
+}
+.og-workflow-workspace .og-review-issues li > div > span {
+  color: var(--review-muted);
+}
+.og-workflow-workspace .og-review-issues li.blocking strong {
+  color: #9c3b34;
+}
+.og-workflow-workspace .og-review-issues p {
+  margin: 7px 0 0;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--review-ink);
+  overflow-wrap: anywhere;
+}
+.og-workflow-workspace .og-review-issues p.og-review-suggestion {
+  color: #5b626b;
+}
+.og-workflow-workspace .og-review-disclosure {
+  border-top: 1px solid var(--review-line);
+}
+.og-workflow-workspace .og-review-disclosure > summary {
+  padding: 12px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--review-ink);
+  cursor: pointer;
+  list-style: none;
+}
+.og-workflow-workspace .og-review-disclosure > summary::-webkit-details-marker,
+.og-workflow-workspace .og-review-record > summary::-webkit-details-marker {
+  display: none;
+}
+.og-workflow-workspace .og-review-disclosure[open] > summary > svg,
+.og-workflow-workspace .og-review-record[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.og-workflow-workspace .og-review-disclosure > p,
+.og-workflow-workspace .og-review-disclosure > ol,
+.og-workflow-workspace .og-review-disclosure > ul {
+  font-size: 13px;
+  line-height: 1.75;
+  color: #454b53;
+  margin: 0 0 12px;
+}
+.og-workflow-workspace .og-review-disclosure > ol,
+.og-workflow-workspace .og-review-disclosure > ul {
+  padding-left: 20px;
+}
+.og-workflow-workspace .og-review-disclosure h4 {
+  margin: 14px 0 7px;
+  font-size: 12px;
+  color: var(--review-muted);
+  font-weight: 600;
+}
+.og-workflow-workspace .og-independent-review > .og-review-disclosure {
+  padding: 0 13px;
+}
+.og-workflow-workspace .og-review-stop {
+  border-top: 1px solid var(--review-line);
+  display: grid;
+  gap: 5px;
+  padding: 12px 13px;
+  background: #fafafa;
+  font-size: 12px;
+}
+.og-workflow-workspace .og-review-stop strong {
+  font-weight: 500;
+}
+.og-workflow-workspace .og-review-stop span {
+  color: var(--review-muted);
+}
+.og-workflow-workspace .og-review-empty {
+  padding: 15px 13px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--review-muted);
+}
+.og-workflow-workspace .og-review-draft-changes {
+  padding: 0 14px;
+}
+.og-workflow-workspace .og-review-rationale {
+  margin: 0 0 18px;
+  border-bottom: 1px solid var(--review-line);
+}
+.og-workflow-workspace .og-review-history {
+  border: 1px solid var(--review-line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.og-workflow-workspace .og-review-history > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+.og-workflow-workspace .og-review-history > header > span {
+  font-size: 12px;
+  color: var(--review-muted);
+}
+.og-workflow-workspace .og-review-record {
+  border-top: 1px solid var(--review-line);
+}
+.og-workflow-workspace .og-review-record > summary {
+  display: grid;
+  grid-template-columns: minmax(130px, 1.2fr) minmax(100px, 1fr) 60px 70px 16px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+}
+.og-workflow-workspace .og-review-record > summary:hover {
+  background: #fafafa;
+}
+.og-workflow-workspace .og-review-record > summary > span:first-child {
+  color: var(--review-ink);
+  font-weight: 500;
+}
+.og-workflow-workspace .og-review-record time {
+  color: var(--review-muted);
+}
+.og-workflow-workspace .og-review-record small {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 5px;
+  color: #4d545c;
+  background: #f0f2f4;
+  font-size: 10px;
+  font-weight: 400;
+  border-radius: 3px;
+}
+.og-workflow-workspace .og-review-record-body {
+  padding: 0 14px 12px;
+  border-top: 1px solid #eceef0;
+}
+.og-workflow-workspace .og-review-record-body > p {
+  font-size: 13px;
+  line-height: 1.75;
+  margin: 13px 0;
+  overflow-wrap: anywhere;
+}
+.og-workflow-workspace .og-review-record-columns {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
+  align-items: start;
+  gap: 20px;
+  margin-bottom: 14px;
+}
+.og-workflow-workspace .og-review-record-columns .og-review-issues {
+  padding: 0;
+}
+.og-workflow-workspace
+  .og-review-record-columns
+  .og-review-issues
+  li:first-child {
+  border: 0;
+  padding-top: 0;
+}
+.og-workflow-workspace .og-review-historic-draft {
+  max-height: 440px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--review-line);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.og-workflow-workspace .og-review-loop-history {
+  padding: 0 14px;
+}
+.og-workflow-workspace .og-review-loop-history > div {
+  display: grid;
+  grid-template-columns: 50px 80px minmax(0, 1fr);
+  gap: 12px;
+  font-size: 12px;
+  padding: 10px 0;
+  border-top: 1px solid #eceef0;
+  color: var(--review-muted);
+}
+.og-workflow-workspace .og-review-workspace .og-review-process {
+  margin-top: 16px;
+  border: 1px solid var(--review-line);
+  border-radius: 6px;
+}
+.og-workflow-workspace .og-review-workspace .og-review-process > summary {
+  padding: 12px 14px;
+  background: #fff;
+}
+.og-workflow-workspace
+  .og-review-workspace
+  .og-review-process
+  > summary
+  strong {
+  font-size: 13px;
+  color: var(--review-ink);
+}
+.og-workflow-workspace .og-review-workspace .og-review-process > summary span {
+  font-size: 12px;
+  color: var(--review-muted);
+}
+.og-task-workspace .og-workflow-workspace .og-task-activity {
+  margin-top: 16px;
+  border-color: var(--review-line);
+  border-radius: 6px;
+}
+@media (max-width: 1080px) {
+  .og-workflow-workspace .og-review-working-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .og-workflow-workspace .og-independent-review {
+    max-width: none;
+  }
+  .og-workflow-workspace .og-review-dimensions th,
+  .og-workflow-workspace .og-review-dimensions td {
+    width: 33.33%;
+  }
+}
+@media (max-width: 700px) {
+  .og-task-workspace .og-workflow-workspace .og-current-task,
+  .og-task-workspace .og-workflow-workspace .og-workflow-stage {
+    padding: 14px;
+  }
+  .og-task-workspace .og-workflow-workspace .og-current-task {
+    padding-bottom: 0;
+  }
+  .og-workflow-workspace .og-review-workspace .og-body-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .og-workflow-workspace
+    .og-review-workspace
+    .og-body-comparison
+    > section
+    + section {
+    border-left: 0;
+    border-top: 1px solid var(--review-line);
+  }
+  .og-workflow-workspace .og-review-origin > div {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 8px;
+  }
+  .og-workflow-workspace .og-review-record > summary {
+    grid-template-columns: minmax(0, 1fr) 54px 58px 14px;
+    gap: 7px;
+    padding: 11px;
+  }
+  .og-workflow-workspace .og-review-record > summary > time {
+    display: none;
+  }
+  .og-workflow-workspace .og-review-record-columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .og-workflow-workspace .og-review-record small {
+    margin-left: 5px;
+  }
+  .og-workflow-workspace .og-review-loop-history > div {
+    grid-template-columns: 36px 60px minmax(0, 1fr);
+    gap: 7px;
+  }
+}
+
+.og-workflow-workspace .og-review-context-disclosure {
+  margin-top: 12px;
+  border-bottom: 1px solid var(--review-line);
+}
+.og-workflow-workspace .og-review-context-disclosure > summary {
+  padding: 9px 0;
+  font-size: 12px;
+}
+.og-workflow-workspace .og-review-context-disclosure .og-review-origin {
+  margin-top: 0;
+  border: 0;
+}
+.og-workflow-workspace .og-review-issue-suggestion > summary {
+  padding: 5px 0 0;
+  color: var(--review-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.og-workflow-workspace .og-review-issue-suggestion .og-review-suggestion {
+  margin: 6px 0 0;
+}
+.og-task-workspace .og-workflow-workspace .og-review-next {
+  padding: 12px 0;
+  margin-top: 0;
+  background: transparent;
+  border-bottom: 1px solid var(--review-line);
+  border-radius: 0;
+}
+.og-task-workspace .og-workflow-workspace .og-task-findings {
+  gap: 0;
+  margin: 14px 0;
+}
+.og-task-workspace .og-workflow-workspace .og-task-findings > article {
+  padding: 12px 0;
+  border: 0;
+  border-top: 1px solid var(--review-line);
+  border-radius: 0;
+  background: transparent;
+}
+.og-task-workspace .og-workflow-workspace .og-task-findings > article h3 {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.65;
+}
+
+.og-task-workspace .og-workflow-workspace .og-workflow-stage,
+.og-task-workspace .og-workflow-workspace .og-task-activity {
+  max-width: none;
+  width: 100%;
+}
+.og-task-workspace .og-gap-check {
+  margin: 12px 0;
+  padding: 12px 0;
+  border-block: 1px solid var(--review-line);
+}
+.og-task-workspace .og-gap-check-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.og-task-workspace .og-gap-check-row p {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0;
+  font-size: 13px;
+}
+.og-task-workspace .og-gap-check-row strong {
+  font-weight: 500;
+}
+.og-task-workspace .og-gap-check-row time {
+  color: var(--review-muted);
+  font-size: 12px;
+}
+.og-task-workspace .og-gap-check-results {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.og-task-workspace .og-gap-check-results > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  cursor: pointer;
+  color: var(--review-muted);
+  font-size: 12px;
+}
+.og-task-workspace .og-workflow-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0 8px;
+}
+.og-task-workspace .og-workflow-modes > button {
+  min-height: 0;
+  padding: 12px 14px;
+  gap: 10px;
+  border-radius: 6px;
+}
+.og-task-workspace .og-workflow-modes > button strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.og-task-workspace .og-workflow-modes > button p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.og-task-workspace .og-workflow-mode-notes {
+  margin: 4px 0 12px;
+  color: var(--review-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+.og-task-workspace .og-workflow-mode-notes summary {
+  cursor: pointer;
+}
+@media (max-width: 700px) {
+  .og-task-workspace .og-gap-check-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .og-task-workspace .og-workflow-modes {
+    grid-template-columns: 1fr;
+  }
+}

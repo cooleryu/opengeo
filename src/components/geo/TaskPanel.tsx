@@ -9,14 +9,12 @@ import {
   Clock3,
   FileText,
   Loader2,
-  Pause,
-  Play,
-  Plus,
-  RefreshCw,
-  Settings2,
 } from 'lucide-react';
 import type { GeoState, GeoStatus, GeoTask } from '@/lib/geo/types';
 import WorkflowPanel from './WorkflowPanel';
+import { taskPresentation } from './task-presentation';
+import TaskTrackingPanel from './TaskTrackingPanel';
+import { displayTaskTitle } from './question-labels';
 
 type Props = {
   data: GeoState;
@@ -34,6 +32,7 @@ type Props = {
   onLive: () => void;
   onEvidence: (path: string) => void;
   onQuestions: () => void;
+  detailView?: 'task' | 'monitor';
 };
 
 const statusNames: Record<GeoStatus, string> = {
@@ -46,7 +45,21 @@ const statusNames: Record<GeoStatus, string> = {
   completed: '本轮观察结束',
   failed: '需要处理',
 };
-const stages = ['调查', '方案', '实施', '观察'];
+const statusLabel = (task: GeoTask) => {
+  if (task.implementation?.kind === 'rehearsal') return '历史回放演练';
+  if (task.status !== 'proposal_ready' || !task.workflow)
+    return statusNames[task.status];
+  const quality = task.workflow.quality;
+  const reviewed =
+    quality?.rounds.find((round) => round.round === quality.bestRound) ??
+    quality?.rounds[quality.rounds.length - 1];
+  const passed =
+    reviewed?.review.passed &&
+    reviewed.candidate.after === task.proposal?.after &&
+    task.workflow.baseline?.mode === 'live';
+  return passed ? statusNames.proposal_ready : '方案待修改';
+};
+const stages = ['搜索结果', '改稿审核', '实施登记', '效果跟踪'];
 const widgetKinds = [
   'evidence_summary',
   'proposal',
@@ -72,15 +85,10 @@ const taskStage = (task?: GeoTask) => {
   if (task.status === 'awaiting_implementation') return 2;
   return task.proposal ? 1 : 0;
 };
-const shortTitle = (task: GeoTask) =>
-  task.proposal?.title ||
-  (task.title.length > 34 ? `${task.title.slice(0, 34)}…` : task.title);
-
 export default function TaskPanel({
   data,
   task,
   busy,
-  onSelect,
   onCreate,
   onAct,
   onImplementation,
@@ -88,26 +96,25 @@ export default function TaskPanel({
   onLive,
   onEvidence,
   onQuestions,
+  detailView = 'task',
 }: Props) {
+  const presentation = task
+    ? taskPresentation(task, data.assets, data.project)
+    : null;
   const current = taskStage(task);
-  const [stage, setStage] = useState(current);
+  const [stage, setStage] = useState(
+    detailView === 'monitor' ? 3 : current,
+  );
   const [after, setAfter] = useState(task?.proposal?.after ?? '');
   const [editing, setEditing] = useState(false);
   useEffect(() => {
-    setStage(current);
-  }, [task?.id, current]);
+    setStage(detailView === 'monitor' ? 3 : current);
+  }, [task?.id, current, detailView]);
   useEffect(() => {
     setAfter(task?.proposal?.after ?? '');
     setEditing(false);
   }, [task?.id, task?.proposal?.after]);
   const proposal = task?.proposal;
-  const latestLive = task?.runs
-    .slice()
-    .reverse()
-    .find((run) => run.mode === 'live' && run.status === 'completed');
-  const replayCount =
-    task?.runs.filter((run) => run.mode === 'replay').length ?? 0;
-  const liveCount = task?.runs.filter((run) => run.mode === 'live').length ?? 0;
   const evidence = (paths: string[]) => (
     <div className="og-evidence-links">
       {Array.from(new Set(paths)).map((path) => (
@@ -120,42 +127,17 @@ export default function TaskPanel({
   );
   return (
     <>
-      <div className="og-page-heading">
-        <div>
-          <span className="og-eyebrow">任务</span>
-          <h1>改进任务</h1>
-        </div>
-        <button className="og-button secondary" onClick={onCreate}>
-          <Plus size={16} />
-          新建任务
-        </button>
-      </div>
-      {data.tasks.length > 1 && (
-        <label className="og-task-picker">
-          切换任务
-          <select
-            aria-label="切换任务"
-            value={task?.id ?? ''}
-            onChange={(event) => onSelect(event.target.value)}
-          >
-            {data.tasks.map((item) => (
-              <option key={item.id} value={item.id}>
-                {shortTitle(item)} · {statusNames[item.status]}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
       {!task ? (
         <section className="og-surface og-task-empty">
-          <h2>把一个目标交给 OpenGEO</h2>
-          <p className="og-muted">得到有依据的方案，实施后每天观察变化。</p>
+          <h2>暂无改进任务</h2>
           <button className="og-button primary" onClick={onCreate}>
             创建第一条任务
             <ArrowRight size={16} />
           </button>
         </section>
-      ) : task.workflow || (!task.implementation && ['queued', 'proposal_ready', 'failed'].includes(task.status)) ? (
+      ) : task.workflow ||
+        (!task.implementation &&
+          ['queued', 'proposal_ready', 'failed'].includes(task.status)) ? (
         <WorkflowPanel
           data={data}
           task={task}
@@ -166,23 +148,28 @@ export default function TaskPanel({
           onMonitor={onMonitor}
           onLive={onLive}
           onEvidence={onEvidence}
+          detailView={detailView}
         />
       ) : (
         <>
           <section className="og-current-task">
             <div className="og-task-title-row">
-              <h2>{shortTitle(task)}</h2>
+              <h2>{displayTaskTitle(task, data, presentation?.title)}</h2>
               <span
                 className={`og-tag ${task.status === 'proposal_ready' ? 'amber' : task.status === 'monitoring' ? 'blue' : 'neutral'}`}
               >
-                {statusNames[task.status]}
+                {statusLabel(task)}
               </span>
             </div>
+            <details className="og-workflow-details">
+              <summary>查看原始任务要求</summary>
+              <p>{task.goal || task.title}</p>
+            </details>
             <nav className="og-stage-tabs" aria-label="任务阶段">
               {stages.map((label, index) => (
                 <button
                   key={label}
-                  disabled={index > current}
+                  disabled={index > current && index !== 3}
                   className={stage === index ? 'active' : ''}
                   aria-current={stage === index ? 'step' : undefined}
                   onClick={() => setStage(index)}
@@ -396,7 +383,9 @@ export default function TaskPanel({
                         target="_blank"
                         rel="noreferrer"
                       >
-                        查看实施页面
+                        {task.implementation.kind === 'rehearsal'
+                          ? '查看目标页面'
+                          : '查看实施页面'}
                         <ArrowRight size={14} />
                       </a>
                     )}
@@ -440,211 +429,41 @@ export default function TaskPanel({
               </>
             )}
             {stage === 3 && (
-              <>
-                <div className="og-task-status">
-                  <span
-                    className={`og-tag ${task.monitor.mode === 'live' ? 'blue' : 'neutral'}`}
-                  >
-                    {task.monitor.mode === 'replay' ? '历史回放' : '实时观察'}
-                  </span>
-                  <span className="og-muted">
-                    {task.status === 'paused'
-                      ? '已暂停'
-                      : task.monitor.enabled
-                        ? '按计划执行'
-                        : '自动观察未开启'}
-                  </span>
-                </div>
-                <h2>
-                  {latestLive
-                    ? `${latestLive.hitCount ?? '—'} / ${latestLive.queryCount} 个问题找到项目`
-                    : '尚无新的效果数据'}
-                </h2>
-                <p className="og-task-lead">
-                  {latestLive
-                    ? `最近一次新测量：${formatDate(latestLive.measurementAt)}。${latestLive.summary}`
-                    : task.monitor.mode === 'replay'
-                      ? '当前正在演练观察流程。历史回放不会产生新的搜索结果。'
-                      : '等待第一次实时检查，结果会出现在这里。'}
-                </p>
-                <div className="og-monitor-summary">
-                  <div>
-                    <span>下一次观察</span>
-                    <strong>
-                      {task.status === 'paused'
-                        ? '已暂停'
-                        : task.monitor.enabled
-                          ? formatDate(task.monitor.nextRunAt)
-                          : '未开启'}
-                    </strong>
-                    <small>每天 {task.monitor.timeOfDay} · 北京时间</small>
-                  </div>
-                  <div>
-                    <span>已执行</span>
-                    <strong>{task.runs.length} 次</strong>
-                    <small>
-                      {liveCount} 次新测量 · {replayCount} 次回放
-                    </small>
-                  </div>
-                  <div>
-                    <span>剩余计划</span>
-                    <strong>{task.monitor.remaining} 次</strong>
-                    <small>
-                      {task.monitor.queryIds.length || data.questions.length}{' '}
-                      个固定问题
-                    </small>
-                  </div>
-                </div>
-                <div className="og-task-primary-action">
-                  <button className="og-button primary" onClick={onMonitor}>
-                    <Settings2 size={16} />
-                    调整观察计划
-                  </button>
-                  {['monitoring', 'paused'].includes(task.status) && (
-                    <button
-                      className="og-text-button"
-                      disabled={!!busy}
-                      onClick={() =>
-                        onAct(
-                          task.status === 'paused' ? 'resume' : 'pause',
-                          {},
-                          task.status === 'paused'
-                            ? '观察已恢复'
-                            : '观察已暂停',
-                        )
-                      }
-                    >
-                      {task.status === 'paused' ? (
-                        <Play size={14} />
-                      ) : (
-                        <Pause size={14} />
-                      )}
-                      {task.status === 'paused' ? '恢复观察' : '暂停观察'}
-                    </button>
-                  )}
-                </div>
-                <details className="og-task-details">
-                  <summary>
-                    观察记录<span>{task.runs.length} 次</span>
-                    <ChevronDown size={15} />
-                  </summary>
-                  {task.runs.length ? (
-                    <div className="og-run-list">
-                      {task.runs
-                        .slice()
-                        .reverse()
-                        .map((run) => (
-                          <details key={run.id} className="og-run-row">
-                            <summary>
-                              <time>{formatDate(run.at)}</time>
-                              <span>
-                                {run.mode === 'replay' ? '历史回放' : '新测量'}{' '}
-                                ·{' '}
-                                {run.status === 'failed'
-                                  ? '失败'
-                                  : run.status === 'partial'
-                                    ? '部分完成'
-                                    : '已完成'}
-                              </span>
-                              <strong>
-                                {run.mode === 'live'
-                                  ? `${run.hitCount ?? '—'} / ${run.queryCount} 命中`
-                                  : '未新增测量'}
-                              </strong>
-                              <ChevronDown size={14} />
-                            </summary>
-                            <div className="og-run-detail">
-                              <p>{run.summary}</p>
-                              <p className="og-muted">
-                                原始测量：{formatDate(run.measurementAt)} · 完成{' '}
-                                {run.completedCount}/{run.queryCount} 题 · ¥
-                                {run.cost.toFixed(3)}
-                              </p>
-                              {run.error && (
-                                <p className="og-task-error">{run.error}</p>
-                              )}
-                              {evidence(
-                                run.questions.map(
-                                  (question) => question.evidencePath,
-                                ),
-                              )}
-                            </div>
-                          </details>
-                        ))}
-                    </div>
-                  ) : (
-                    <p className="og-muted">还没有执行记录。</p>
-                  )}
-                </details>
-                <div className="og-task-secondary-actions">
-                  <button
-                    className="og-text-button"
-                    disabled={!!busy}
-                    onClick={() =>
-                      onAct(
-                        'run_monitor',
-                        { mode: 'replay' },
-                        '已安排回放，记录会自动更新',
-                      )
-                    }
-                  >
-                    <RefreshCw size={14} />
-                    回放一次
-                  </button>
-                  {data.settings.liveSearchConfigured &&
-                    task.implementation?.kind === 'user_confirmed' && (
-                      <button
-                        className="og-text-button"
-                        disabled={!!busy}
-                        onClick={onLive}
-                      >
-                        运行实时检查
-                        <ArrowRight size={14} />
-                      </button>
-                    )}
-                  {task.implementation?.kind === 'rehearsal' && (
-                    <button
-                      className="og-text-button"
-                      disabled={!!busy}
-                      onClick={() => onImplementation('user_confirmed')}
-                    >
-                      记录实际实施
-                      <ArrowRight size={14} />
-                    </button>
-                  )}
-                </div>
-                <p className="og-task-footnote">
-                  {data.settings.schedulerRunning
-                    ? '自动观察需要本地服务保持运行。'
-                    : '调度器尚未运行。'}
-                  {task.monitor.mode === 'live'
-                    ? `预算 ¥${task.monitor.budgetLimit.toFixed(2)}，已用 ¥${task.monitor.spent.toFixed(3)}。`
-                    : '历史回放免费。'}
-                </p>
-              </>
+              <TaskTrackingPanel
+                data={data}
+                task={task}
+                busy={busy}
+                onAct={onAct}
+                onMonitor={onMonitor}
+                onLive={onLive}
+                onEvidence={onEvidence}
+                onImplementation={onImplementation}
+              />
             )}
           </section>
-          <details className="og-task-activity">
-            <summary>
-              <Clock3 size={15} />
-              任务动态<span>{task.events.length} 条</span>
-              <ChevronDown size={15} />
-            </summary>
-            <div>
-              {task.events
-                .slice()
-                .reverse()
-                .map((event) => (
-                  <article key={event.id}>
-                    <time>{formatDate(event.at)}</time>
-                    <div>
-                      <strong>{event.title}</strong>
-                      <p>{event.detail}</p>
-                    </div>
-                  </article>
-                ))}
-            </div>
-          </details>
+          {stage !== 3 && (
+            <details className="og-task-activity">
+              <summary>
+                <Clock3 size={15} />
+                任务动态<span>{task.events.length} 条</span>
+                <ChevronDown size={15} />
+              </summary>
+              <div>
+                {task.events
+                  .slice()
+                  .reverse()
+                  .map((event) => (
+                    <article key={event.id}>
+                      <time>{formatDate(event.at)}</time>
+                      <div>
+                        <strong>{event.title}</strong>
+                        <p>{event.detail}</p>
+                      </div>
+                    </article>
+                  ))}
+              </div>
+            </details>
+          )}
         </>
       )}
     </>

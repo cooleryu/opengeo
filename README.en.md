@@ -6,7 +6,7 @@
 
 ![OpenGEO — Turn "AI search can't find me" into your next action.](docs/images/opengeo-hero-en.svg)
 
-*1.0 product preview, actively evolving.*
+*Development preview, actively evolving.*
 
 People are asking questions your work can answer. **Do those answers lead them to you?**
 
@@ -50,11 +50,11 @@ You decide what to implement and when to enable follow-up collection. Follow-up 
 
 ## Current status
 
-Moving fast, with continuous updates.
+The code includes question drafting and review, saved search results and evidence, answer analysis, competitor comparisons, improvement proposals with independent review, implementation records, and local SQLite storage. Page-specific Agent prompts and parameters are documented in [skills/README.md](skills/README.md).
 
-**The full 1.0 release launches on October 30, 2026.**
+Repository investigation remains a separate workflow and is not connected to the application. Project-wide optimization is still in development and is excluded from this public version. Daily scheduling code is included, but this release has not been verified by waiting for a real scheduled run. ChatGPT and Google web results have no automatic collection. Passing internal review does not establish improved visibility, visits, or conversions.
 
-**Get ready for something beyond your imagination.**
+The public version contains two empty example projects. It includes no personal projects, search history, historical evidence, or validation reports.
 
 ## Quick start
 
@@ -70,15 +70,18 @@ npm run dev
 
 Open **[localhost:4327](http://127.0.0.1:4327)**.
 
-- **Explore first:** leave credentials empty to browse the existing sample and local material demo.
-- **Run a real workflow:** configure DeepSeek search credentials and a diagnosis/review model following [OPENGEO.md](OPENGEO.md). Search and model calls are billed separately.
+- **Explore first:** leave credentials empty to browse the two empty example projects and page structure.
+- **Add your material:** edit the project details and assets in [example-project.json](src/lib/geo/data/example-project.json) or [example-project-two.json](src/lib/geo/data/example-project-two.json). Preserve their structure and project IDs. There is currently no in-app project creation or material import, and repository investigation output is not imported automatically.
+- **Run a real workflow:** configure search services and an analysis model in Settings, or use the variables in [.env.example](.env.example). Saving settings makes no provider request. Connection tests, question drafting, searches, analysis, and review may incur charges. DeepSeek search and the analysis model are configured separately; a search budget is not a cap on all model calls.
+
+See the [settings contract](docs/API/opengeo/pages/settings.md), [question-monitoring contract](docs/API/opengeo/pages/question-monitoring.md), and [API directory](docs/API/OPENGEO-CONTRACTS.md) for configuration, integrations, and charging behavior.
 
 ## FAQ
 
 <details>
 <summary><strong>Does it automatically collect answers from every AI platform?</strong></summary>
 
-The public version currently supports live DeepSeek search. ChatGPT, Google, and Gemini entries are saved observations; automatic collection from those products is not yet integrated. Follow-up collection is off by default and must be explicitly enabled.
+The main search interface supports DeepSeek search and Qwen and Doubao connected answers, with configured providers available for selection. Daily question schedules currently support DeepSeek only. Availability depends on configuration and provider service; no paid verification or real-time scheduled-run verification was performed for this release. ChatGPT and Google web results have no automatic collection, and no historical observations are bundled. ChatGPT subscription access supports selected analysis operations; it does not collect ChatGPT web search results. Follow-up collection must be explicitly enabled.
 
 </details>
 
@@ -99,7 +102,7 @@ The [repository topic-discovery Skill](skills/repository-topic-discovery/SKILL.m
 <details>
 <summary><strong>Where are my API keys and search evidence stored?</strong></summary>
 
-API keys stay in local configuration, and newly collected evidence is saved locally. Search and model calls send the necessary requests to your configured providers. The original workspace's full historical evidence is not distributed with the source code; missing evidence is shown as unavailable. See the [configuration and workflow guide](OPENGEO.md) for details.
+API keys stay in local configuration. Business records and newly collected evidence stay in the application data directory. Search and model calls send the necessary requests to your configured providers. The public source contains no personal records, credentials, or historical evidence. See the [settings contract](docs/API/opengeo/pages/settings.md) and [storage guide](docs/API/opengeo/storage.md).
 
 </details>
 

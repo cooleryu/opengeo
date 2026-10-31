@@ -1,5 +1,7 @@
 import type { GeoProposal, GeoRun } from './types';
 import type { QuestionCategory } from './question-types';
+import type { CollectionConfig } from './providers/types';
+import type { ResearchObservation } from './research-types';
 
 export interface WorkflowQuestion {
   id: string;
@@ -23,6 +25,12 @@ export interface GeoDiagnosis {
   createdAt: string;
 }
 
+export type GeoAcceptanceReview = Record<'implementation' | 'ownBrandMention' | 'ownTargetCitation' | 'comparableConditions' | 'unknownBaseline', {
+  met: boolean;
+  criterionQuote: string;
+  reason: string;
+}>;
+
 export interface QualityReview {
   criteriaVersion: string;
   proposalDigest: string;
@@ -33,6 +41,9 @@ export interface QualityReview {
   passed: boolean;
   issues: { dimension: string; severity: 'blocking' | 'improvement'; detail: string; suggestion: string }[];
   summary: string;
+  /** Required for saved-research plan reviews under the GEO goal-preservation criteria. */
+  geoAcceptanceRequired?: boolean;
+  geoAcceptance?: GeoAcceptanceReview;
 }
 
 export interface QualityLoop {
@@ -56,11 +67,38 @@ export interface GeoOutcome {
   limitations: string[];
 }
 
+export type StrategyStatus = 'candidate' | 'validated' | 'active' | 'reverted';
+
+export interface StrategyValidation {
+  at: string;
+  classification: GeoOutcome['classification'];
+  beforeRate: number | null;
+  afterRate: number | null;
+  runIds: string[];
+  evidencePaths: string[];
+  passed: boolean;
+  summary: string;
+}
+
+export interface StrategyHistoryEntry {
+  version: number;
+  action: 'created' | 'validated' | 'validation_failed' | 'activated' | 'reverted';
+  at: string;
+  reason: string;
+  runIds: string[];
+  evidencePaths: string[];
+}
+
 export interface StrategyMemory {
   id: string;
   taskId: string;
   projectId: string;
   createdAt: string;
+  status: StrategyStatus;
+  originalCreatedAt?: string;
+  version: number;
+  history: StrategyHistoryEntry[];
+  validation?: StrategyValidation;
   targetAssetId: string;
   categories: QuestionCategory[];
   protocolKey: string;
@@ -78,6 +116,8 @@ export interface StrategyMemory {
 
 export interface GeoWorkflow {
   version: 1;
+  collection?: CollectionConfig;
+  maxQualityRounds?: number;
   questionPlanId: string;
   questionPlanRevision: number;
   frozenAt: string;
@@ -85,6 +125,8 @@ export interface GeoWorkflow {
   protocolKey: string;
   stage: 'search' | 'diagnosis' | 'quality' | 'implementation' | 'monitoring' | 'reflection';
   baseline?: GeoRun;
+  /** One server-saved observation used for planning; never a newly collected API baseline. */
+  savedResearch?: ResearchObservation;
   diagnosis?: GeoDiagnosis;
   quality?: QualityLoop;
   qualityHistory?: { proposalRevision: number; quality: QualityLoop }[];

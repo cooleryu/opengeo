@@ -6,7 +6,7 @@
 
 ![OpenGEO — 把「AI 搜不到我」，变成下一步行动。](docs/images/opengeo-hero-zh.svg)
 
-*1.0 产品预览，持续完善中。*
+*开发预览，持续完善中。*
 
 别人正在问你能解决的问题。**这些回答，有没有把他们带到你这里？**
 
@@ -50,11 +50,11 @@ Skill 和应用分别承接这条链路的不同部分。**“只给一个链接
 
 ## 当前进度
 
-持续高速更新中。
+当前代码包含问题拟定与审核、搜索记录和证据读取、回答分析、竞品对照、改进方案与独立审核、实施登记，以及本地 SQLite 存储。各页面 Agent 的提示词与参数见 [skills/README.md](skills/README.md)。
 
-**2026 年 10 月 30 日，发布 1.0 完整正式版本。**
+仓库自主调查仍是独立 Workflow，尚未接入应用；项目整体优化尚在开发，本次公开版不包含。每日计划已有代码，本次发布未按真实时间触发验证。ChatGPT、Google 网页结果尚无自动采集；内部审核通过也不代表真实曝光、访问或转化已经改善。
 
-**绝对超乎你的想象。**
+公开版只包含两个空示例项目，不包含作者的个人项目、搜索记录、历史证据或验证报告。
 
 ## 开始使用
 
@@ -70,15 +70,18 @@ npm run dev
 
 打开 **[localhost:4327](http://127.0.0.1:4327)**。
 
-- **先看看：** 凭据留空，可以浏览已有样例和本地材料演示。
-- **运行真实工作流：** 按 [OPENGEO.md](OPENGEO.md) 配置 DeepSeek 搜索凭据与诊断/审核模型。搜索与模型调用分别计费。
+- **先看看：** 凭据留空，浏览两个空示例项目和页面结构。
+- **配置自己的材料：** 修改 [example-project.json](src/lib/geo/data/example-project.json) 或 [example-project-two.json](src/lib/geo/data/example-project-two.json) 的项目资料和资产。保留示例的结构与项目 ID；目前没有应用内项目创建或材料导入入口，仓库调查输出也不会自动导入。
+- **运行真实工作流：** 在「设置」填写搜索服务与分析模型，或使用 [.env.example](.env.example) 中的环境变量。保存设置不会调用服务；连接测试、拟题、搜索、分析和审核可能收费。DeepSeek 搜索与分析模型分别配置，搜索费用上限不代表全部模型调用的费用上限。
+
+配置、平台适配与收费触发见 [设置协议](docs/API/opengeo/pages/settings.md) 和 [问题监测协议](docs/API/opengeo/pages/question-monitoring.md)；完整接口入口见 [API 总目录](docs/API/OPENGEO-CONTRACTS.md)。
 
 ## 常见问题
 
 <details>
 <summary><strong>所有 AI 平台都能自动采集吗？</strong></summary>
 
-目前公开版支持 DeepSeek 真实搜索。ChatGPT、Google、Gemini 是已保存的观测，尚未接入这些产品的自动采集。后续采集默认关闭，需要明确启用。
+主搜索界面支持 DeepSeek 搜索、千问和豆包联网回答，已配置的服务可供选择；每日问题计划目前仅支持 DeepSeek。实际可用性取决于配置与供应商服务，本次没有进行收费或每日计划真实时间验证。ChatGPT、Google 网页结果尚未接入自动采集，公开版不附带历史观测。ChatGPT 订阅用于部分分析操作，与采集 ChatGPT 网页搜索结果是两回事。后续采集需要明确启用。
 
 </details>
 
@@ -99,7 +102,7 @@ npm run dev
 <details>
 <summary><strong>密钥和搜索证据放在哪里？</strong></summary>
 
-密钥保存在本地配置，新采集的证据保存在本地；搜索和模型调用会向你配置的服务商发送必要请求。原工作区的完整历史证据不随源码分发，缺失的证据会如实显示不可用。详情见 [配置与工作流说明](OPENGEO.md)。
+密钥保存在本地配置，业务记录与新采集证据保存在应用的数据目录；搜索和模型调用会向你配置的服务商发送必要请求。公开源码不包含个人记录、密钥或历史证据。详情见 [设置协议](docs/API/opengeo/pages/settings.md) 与 [存储说明](docs/API/opengeo/storage.md)。
 
 </details>
 

@@ -131,8 +131,9 @@ const AddProvider = ({
                           Select connection type
                         </label>
                         <Select
+                          label="Connection type"
                           value={selectedProvider ?? ''}
-                          onChange={(e) => setSelectedProvider(e.target.value)}
+                          onChange={setSelectedProvider}
                           options={Object.entries(providerConfigMap).map(
                             ([key, val]) => {
                               return {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
+  ArrowUpRight,
   Check,
   ChevronDown,
   Download,
@@ -16,6 +17,10 @@ import {
   type QuestionCandidate,
   type QuestionCategory,
 } from '@/lib/geo/question-types';
+import GeoSelect from './GeoSelect';
+import QuestionAssessmentDetails, {
+  hasQuestionAssessment,
+} from './QuestionAssessmentDetails';
 import './question-plan.css';
 
 type Props = {
@@ -28,6 +33,7 @@ type Props = {
   onConfirm: () => Promise<void>;
   onAsset: (asset: GeoAsset) => void;
   onContinue?: () => void;
+  onAuditCandidate?: (candidateId: string) => Promise<void>;
 };
 
 const decisionLabels = {
@@ -46,6 +52,7 @@ export default function QuestionPlanPanel({
   onConfirm,
   onAsset,
   onContinue,
+  onAuditCandidate,
 }: Props) {
   const [positioning, setPositioning] = useState(plan.positioning);
   const [category, setCategory] = useState<QuestionCategory | 'all'>('all');
@@ -53,6 +60,8 @@ export default function QuestionPlanPanel({
   const [showExplore, setShowExplore] = useState(false);
   const [showExcluded, setShowExcluded] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [auditingId, setAuditingId] = useState<string | null>(null);
+  const [auditError, setAuditError] = useState('');
   const questionContent = plan.candidates
     .map((candidate) => `${candidate.id}:${candidate.query}`)
     .join('\n');
@@ -126,7 +135,12 @@ export default function QuestionPlanPanel({
   function renderCandidate(candidate: QuestionCandidate) {
     const isExcluded = candidate.review.decision === 'exclude';
     const detailsId = `qp-details-${candidate.id}`;
-    const associated = candidate.assetIds.flatMap((id) => {
+    const associated = [
+      ...new Set([
+        ...candidate.assetIds,
+        ...candidate.evidence.map((evidence) => evidence.assetId),
+      ]),
+    ].flatMap((id) => {
       const asset = assetFor(id);
       return asset ? [asset] : [];
     });
@@ -136,21 +150,26 @@ export default function QuestionPlanPanel({
         key={candidate.id}
       >
         <div className="qp-question-heading">
-          <input
-            type="checkbox"
-            aria-label={`选择问题：${candidate.query}`}
-            checked={candidate.selected && !isExcluded}
-            disabled={busy || isExcluded}
-            onChange={(event) =>
-              void onToggle(candidate.id, event.target.checked)
-            }
-          />
           <div className="qp-question-main">
+            <label className="qp-candidate-title">
+              <input
+                type="checkbox"
+                aria-label={`选择问题：${candidate.query}`}
+                checked={candidate.selected && !isExcluded}
+                disabled={
+                  busy ||
+                  isExcluded ||
+                  (!candidate.selected && selected.length >= 8)
+                }
+                onChange={(event) =>
+                  void onToggle(candidate.id, event.target.checked)
+                }
+              />
+              <h3>{candidate.query}</h3>
+            </label>
+            <p className="qp-intent">{candidate.intent}</p>
             <div className="qp-question-meta">
               <span>{QUESTION_CATEGORY_LABELS[candidate.category]}</span>
-              <span>
-                {candidate.target === 'article' ? '发现文章' : '寻找项目'}
-              </span>
               <span>
                 {candidate.origin === 'existing'
                   ? '历史题'
@@ -158,9 +177,81 @@ export default function QuestionPlanPanel({
                     ? 'AI 新增'
                     : '整理新增'}
               </span>
-              <span>本轮未测</span>
+              <span>
+                {hasQuestionAssessment(candidate)
+                  ? 'AI 双判断已完成'
+                  : '未进行 AI 双判断'}
+              </span>
+              {onAuditCandidate && (
+                <button
+                  type="button"
+                  className="qp-detail-toggle"
+                  disabled={busy || !!auditingId || !modelConfigured}
+                  title={modelConfigured ? undefined : '请先配置分析模型'}
+                  onClick={async () => {
+                    setAuditError('');
+                    setAuditingId(candidate.id);
+                    setExpanded((current) => ({
+                      ...current,
+                      [candidate.id]: true,
+                    }));
+                    try {
+                      await onAuditCandidate(candidate.id);
+                    } catch (failure) {
+                      setAuditError(
+                        failure instanceof Error
+                          ? failure.message
+                          : 'AI 复评未完成，请重试。',
+                      );
+                    } finally {
+                      setAuditingId(null);
+                    }
+                  }}
+                >
+                  {auditingId === candidate.id ? 'AI 复评中…' : 'AI 复评'}
+                </button>
+              )}
+              <button
+                type="button"
+                className="qp-detail-toggle"
+                disabled={busy}
+                aria-expanded={!!expanded[candidate.id]}
+                aria-controls={detailsId}
+                onClick={() =>
+                  setExpanded((current) => ({
+                    ...current,
+                    [candidate.id]: !current[candidate.id],
+                  }))
+                }
+              >
+                {expanded[candidate.id] ? '收起审核依据' : '审核依据'}{' '}
+                <ChevronDown size={14} />
+              </button>
             </div>
-            <h3>{candidate.query}</h3>
+          </div>
+          <aside className="qp-candidate-support">
+            {associated.map((asset) => (
+              <div className="qp-asset-link" key={asset.id}>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onAsset(asset)}
+                >
+                  <FileText size={14} />
+                  {asset.title}
+                </button>
+                {asset.publicUrl && (
+                  <a
+                    href={asset.publicUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`打开网页：${asset.title}`}
+                  >
+                    <ArrowUpRight size={15} />
+                  </a>
+                )}
+              </div>
+            ))}
             <p className="qp-review">
               <span
                 className={`qp-decision qp-decision-${candidate.review.decision}`}
@@ -169,31 +260,12 @@ export default function QuestionPlanPanel({
               </span>
               {candidate.review.reason}
             </p>
-            <button
-              type="button"
-              className="qp-detail-toggle"
-              disabled={busy}
-              aria-expanded={!!expanded[candidate.id]}
-              aria-controls={detailsId}
-              onClick={() =>
-                setExpanded((current) => ({
-                  ...current,
-                  [candidate.id]: !current[candidate.id],
-                }))
-              }
-            >
-              {expanded[candidate.id] ? '收起依据' : '为什么选这题'}
-              <ChevronDown size={14} />
-            </button>
-          </div>
+          </aside>
         </div>
         {expanded[candidate.id] && (
           <div className="qp-question-details" id={detailsId}>
+            <QuestionAssessmentDetails candidate={candidate} assets={assets} />
             <dl>
-              <div>
-                <dt>用户想解决什么</dt>
-                <dd>{candidate.intent}</dd>
-              </div>
               <div>
                 <dt>与我们的关系</dt>
                 <dd>{candidate.rationale}</dd>
@@ -202,23 +274,11 @@ export default function QuestionPlanPanel({
                 <dt>希望观察到什么</dt>
                 <dd>{candidate.expectedResult}</dd>
               </div>
-            </dl>
-            {associated.length > 0 && (
-              <div className="qp-assets">
-                <span className="qp-detail-label">对应的已有内容</span>
-                {associated.map((asset) => (
-                  <button
-                    type="button"
-                    key={asset.id}
-                    disabled={busy}
-                    onClick={() => onAsset(asset)}
-                  >
-                    <FileText size={14} />
-                    {asset.title}
-                  </button>
-                ))}
+              <div>
+                <dt>搜索目标</dt>
+                <dd>{candidate.target === 'article' ? '已有文章' : '项目'}</dd>
               </div>
-            )}
+            </dl>
             {candidate.evidence.length > 0 && (
               <div className="qp-quotes">
                 <span className="qp-detail-label">材料中的原文</span>
@@ -234,7 +294,7 @@ export default function QuestionPlanPanel({
             )}
             {candidate.review.concerns.length > 0 && (
               <div className="qp-concerns">
-                <span className="qp-detail-label">还需要注意</span>
+                <span className="qp-detail-label">待核实</span>
                 <ul>
                   {candidate.review.concerns.map((concern, index) => (
                     <li key={index}>{concern}</li>
@@ -242,9 +302,6 @@ export default function QuestionPlanPanel({
                 </ul>
               </div>
             )}
-            <p className="qp-demand-note">
-              需求来源尚未核实。这是一道候选问题，不代表已经观察到真实用户这样提问。
-            </p>
           </div>
         )}
       </article>
@@ -252,101 +309,100 @@ export default function QuestionPlanPanel({
   }
 
   return (
-    <div className="qp-panel og-modal-body" aria-busy={busy}>
-      <header className="qp-heading">
+    <div className="qp-panel" aria-busy={busy}>
+      <header className="og-page-heading qp-heading">
         <div>
-          <span className="og-eyebrow">下一轮搜索</span>
-          <p>从品牌、实际能力和已有内容出发，选出值得测的问题。</p>
+          <h1>确认搜索问题</h1>
+          <p>
+            已选 {selected.length} 题 ·{' '}
+            {plan.status === 'ready' ? '题单已确认' : '待确认'}
+          </p>
         </div>
-        <span className="og-tag neutral">
-          {plan.source === 'model' ? 'AI 拟题与审核' : '已整理题单'}
-        </span>
       </header>
 
-      <section className="qp-positioning">
-        <label htmlFor="qp-positioning">用一小段话说明产品定位</label>
-        <textarea
-          id="qp-positioning"
-          value={positioning}
-          maxLength={1000}
-          rows={3}
-          disabled={busy}
-          onChange={(event) => setPositioning(event.target.value)}
-        />
-        <p className="qp-help">
-          定位用于判断问题是否相关，不保证搜索时一定出现。题目要符合实际能力，文章也有自己的发现问题。
-        </p>
-        {modelConfigured ? (
-          <div className="qp-generate-row">
-            <button
-              type="button"
-              className="og-button secondary"
-              disabled={busy || !positioning.trim()}
-              onClick={() => void onGenerate(positioning.trim())}
-            >
-              {busy ? (
-                <Loader2 size={15} className="spin" />
-              ) : (
-                <Sparkles size={15} />
-              )}
-              AI 拟题并审核
-            </button>
-            <span className="qp-help">
-              将调用已配置模型两次，可能产生模型费用。
-            </span>
-          </div>
-        ) : (
-          <p className="qp-help qp-model-note">
-            当前可以选择已整理的问题。启用模型后，可按定位重新拟题并审核。
-          </p>
-        )}
-        {positioningChanged && (
-          <div className="qp-positioning-change" role="status">
-            <span>定位已修改，重新拟题后才能确认这版题单。</span>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setPositioning(plan.positioning)}
-            >
-              恢复已保存定位
-            </button>
-          </div>
-        )}
-      </section>
+      <details className="qp-positioning" open={!plan.candidates.length}>
+        <summary>
+          产品定位与重新拟题 <ChevronDown size={15} />
+        </summary>
+        <div className="qp-positioning-body">
+          <label htmlFor="qp-positioning">产品定位</label>
+          <textarea
+            id="qp-positioning"
+            value={positioning}
+            maxLength={1000}
+            rows={3}
+            disabled={busy}
+            onChange={(event) => setPositioning(event.target.value)}
+          />
+
+          {modelConfigured ? (
+            <div className="qp-generate-row">
+              <button
+                type="button"
+                className="og-button secondary"
+                disabled={busy || !positioning.trim()}
+                onClick={() => void onGenerate(positioning.trim())}
+              >
+                {busy ? (
+                  <Loader2 size={15} className="spin" />
+                ) : (
+                  <Sparkles size={15} />
+                )}
+                AI 拟题并审核
+              </button>
+              <span className="qp-help">
+                将调用已配置模型两次，可能产生模型费用。
+              </span>
+            </div>
+          ) : (
+            <p className="qp-help qp-model-note">
+              当前可以选择已整理的问题。启用模型后，可按定位重新拟题并审核。
+            </p>
+          )}
+          {positioningChanged && (
+            <div className="qp-positioning-change" role="status">
+              <span>定位已修改，重新拟题后才能确认这版题单。</span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setPositioning(plan.positioning)}
+              >
+                恢复已保存定位
+              </button>
+            </div>
+          )}
+        </div>
+      </details>
 
       <section className="qp-questions" aria-label="候选问题">
         <div className="qp-list-heading">
           <div>
-            <h3>选择下一轮要测的问题</h3>
-            <p className="qp-help">
-              已选 {selected.length} 题 · 候选问题尚未采集搜索结果
-            </p>
+            <h2>下一轮题单</h2>
+            <p className="qp-help">{plan.candidates.length} 道候选</p>
           </div>
-          <label className="qp-filter">
+          <div className="qp-filter">
             <span>类别</span>
-            <select
-              aria-label="按问题类别筛选"
+            <GeoSelect<QuestionCategory | 'all'>
+              label="按问题类别筛选"
               disabled={busy}
               value={category}
-              onChange={(event) => {
-                setCategory(event.target.value as QuestionCategory | 'all');
+              onChange={(value) => {
+                setCategory(value);
                 setShowAll(false);
               }}
-            >
-              <option value="all">全部类别</option>
-              {(
-                Object.entries(QUESTION_CATEGORY_LABELS) as [
-                  QuestionCategory,
-                  string,
-                ][]
-              ).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
+              options={[
+                { value: 'all', label: '全部类别' },
+                ...(
+                  Object.entries(QUESTION_CATEGORY_LABELS) as [
+                    QuestionCategory,
+                    string,
+                  ][]
+                ).map(([value, label]) => ({ value, label })),
+              ]}
+            />
+          </div>
         </div>
+        {auditError && <p role="alert">{auditError}</p>}
         <div className="qp-list">
           {visibleRecommended.map(renderCandidate)}
           {!recommended.length && (
@@ -414,11 +470,14 @@ export default function QuestionPlanPanel({
         )}
       </section>
       {plan.notes.length > 0 && (
-        <aside className="qp-plan-notes" aria-label="题单说明">
+        <details className="qp-plan-notes">
+          <summary>
+            题单说明 <ChevronDown size={14} />
+          </summary>
           {plan.notes.map((note, index) => (
             <p key={index}>{note}</p>
           ))}
-        </aside>
+        </details>
       )}
       <footer className="qp-footer">
         <div>
@@ -432,7 +491,9 @@ export default function QuestionPlanPanel({
               ? '正在处理…'
               : plan.status === 'ready'
                 ? '已保存，尚未采集搜索结果'
-                : `已选 ${selected.length} 题，等待确认`}
+                : selected.length > 8
+                  ? `已选 ${selected.length} 题，请精简到最多 8 题后确认`
+                  : `已选 ${selected.length} / 8 题，等待确认`}
           </p>
           <p className="qp-help">
             版本 {plan.revision} · {plan.status === 'ready' ? '已确认' : '草稿'}{' '}
@@ -455,12 +516,15 @@ export default function QuestionPlanPanel({
             disabled={
               busy ||
               !selected.length ||
+              selected.length > 8 ||
               positioningChanged ||
               plan.status === 'ready'
             }
             onClick={() => void onConfirm()}
           >
-            {plan.status === 'ready' ? '题单已确认' : '确认下轮题单'}
+            {plan.status === 'ready'
+              ? '题单已确认'
+              : `确认这 ${selected.length} 个问题`}
           </button>
           {plan.status === 'ready' && onContinue && (
             <button
@@ -469,7 +533,7 @@ export default function QuestionPlanPanel({
               disabled={busy || positioningChanged}
               onClick={onContinue}
             >
-              进入任务，选择搜索方式
+              选择搜索方式
             </button>
           )}
         </div>

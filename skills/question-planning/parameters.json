@@ -1,0 +1,16 @@
+{
+  "maxNewCandidates": 18,
+  "maxInputBytes": 49152,
+  "materials": {
+    "maxTotalCharacters": 120000,
+    "maxCharactersPerAsset": 20000
+  },
+  "propose": {
+    "temperature": 0.2,
+    "maxTokens": 7000
+  },
+  "review": {
+    "temperature": 0,
+    "maxTokens": 4500
+  }
+}

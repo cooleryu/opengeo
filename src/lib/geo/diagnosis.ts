@@ -3,6 +3,12 @@ import path from 'node:path';
 import type { GeoProposal, GeoSeed, GeoTask } from './types';
 import type { GeoDiagnosis, StrategyMemory } from './workflow-types';
 import type { QualityIssue } from './quality';
+import type { CollectedAnswer } from './providers/types';
+import { parseDoubaoAnswer } from './providers/doubao';
+import { parseQwenAnswer } from './providers/qwen';
+import { evidenceLocation } from './projects';
+import { selectStrategies } from './learning';
+import { readSavedResearchEvidence } from './saved-research-evidence';
 
 type SourceExcerpt = { url: string; title: string; summary: string; snippet: string; content: string; contentProvided: boolean; truncated: boolean; boundary: string };
 export interface DiagnosisContext {
@@ -10,8 +16,11 @@ export interface DiagnosisContext {
   project: GeoSeed['project'];
   protocolKey: string | null;
   baseline: { id: string; mode: string; status: string; measurementAt: string } | null;
+  savedResearch?: { engine: string; language: string; recordedAt: string; conditions: string; entryType: string;
+    evidencePath: string; captureNotes: string; boundary: string };
   questions: { id: string; query: string; target: string; assetIds: string[]; exploratory: boolean; evidencePath: string;
-    rawAvailable: boolean; measurementAt: string | null; resultCount: number | null; projectHit: boolean | null;
+    answer: CollectedAnswer | null; provider: string; rawAvailable: boolean; measurementAt: string | null; resultCount: number | null; projectHit: boolean | null;
+    savedAnswer?: { text: string; truncated: boolean; boundary: string };
     sources: SourceExcerpt[]; suppliedSourceCount: number; boundary: string }[];
   materials: { id: string; title: string; publicUrl: string | null; sourcePath: string; summary: string; markdown: string;
     markdownIsExcerpt: boolean; truncated: boolean; boundary: string }[];
@@ -23,13 +32,11 @@ export interface DiagnosisContext {
 }
 
 /** Read only a registered local evidence path; never fetch a URL or follow a path outside its root. */
-function readRegisteredEvidence(file: string): string | null {
+export function readRegisteredEvidence(file: string): string | null {
   if (!file || path.isAbsolute(file)) return null;
-  const root = path.resolve(file.startsWith('data/geo-evidence/')
-    ? process.env.DATA_DIR || process.cwd()
-    : process.env.GEO_WORKSPACE || path.join(process.cwd(), '..'));
+  const { root, target: requested } = evidenceLocation(file);
   try {
-    const target = fs.realpathSync(path.resolve(root, file));
+    const target = fs.realpathSync(requested);
     if (!target.startsWith(fs.realpathSync(root) + path.sep) || !fs.statSync(target).isFile()
       || fs.statSync(target).size > 4 * 1024 * 1024) return null;
     return fs.readFileSync(target, 'utf8');
@@ -42,19 +49,66 @@ export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: 
   const baseline = workflow?.baseline;
   const frozen = workflow?.questions ?? [];
   const allowed = new Set<string>();
+  const saved = workflow?.savedResearch;
+  const savedEvidence = saved ? readSavedResearchEvidence(saved, readRegisteredEvidence) : null;
+  const research = task.researchContext;
+  const snapshot = research?.snapshot;
+  const savedMatches = Boolean(saved && snapshot && snapshot.projectId === seed.project.id
+    && (!task.projectId || task.projectId === seed.project.id) && (!research?.projectId || research.projectId === seed.project.id)
+    && snapshot.question.id === research?.questionId && snapshot.question.decision === 'search_now'
+    && (!research.purpose || research.purpose === 'improve_answer')
+    && saved.engine === research.engine && saved.language === research.language
+    && saved.query === snapshot.question[research.language] && frozen.length === 1
+    && frozen[0].query === saved.query && frozen[0].language === (saved.language === 'zh' ? 'zh-CN' : 'en')
+    && snapshot.observations.some(observation => JSON.stringify(observation) === JSON.stringify(saved))
+    && (!research.sourceUrl || saved.sources.some(source => source.url === research.sourceUrl))
+    && !baseline && !workflow?.collection && workflow?.protocolKey.startsWith('saved-research:'));
   let externalCharacters = 90_000;
   const excerpt = (value: unknown, limit: number) => {
     const result = text(value, Math.max(0, Math.min(limit, externalCharacters)));
     externalCharacters -= result.length;
     return result;
   };
-  const questions = frozen.map(question => {
+  const questions: DiagnosisContext['questions'] = frozen.map(question => {
+    if (saved && savedEvidence) {
+      const rawAvailable = savedMatches && savedEvidence.available;
+      if (rawAvailable) savedEvidence.evidencePaths.forEach(file => allowed.add(file));
+      const rows = saved.engine === 'chatgpt' ? saved.sources : savedEvidence.results;
+      const selected = research?.sourceUrl;
+      const ordered = selected ? [...rows.filter(row => row.url === selected), ...rows.filter(row => row.url !== selected)] : rows;
+      const sources: SourceExcerpt[] = ordered.slice(0, 5).flatMap(row => {
+        const item = row as Record<string, unknown>;
+        const url = text(item.url, 2048);
+        try { if (!['https:', 'http:'].includes(new URL(url).protocol)) return []; } catch { return []; }
+        const summary = excerpt(item.summary, 1500);
+        const snippet = excerpt(item.snippet, 1500);
+        const content = excerpt(item.content, 6000);
+        return [{ url, title: text(item.title, 500), summary, snippet, content, contentProvided: Boolean(content.trim()),
+          truncated: summary.length < text(item.summary, Number.MAX_SAFE_INTEGER).length
+            || snippet.length < text(item.snippet, Number.MAX_SAFE_INTEGER).length || content.length < text(item.content, Number.MAX_SAFE_INTEGER).length,
+          boundary: savedEvidence.boundary }];
+      });
+      const answerText = savedEvidence.answerText === null ? null : excerpt(savedEvidence.answerText, 32000);
+      return { id: question.id, query: question.query, target: question.target, assetIds: question.assetIds,
+        exploratory: question.exploratory, answer: null, provider: saved.engine,
+        evidencePath: savedEvidence.evidencePath, rawAvailable, measurementAt: saved.recordedAt,
+        resultCount: saved.engine === 'deepseek' && rawAvailable ? savedEvidence.results.length : null, projectHit: null,
+        ...(answerText === null ? {} : { savedAnswer: { text: answerText,
+          truncated: answerText.length !== savedEvidence.answerText!.length, boundary: savedEvidence.boundary } }),
+        sources, suppliedSourceCount: sources.length, boundary: savedEvidence.boundary };
+    }
     const measured = baseline?.questions.find(item => item.id === question.id && item.query === question.query);
     const rawText = measured ? readRegisteredEvidence(measured.evidencePath) : null;
     let raw: { results?: unknown } | null = null;
     try { raw = rawText === null ? null : JSON.parse(rawText); } catch { /* Missing/malformed evidence stays unknown. */ }
-    const results = raw && Array.isArray(raw.results) ? raw.results : null;
-    const rawAvailable = results !== null && measured?.resultCount === results.length;
+    const provider = workflow?.collection?.provider || 'deepseek';
+    let answer: CollectedAnswer | null = null;
+    if (raw && provider !== 'deepseek') {
+      try { answer = provider === 'doubao' ? parseDoubaoAnswer(raw) : parseQwenAnswer(raw); } catch { /* Invalid answer evidence remains unknown. */ }
+    }
+    const results = provider === 'deepseek' ? raw && Array.isArray(raw.results) ? raw.results : null : answer?.sources ?? null;
+    const rawAvailable = results !== null && measured?.resultCount === results.length
+      && (provider === 'deepseek' || Boolean(answer?.searchPerformed && measured?.answer?.text === answer.text));
     if (rawAvailable && measured) allowed.add(measured.evidencePath);
     const sources: SourceExcerpt[] = (results ?? []).slice(0, 5).flatMap((item: unknown) => {
       if (!item || typeof item !== 'object') return [];
@@ -70,10 +124,10 @@ export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: 
         content, contentProvided: Boolean(content.trim()), truncated,
         boundary: '搜索服务返回的摘要、片段或正文；未独立抓取页面，content 存在也不能保证全文完整。' }];
     });
-    return { id: question.id, query: question.query, target: question.target, assetIds: question.assetIds,
+    return { answer, provider: workflow?.collection?.label || 'DeepSeek Search API', id: question.id, query: question.query, target: question.target, assetIds: question.assetIds,
       exploratory: question.exploratory, evidencePath: measured?.evidencePath ?? '', rawAvailable,
       measurementAt: measured?.measurementAt ?? null, resultCount: results?.length ?? null, projectHit: measured?.projectHit ?? null,
-      sources, suppliedSourceCount: sources.length, boundary: '每题最多提供前五条可读取来源；未提供的结果和页面内容属于未知。' };
+      sources, suppliedSourceCount: sources.length, boundary: answer ? 'API 回答与原生引用已提供，最多五条来源摘要；引用不证明内容支持相关论断。豆包仅返回引用来源元数据，不是完整搜索列表；消费者 App 未测。' : '每题最多提供前五条可读取来源；未提供的结果和页面内容属于未知。' };
   });
   const allowedTargetAssetIds = [...new Set(frozen.flatMap(question => question.assetIds))]
     .filter(id => seed.assets.some(asset => asset.id === id));
@@ -81,7 +135,7 @@ export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: 
   const materials = seed.assets.map(asset => {
     const markdown = asset.markdown.slice(0, Math.min(20_000, remaining));
     remaining -= markdown.length;
-    for (const file of [asset.sourcePath, ...asset.evidencePaths]) if (readRegisteredEvidence(file) !== null) allowed.add(file);
+    for (const file of saved ? [asset.sourcePath] : [asset.sourcePath, ...asset.evidencePaths]) if (readRegisteredEvidence(file) !== null) allowed.add(file);
     return { id: asset.id, title: asset.title, publicUrl: asset.publicUrl, sourcePath: asset.sourcePath,
       summary: asset.summary, markdown, markdownIsExcerpt: Boolean(asset.markdownIsExcerpt), truncated: markdown.length !== asset.markdown.length,
       boundary: asset.markdownIsExcerpt || markdown.length !== asset.markdown.length
@@ -89,35 +143,46 @@ export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: 
         : '本地导入正文，未重新核验线上版本。' };
   });
   const categories = new Set(frozen.map(question => question.category));
-  const applicable = strategies.filter(strategy => strategy.projectId === seed.project.id && strategy.protocolKey === workflow?.protocolKey
+  const applicable = selectStrategies(task, strategies, seed.project.id).filter(strategy => strategy.projectId === seed.project.id && strategy.protocolKey === workflow?.protocolKey
     && allowedTargetAssetIds.includes(strategy.targetAssetId) && strategy.categories.some(category => categories.has(category)));
-  const evidenceReady = Boolean(baseline && baseline.mode === 'live' && baseline.status === 'completed' && frozen.length
+  const hasTargetMaterial = materials.some(material => allowedTargetAssetIds.includes(material.id) && material.publicUrl && material.markdown.trim());
+  const savedSourceMatches = !research?.sourceUrl || questions.some(question => question.sources.some(source => source.url === research.sourceUrl));
+  const evidenceReady = saved ? Boolean(savedMatches && savedEvidence?.available && savedSourceMatches && questions.every(question => question.rawAvailable) && hasTargetMaterial) : Boolean(baseline && baseline.mode === 'live' && baseline.status === 'completed' && frozen.length
     && baseline.protocolKey === workflow?.protocolKey && baseline.phase === 'baseline'
     && baseline.questions.length === frozen.length && baseline.completedCount === frozen.length
     && questions.every(question => question.rawAvailable));
   return { goal: task.goal, project: seed.project, protocolKey: workflow?.protocolKey ?? null,
     baseline: baseline ? { id: baseline.id, mode: baseline.mode, status: baseline.status, measurementAt: baseline.measurementAt } : null,
+    ...(saved && savedEvidence ? { savedResearch: { engine: saved.engine, language: saved.language, recordedAt: saved.recordedAt,
+      conditions: saved.conditions, entryType: saved.entryType || (saved.engine === 'chatgpt' ? 'web_answer' : 'api_search'),
+      evidencePath: savedEvidence.evidencePath, captureNotes: savedEvidence.captureNotes, boundary: savedEvidence.boundary } } : {}),
     questions, materials, strategies: applicable, allowedEvidencePaths: [...allowed], allowedTargetAssetIds,
-    evidenceReady, limitations: ['网页搜索返回不等于 AI 回答引用；未命中不证明没有收录。',
+    evidenceReady, limitations: [saved ? savedEvidence?.boundary || '保存证据尚未核验。' : workflow?.collection?.metric === 'answer_target_citation' ? '只观察本轮 API 联网回答及原生引用，不代表消费者 App。搜索来源不等于引用，引用也不自动证明支持相关论断。' : '网页搜索返回不等于 AI 回答引用；未命中不证明没有收录。',
       '生成与审核使用同一配置模型的独立上下文；通过不等于独立事实证明或外部效果验证。',
       '相似策略来自观察性结果，只能帮助提出假设，不能证明本次有效。',
-      ...(!evidenceReady ? ['尚无与冻结题单匹配、原始证据完整的真实搜索基线，不能交付通过质量门槛的方案。'] : [])] };
+      ...(saved ? [
+        ...(!savedMatches ? ['保存观测与任务的项目、原题、语言或入口不匹配，或混入新采集基线；停止改稿。'] : []),
+        ...(savedEvidence?.error ? [savedEvidence.error] : []),
+        ...(!savedSourceMatches ? ['所选来源不在已读取的原始记录中，停止内容比较。'] : []),
+        ...(!hasTargetMaterial ? ['没有本题可修改的自有材料正文与公开地址。'] : []),
+        '保存时间和条件不是本次生成时间；临时聊天链接未重开，来源全文未重新读取，未提供内容不能判为不存在。',
+      ] : !evidenceReady ? ['尚无与冻结题单匹配、原始证据完整的真实搜索基线，不能交付通过质量门槛的方案。'] : [])] };
 }
 
 export function localDiagnosis(context: DiagnosisContext): GeoDiagnosis {
-  return { summary: context.evidenceReady ? '真实基线与原始返回已读取，尚待模型解释差异和原因。' : '当前只能预览本地材料；需要完整真实基线及审核配置。',
+  return { summary: context.evidenceReady ? context.savedResearch ? '已保存的原始回答或搜索片段已读取，尚待内容比较与独立审核。' : '真实基线与原始返回已读取，尚待模型解释差异和原因。' : '当前只能预览本地材料；需要可核验的原始证据及审核配置。',
     findings: context.questions.map(question => ({ id: question.id,
-      observation: question.rawAvailable ? `原始返回包含 ${question.resultCount} 条结果，已提供 ${question.suppliedSourceCount} 条来源片段。` : '原始搜索证据未读取或无效。',
+      observation: question.rawAvailable ? question.savedAnswer ? '已读取原采集记录的可见回答正文；完整性和来源边界以原记录为准。' : `原始返回包含 ${question.resultCount} 条结果，已提供 ${question.suppliedSourceCount} 条来源片段。` : '原始搜索证据未读取或无效。',
       hypothesis: '未进行原因判断。', evidencePaths: question.rawAvailable ? [question.evidencePath] : [],
       uncertainty: '结果数量不代表来源质量；是否值得修改仍未审核。' })), comparisons: [],
-    recommendedAction: context.evidenceReady ? '配置诊断与审核模型后核对差异，再决定是否修改。' : '先取得本题单的完整真实基线，再形成诊断。',
+    recommendedAction: context.evidenceReady ? '配置诊断与审核模型后核对差异，再决定是否修改。' : '先补齐本题原始证据，再形成诊断。',
     limitations: context.limitations, source: 'local', createdAt: new Date().toISOString() };
 }
 
 export function validateDiagnosis(diagnosis: GeoDiagnosis, context: DiagnosisContext): QualityIssue[] {
   const issues: QualityIssue[] = [];
   const reject = (detail: string) => issues.push({ dimension: 'evidence', severity: 'blocking', detail, suggestion: '仅引用本轮真实原始返回和已提供材料；没有证据时保留未知。' });
-  if (!context.evidenceReady) reject('真实基线或原始证据不完整。');
+  if (!context.evidenceReady) reject('本题原始证据缺失、不匹配或缺少可修改材料。');
   if (!diagnosis.findings.length) reject('诊断未提供可追溯的发现。');
   const seen = new Set<string>();
   for (const finding of diagnosis.findings) {
@@ -135,6 +200,7 @@ export function validateDiagnosis(diagnosis: GeoDiagnosis, context: DiagnosisCon
 export function validateProposal(proposal: GeoProposal, seed: GeoSeed, context: DiagnosisContext): QualityIssue[] {
   const issues: QualityIssue[] = [];
   const reject = (dimension: string, detail: string, suggestion: string) => issues.push({ dimension, severity: 'blocking', detail, suggestion });
+  if (!context.evidenceReady) reject('evidence', '本题原始证据尚未满足方案要求。', '补齐匹配的原文、采集条件和目标材料后重新审核。');
   const asset = seed.assets.find(item => item.id === proposal.targetAssetId);
   if (!asset || !context.allowedTargetAssetIds.includes(proposal.targetAssetId)) reject('relevance', '目标材料不属于当前题单的承接范围。', '选择本轮问题绑定的真实材料。');
   if (!asset || proposal.targetUrl !== asset.publicUrl || !asset.publicUrl) reject('actionability', '目标地址与登记材料不一致。', '使用目标材料已登记的公开地址。');
@@ -144,7 +210,7 @@ export function validateProposal(proposal: GeoProposal, seed: GeoSeed, context: 
   if (!proposal.after.trim() || proposal.after === proposal.before) reject('actionability', '尚无具体有效的替换稿。', '提供要替换该片段的完整文字，不能只写建议。');
   if (/<\s*(script|iframe|object|embed)|\bon\w+\s*=|javascript\s*:/iu.test(proposal.after)) reject('actionability', '候选稿包含可执行或嵌入式标记。', '仅提交可审阅的正文内容，不携带脚本或事件处理器。');
   if (!proposal.evidencePaths.length || proposal.evidencePaths.some(file => !context.allowedEvidencePaths.includes(file))) reject('evidence', '方案包含未提供或不可读取的证据路径。', '只引用当前原始搜索返回和本地材料。');
-  if (!proposal.evidencePaths.some(file => context.questions.some(question => question.rawAvailable && question.evidencePath === file))) reject('evidence', '方案未引用本轮搜索基线。', '把修改原因关联到本轮观测。');
+  if (!proposal.evidencePaths.some(file => context.questions.some(question => question.rawAvailable && question.evidencePath === file))) reject('evidence', '方案未引用本题原始回答或搜索证据。', '把修改原因关联到本题观测。');
   if (!proposal.successCriteria.length || !proposal.changes.length) reject('verifiability', '修改内容或验证标准缺失。', '说明具体修改、同入口复测条件与成功/停止条件。');
   return issues;
 }

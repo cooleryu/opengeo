@@ -1,0 +1,19 @@
+{
+  "diagnose": {
+    "temperature": 0.2,
+    "maxTokens": 8000
+  },
+  "propose": {
+    "temperature": 0.2,
+    "maxTokens": 10000
+  },
+  "review": {
+    "temperature": 0,
+    "maxTokens": 6500
+  },
+  "repair": {
+    "temperature": 0.2,
+    "maxTokens": 10000
+  },
+  "defaultMaxQualityRounds": 3
+}

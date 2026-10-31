@@ -1,18 +1,22 @@
 import { createHash } from 'node:crypto';
 import type { GeoQuestion, GeoSeed } from './types';
 import type { WorkflowQuestion } from './workflow-types';
+import type { CollectionConfig } from './providers/types';
 
 export const DEEPSEEK_SEARCH_ENDPOINT = 'https://api.deepseek.com/v1/tools/search';
 export const WORKFLOW_SEARCH_PARAMETERS = { count: 50, need_content: true } as const;
 export const LEGACY_SEARCH_PARAMETERS = { count: 50, need_content: false } as const;
 
 /** A protocol identifies the actual query, target, and request parameters, not a display label. */
-export function buildSearchProtocolKey(questions: WorkflowQuestion[]): string {
+export function buildSearchProtocolKey(questions: WorkflowQuestion[], collection?: CollectionConfig): string {
   const normalized = questions.map(question => ({
     id: question.id, query: question.query, language: question.language,
     target: question.target, assetIds: [...question.assetIds].sort(),
     exploratory: question.exploratory,
   })).sort((left, right) => left.id.localeCompare(right.id));
+  if (collection && collection.provider !== 'deepseek') return `answer-v1:${createHash('sha256').update(JSON.stringify({
+    collection, matching: 'native-citation-project-descendant-or-exact-article-v1', questions: normalized,
+  })).digest('hex')}`;
   return `deepseek-search-v2:${createHash('sha256').update(JSON.stringify({
     endpoint: DEEPSEEK_SEARCH_ENDPOINT, parameters: WORKFLOW_SEARCH_PARAMETERS,
     matching: 'project-descendant-or-exact-article-v1', questions: normalized,

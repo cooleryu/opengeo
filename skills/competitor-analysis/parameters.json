@@ -1,0 +1,9 @@
+{
+  "maxRecommendations": 3,
+  "temperature": 0,
+  "maxTokens": 8000,
+  "subscriptionTimeoutMs": 720000,
+  "apiTimeoutMs": 120000,
+  "completionGraceMs": 30000,
+  "inputMaxBytes": 65536
+}

@@ -1,5 +1,7 @@
 import type { Config } from 'tailwindcss';
 import type { DefaultColors } from 'tailwindcss/types/generated/colors';
+import typography from '@tailwindcss/typography';
+import headlessUi from '@headlessui/tailwindcss';
 
 const themeDark = (colors: DefaultColors) => ({
   50: '#0d1117',
@@ -50,8 +52,8 @@ const config: Config = {
     },
   },
   plugins: [
-    require('@tailwindcss/typography'),
-    require('@headlessui/tailwindcss')({ prefix: 'headless' }),
+    typography,
+    headlessUi({ prefix: 'headless' }),
   ],
 };
 export default config;

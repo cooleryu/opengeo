@@ -7,7 +7,7 @@
     "dev": "next dev --hostname 127.0.0.1 --port 4327",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint src",
     "format:write": "prettier . --write"
   },
   "dependencies": {

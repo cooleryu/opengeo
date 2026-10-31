@@ -1,45 +1,47 @@
-import { cn } from '@/lib/utils';
-import { Loader2, ChevronDown } from 'lucide-react';
-import { SelectHTMLAttributes, forwardRef } from 'react';
+'use client';
 
-interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  options: { value: any; label: string; disabled?: boolean }[];
+import GeoSelect from '@/components/geo/GeoSelect';
+import { cn } from '@/lib/utils';
+import { forwardRef } from 'react';
+
+interface SelectProps {
+  label: string;
+  id?: string;
+  className?: string;
+  value?: string | number | null;
+  onChange: (value: string) => void;
+  options: { value: string | number; label: string; disabled?: boolean }[];
   loading?: boolean;
+  disabled?: boolean;
 }
 
-export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, options, loading = false, disabled, ...restProps }, ref) => {
+export const Select = forwardRef<HTMLButtonElement, SelectProps>(
+  (
+    { label, id, className, value, onChange, options, loading = false, disabled },
+    ref,
+  ) => {
+    const normalizedOptions = options.map((option) => ({
+      ...option,
+      value: String(option.value),
+    }));
+    const selectedValue =
+      normalizedOptions.find((option) => option.value === String(value))?.value ??
+      normalizedOptions.find((option) => !option.disabled)?.value ??
+      '';
+
     return (
-      <div
-        className={cn(
-          'relative inline-flex w-full items-center',
-          disabled && 'opacity-60',
-        )}
-      >
-        <select
-          {...restProps}
-          ref={ref}
-          disabled={disabled || loading}
-          className={cn(
-            'bg-light-secondary dark:bg-dark-secondary px-3 py-2 flex items-center overflow-hidden border border-light-200 dark:border-dark-200 dark:text-white rounded-lg appearance-none w-full pr-10 text-xs lg:text-sm',
-            className,
-          )}
-        >
-          {options.map(({ label, value, disabled: optionDisabled }) => {
-            return (
-              <option key={value} value={value} disabled={optionDisabled}>
-                {label}
-              </option>
-            );
-          })}
-        </select>
-        <span className="pointer-events-none absolute right-3 flex h-4 w-4 items-center justify-center text-black/50 dark:text-white/60">
-          {loading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <ChevronDown className="h-4 w-4" />
-          )}
-        </span>
+      <div className="relative inline-flex w-full items-center">
+        <GeoSelect
+          label={label}
+          id={id}
+          buttonRef={ref}
+          value={selectedValue}
+          onChange={onChange}
+          options={normalizedOptions}
+          loading={loading}
+          disabled={disabled}
+          className={cn('!text-xs lg:!text-sm', className)}
+        />
       </div>
     );
   },

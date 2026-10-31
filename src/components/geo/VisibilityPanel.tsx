@@ -1,21 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  ArrowRight,
-  ArrowUpRight,
-  Check,
-  ChevronDown,
-  FileText,
-  Search,
-} from 'lucide-react';
-import type { GeoAsset, GeoState } from '@/lib/geo/types';
+import { ArrowRight, ArrowUpRight, ChevronDown, FileText } from 'lucide-react';
+import type { GeoAsset, GeoQuestion, GeoState } from '@/lib/geo/types';
 import type {
   GeoProviderId,
   GeoVisibility,
   GeoVisibilityQuestion,
   GeoVisibilityResult,
 } from '@/lib/geo/visibility-types';
+import GeoSelect from './GeoSelect';
+import { getTaskWorkspaceGroups } from './TaskWorkspace';
+import './overview-pages.css';
 
 type ProviderFilter = 'all' | GeoProviderId;
 type Props = {
@@ -37,26 +33,21 @@ function dateLabel(value: string | null) {
 }
 function resultLabel(result: GeoVisibilityResult) {
   if (result.status === 'unmeasured') return '未测';
-  if (result.status === 'not_found') return '未找到';
+  if (result.status === 'not_found')
+    return result.metric === 'answer_target_citation'
+      ? '未引用目标'
+      : '未找到项目';
   const ranked = result.sources.find(
     (source) => source.attribution === 'web_result' && source.position !== null,
   );
-  if (ranked) return `第 ${ranked.position} 条结果`;
-  if (result.sources.some((source) => source.attribution === 'citation'))
-    return `引用 ${result.sources.length} 页`;
-  if (result.sources.length) return `列出 ${result.sources.length} 个链接`;
-  return '已找到';
-}
-function resultHeadline(result: GeoVisibilityResult, label: string) {
-  if (result.status === 'unmeasured') return `${label} 还没有测过这个问题`;
-  if (result.status === 'not_found') return `${label} 本次没有找到你的项目`;
-  const ranked = result.sources.find(
-    (source) => source.attribution === 'web_result' && source.position !== null,
+  if (ranked) return `网页第 ${ranked.position} 条`;
+  const citations = result.sources.filter(
+    (source) => source.attribution === 'citation',
   );
-  if (ranked) return `${label} 本次第 ${ranked.position} 条结果是你的项目`;
-  if (result.sources.some((source) => source.attribution === 'citation'))
-    return `${label} 已识别并引用你的项目`;
-  return `${label} 已识别你的项目，并列出了链接`;
+  if (citations.length) return `引用 ${citations.length} 页`;
+  return result.sources.length
+    ? `列出 ${result.sources.length} 个链接`
+    : '已找到';
 }
 function domainLabel(url: string) {
   try {
@@ -65,15 +56,159 @@ function domainLabel(url: string) {
     return url;
   }
 }
+function savedQuestion(
+  data: GeoState,
+  result: GeoVisibilityResult,
+): GeoQuestion | undefined {
+  if (!result.evidencePath) return undefined;
+  const records = [
+    ...data.questions,
+    ...data.tasks.flatMap((task) => [
+      ...task.runs.flatMap((run) => run.questions),
+      ...(task.workflow?.baseline?.questions ?? []),
+      ...(task.workflowHistory ?? []).flatMap(
+        (workflow) => workflow.baseline?.questions ?? [],
+      ),
+    ]),
+  ];
+  const matches = records.filter(
+    (question) =>
+      question.evidencePath === result.evidencePath &&
+      question.query === result.query,
+  );
+  return matches.find((question) => question.answer?.text.trim()) ?? matches[0];
+}
 
-function QuestionResult({
+function ProviderRecord({
+  result,
+  provider,
+  data,
+  onAsset,
+  onEvidence,
+}: {
+  result: GeoVisibilityResult;
+  provider: GeoVisibility['providers'][number];
+  data: GeoState;
+  onAsset: Props['onAsset'];
+  onEvidence: Props['onEvidence'];
+}) {
+  const saved = savedQuestion(data, result);
+  const answer = saved?.answer;
+  const excerpt = answer?.text.trim();
+  const extraSources = (answer?.citations ?? saved?.topSources ?? []).filter(
+    (source, index, sources) =>
+      !result.sources.some((target) => target.url === source.url) &&
+      sources.findIndex((other) => other.url === source.url) === index,
+  );
+  return (
+    <article className="ov-platform-card">
+      <header className="ov-platform-heading">
+        <span className={`ov-platform-mark ${provider.id}`} aria-hidden="true">
+          {provider.label.slice(0, 1)}
+        </span>
+        <h3>{provider.label}</h3>
+        <span className={`ov-record-status ${result.status}`}>
+          {resultLabel(result)}
+        </span>
+      </header>
+      <p className="ov-record-meta">
+        {provider.kind === 'answer' ? 'AI 回答' : '网页搜索'}
+        {result.mode ? ` · ${result.mode}` : ''} ·{' '}
+        {dateLabel(result.recordedAt)}
+      </p>
+      <p className="ov-record-summary">{result.summary}</p>
+      {excerpt && (
+        <p className="ov-answer-excerpt">
+          {excerpt.length > 240 ? `${excerpt.slice(0, 240)}…` : excerpt}
+        </p>
+      )}
+      {result.sources.length > 0 && (
+        <div className="ov-source-links">
+          {result.sources.map((source, sourceIndex) => {
+            const asset = data.assets.find(
+              (item) => item.id === source.assetId,
+            );
+            return (
+              <div key={`${source.url}-${source.attribution}-${sourceIndex}`}>
+                <a href={source.url} target="_blank" rel="noreferrer">
+                  {source.title} <ArrowUpRight size={14} />
+                </a>
+                <small>
+                  {domainLabel(source.url)} ·{' '}
+                  {source.attribution === 'citation'
+                    ? '回答引用'
+                    : source.attribution === 'web_result'
+                      ? `网页结果${source.position ? `第 ${source.position} 条` : ''}`
+                      : '回答中的链接'}
+                </small>
+                {asset && (
+                  <button
+                    type="button"
+                    className="ov-source-read"
+                    onClick={() => onAsset(asset)}
+                  >
+                    阅读已有正文
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {extraSources.length > 0 && (
+        <div className="ov-other-sources">
+          <span>{answer ? '回答还引用了' : '搜索返回的其他页面'}</span>
+          {extraSources.slice(0, 3).map((source) => (
+            <a
+              key={source.url}
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {source.title || domainLabel(source.url)}{' '}
+              <ArrowUpRight size={13} />
+            </a>
+          ))}
+        </div>
+      )}
+      <details className="ov-record-details">
+        <summary>
+          原始问法与证据 <ChevronDown size={14} />
+        </summary>
+        <div>
+          {result.query && <p className="ov-exact-query">{result.query}</p>}
+          {result.caveat && <p>{result.caveat}</p>}
+          {result.sampleCount > 0 && <p>{result.sampleCount} 次已完成测量</p>}
+          {result.evidencePath && (
+            <button
+              type="button"
+              className="og-text-button"
+              onClick={() => onEvidence(result.evidencePath!)}
+            >
+              查看原始证据 <ArrowRight size={13} />
+            </button>
+          )}
+        </div>
+      </details>
+      {excerpt && (
+        <details className="ov-record-details">
+          <summary>
+            完整回答 <ChevronDown size={14} />
+          </summary>
+          <div className="ov-full-answer">{excerpt}</div>
+        </details>
+      )}
+    </article>
+  );
+}
+
+function QuestionResults({
   question,
   visibility,
   filter,
   data,
   onAsset,
   onEvidence,
-  featured = false,
 }: {
   question: GeoVisibilityQuestion;
   visibility: GeoVisibility;
@@ -81,193 +216,79 @@ function QuestionResult({
   data: GeoState;
   onAsset: Props['onAsset'];
   onEvidence: Props['onEvidence'];
-  featured?: boolean;
 }) {
-  const [selected, setSelected] = useState<GeoProviderId>(
-    () =>
-      visibility.providers.find((provider) =>
-        question.results.some(
-          (result) =>
-            result.providerId === provider.id &&
-            result.status !== 'unmeasured',
-        ),
-      )?.id ?? 'chatgpt',
-  );
   const providers = visibility.providers.filter(
     (provider) => filter === 'all' || provider.id === filter,
   );
-  const activeId = filter === 'all' ? selected : filter;
-  const result =
-    question.results.find((item) => item.providerId === activeId) ??
-    question.results[0];
-  const activeProvider = visibility.providers.find(
-    (provider) => provider.id === result?.providerId,
+  const measured = providers.flatMap((provider) =>
+    question.results
+      .filter(
+        (result) =>
+          result.providerId === provider.id && result.status !== 'unmeasured',
+      )
+      .map((result) => ({ provider, result })),
   );
-  if (!result || !activeProvider) return null;
+  const unmeasured = providers.filter(
+    (provider) =>
+      !question.results.some(
+        (result) =>
+          result.providerId === provider.id && result.status !== 'unmeasured',
+      ),
+  );
   const related = data.assets.filter((asset) =>
     question.relatedAssetIds.includes(asset.id),
   );
-  const hasCitations = result.sources.some(
-    (source) => source.attribution === 'citation',
-  );
-
   return (
-    <section
-      className={`og-question-result ${featured ? 'featured' : ''}`}
-      aria-label={question.title}
-    >
-      {featured && (
-        <header className="og-question-result-heading">
-          <span className="og-eyebrow">品牌问题 · 已知道项目名字</span>
-          <h2>{resultHeadline(result, activeProvider.label)}</h2>
-          <p>{question.title}</p>
-        </header>
-      )}
-      <div className="og-provider-tabs" aria-label="查看这个问题的不同入口">
-        {providers.map((provider) => {
-          const item = question.results.find(
-            (entry) => entry.providerId === provider.id,
-          );
-          if (!item) return null;
-          return (
-            <button
-              key={provider.id}
-              type="button"
-              className={result.providerId === provider.id ? 'active' : ''}
-              aria-pressed={result.providerId === provider.id}
-              onClick={() => setSelected(provider.id)}
-            >
-              <span className="og-provider-name">{provider.label}</span>
-              <span className={`og-provider-status ${item.status}`}>
-                {item.status === 'found' && <Check size={12} />}
-                {resultLabel(item)}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="og-provider-result" key={result.providerId}>
-        <div className="og-provider-result-meta">
-          <span>
-            {activeProvider.kind === 'answer' ? 'AI 回答' : '网页搜索'}
-            {result.mode ? ` · ${result.mode}` : ''}
-          </span>
-          <span>
-            {result.recordedAt
-              ? `${dateLabel(result.recordedAt)} 记录`
-              : '尚无记录'}
-          </span>
+    <>
+      {measured.length > 0 ? (
+        <div className="ov-platform-grid">
+          {measured.map(({ provider, result }, index) => (
+            <ProviderRecord
+              key={`${provider.id}-${result.recordedAt}-${index}`}
+              provider={provider}
+              result={result}
+              data={data}
+              onAsset={onAsset}
+              onEvidence={onEvidence}
+            />
+          ))}
         </div>
-        {!featured && (
-          <h3 className={result.status === 'found' ? 'found' : ''}>
-            {resultHeadline(result, activeProvider.label)}
-          </h3>
-        )}
-        <p className="og-result-summary">{result.summary}</p>
-        {result.sources.length > 0 ? (
-          <div className="og-result-sources">
-            <p className="og-source-caption">
-              {activeProvider.kind === 'web'
-                ? '找到的项目页面'
-                : hasCitations
-                  ? '回答中引用的页面'
-                  : '回答中列出的项目链接'}
-              <span>{result.sources.length}</span>
-            </p>
-            <div className="og-source-list">
-              {result.sources.map((source) => {
-                const asset = data.assets.find(
-                  (item) => item.id === source.assetId,
-                );
-                return (
-                  <div className="og-source-item" key={source.url}>
-                    <a href={source.url} target="_blank" rel="noreferrer">
-                      <span className="og-source-symbol">
-                        <FileText size={19} />
-                      </span>
-                      <span className="og-source-copy">
-                        <strong>{source.title}</strong>
-                        <small>
-                          {domainLabel(source.url)}
-                          {source.attribution === 'web_result' &&
-                          source.position !== null
-                            ? ` · 本次第 ${source.position} 条网页结果`
-                            : source.attribution === 'citation'
-                              ? ' · 回答引用'
-                              : ' · 回答所列链接'}
-                        </small>
-                      </span>
-                      <ArrowUpRight size={16} />
-                    </a>
-                    {asset && (
-                      <button
-                        type="button"
-                        className="og-text-button og-source-read"
-                        onClick={() => onAsset(asset)}
-                      >
-                        阅读已有正文
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <div className="og-result-empty">
-            <Search size={18} />
-            <span>
-              {result.status === 'unmeasured'
-                ? '还没有这次回答，暂时无法判断能否找到。'
-                : typeof result.searchResultCount === 'number'
-                  ? `本次返回 ${result.searchResultCount} 条网页结果，其中没有项目链接。`
-                  : '这次结果里没有匹配到项目页面。'}
-            </span>
-          </div>
-        )}
-        <details className="og-result-details">
+      ) : (
+        <p className="ov-empty-record">这个问题还没有可读取的测量记录。</p>
+      )}
+      {unmeasured.length > 0 && (
+        <p className="ov-unmeasured">
+          {unmeasured
+            .map((provider) => {
+              const result = question.results.find(
+                (entry) => entry.providerId === provider.id,
+              );
+              return `${provider.label}：${result?.summary.includes('无法读取') ? '记录不可读取' : '未测'}`;
+            })
+            .join(' · ')}
+        </p>
+      )}
+      {related.length > 0 && (
+        <details className="ov-related">
           <summary>
-            <span>原始提问与测量说明</span>
-            <ChevronDown size={14} />
+            相关已有内容 <ChevronDown size={14} />
           </summary>
           <div>
-            {result.query && (
-              <>
-                <span className="og-eyebrow">原始提问</span>
-                <p className="og-exact-query">{result.query}</p>
-              </>
-            )}
-            <p>{result.caveat}</p>
-            {result.sampleCount > 0 && (
-              <p>本条记录包含 {result.sampleCount} 次完成的测量。</p>
-            )}
-            {result.evidencePath && (
+            {related.map((asset) => (
               <button
+                key={asset.id}
                 type="button"
-                className="og-text-button"
-                onClick={() => onEvidence(result.evidencePath!)}
+                onClick={() => onAsset(asset)}
               >
-                查看本次证据 <ArrowRight size={13} />
+                <FileText size={14} />
+                {asset.title}
+                <ArrowUpRight size={13} />
               </button>
-            )}
-            {related.length > 0 && (
-              <div className="og-question-related">
-                <span>相关已有内容</span>
-                {related.map((asset) => (
-                  <button
-                    type="button"
-                    key={asset.id}
-                    onClick={() => onAsset(asset)}
-                  >
-                    {asset.title} <ArrowUpRight size={12} />
-                  </button>
-                ))}
-              </div>
-            )}
+            ))}
           </div>
         </details>
-      </div>
-    </section>
+      )}
+    </>
   );
 }
 
@@ -280,140 +301,206 @@ export default function VisibilityPanel({
 }: Props) {
   const [filter, setFilter] = useState<ProviderFilter>('all');
   const visibility = data.visibility;
-  if (!visibility?.questions.length)
-    return <div className="og-loading">正在整理各入口的测量结果…</div>;
-  const featured = visibility.questions[0];
-  const otherQuestions = visibility.questions.slice(1);
-  const activeLabel =
-    visibility.providers.find((provider) => provider.id === filter)?.label ??
-    '各入口';
-  const otherMeasured = otherQuestions.filter((question) =>
-    question.results.some(
-      (result) =>
-        (filter === 'all' || result.providerId === filter) &&
-        result.status !== 'unmeasured',
+  const selected = data.questionPlan.candidates.filter(
+    (candidate) =>
+      candidate.selected && candidate.review.decision !== 'exclude',
+  );
+  const suggested = selected.length
+    ? selected
+    : data.questionPlan.candidates.filter(
+        (candidate) => candidate.review.decision === 'include',
+      );
+  const ready = data.questionPlan.status === 'ready';
+  const representativeQuestions = suggested.filter(
+    (candidate, index) =>
+      suggested.findIndex((other) => other.category === candidate.category) ===
+      index,
+  );
+  const shownQuestions = [
+    ...representativeQuestions,
+    ...suggested.filter(
+      (candidate) => !representativeQuestions.includes(candidate),
     ),
-  ).length;
+  ].slice(0, 3);
+  const featured =
+    visibility?.questions.find((question) => question.kind === 'brand') ??
+    visibility?.questions[0];
+  const otherQuestions =
+    visibility?.questions.filter((question) => question !== featured) ?? [];
+  const groups = getTaskWorkspaceGroups(data.tasks);
 
   return (
-    <div className="og-multisearch">
-      <header className="og-page-heading og-search-heading">
+    <div className="ov-page">
+      <header className="og-page-heading">
         <div>
-          <span className="og-eyebrow">ContextAdapt</span>
-          <h1>当前可见性</h1>
+          <h1>项目概览</h1>
         </div>
-        <label className="og-provider-filter">
-          <span>搜索入口</span>
-          <span className="og-provider-select-wrap">
-            <select
-              aria-label="筛选搜索入口"
-              value={filter}
-              onChange={(event) =>
-                setFilter(event.target.value as ProviderFilter)
-              }
-            >
-              <option value="all">全部入口</option>
-              {visibility.providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={14} />
-          </span>
-        </label>
       </header>
-      <div className="og-question-entry">
+      <section className="ov-next-action">
         <div>
-          <strong>先确定搜什么</strong>
-          <p>{data.questionPlan.candidates.length} 道候选 · {data.questionPlan.candidates.filter(item => item.selected).length} 道已选 · {data.questionPlan.status === 'ready' ? '题单已确认，尚未采集' : '待确认'}</p>
-        </div>
-        <button className="og-button secondary" onClick={onQuestions}>
-          审阅题单 <ArrowRight size={15} />
-        </button>
-      </div>
-      <QuestionResult
-        key={`${featured.id}-${filter}`}
-        question={featured}
-        visibility={visibility}
-        filter={filter}
-        data={data}
-        onAsset={onAsset}
-        onEvidence={onEvidence}
-        featured
-      />
-      <p className="og-search-scope">
-        这是品牌提问下的结果；还不能代表用户不提项目名时也能找到。默认顺序为
-        ChatGPT、Google、Gemini、DeepSeek。
-      </p>
-      <details className="og-other-questions" key={filter}>
-        <summary>
-          <div>
-            <strong>其他问题的结果</strong>
-            <p>
-              {otherQuestions.length} 条问法 ·{' '}
-              {filter === 'all'
-                ? '目前仅 DeepSeek 有测量记录'
-                : `${activeLabel} 已测 ${otherMeasured} 条`}
-            </p>
-          </div>
-          <span>
-            展开 <ChevronDown size={15} />
-          </span>
-        </summary>
-        <div className="og-other-question-list">
-          <p className="og-query-set-note">
-            原题单含同一问题的中英文版本，场景问法仍待完善。未测显示“未测”。
+          {data.questionPlan.candidates.length > 0 && (
+            <span className="ov-action-state">
+              {ready ? '题单已确认' : '待你确认'}
+            </span>
+          )}
+          <h2>
+            {ready
+              ? `已选好 ${selected.length} 个问题`
+              : data.questionPlan.candidates.length
+                ? '确认要搜索的问题'
+                : '整理值得搜索的问题'}
+          </h2>
+          <p>
+            {ready
+              ? '查看已选问题，再选择本轮搜索方式。'
+              : `用户会怎样提问，才能找到 ${data.project.name}？`}
           </p>
-          {otherQuestions.map((question) => (
-            <details className="og-question-row" key={question.id}>
-              <summary>
-                <div className="og-question-row-title">
-                  <span>{question.kind === 'brand' ? '品牌' : '场景'}</span>
-                  <strong>{question.title}</strong>
-                </div>
-                <div className="og-question-row-statuses">
-                  {visibility.providers
-                    .filter(
-                      (provider) => filter === 'all' || provider.id === filter,
-                    )
-                    .map((provider) => {
-                      const result = question.results.find(
-                        (entry) => entry.providerId === provider.id,
-                      );
-                      return result ? (
-                        <span key={provider.id}>
-                          {provider.label}
-                          <em className={result.status}>
-                            {resultLabel(result)}
-                          </em>
-                        </span>
-                      ) : null;
-                    })}
-                </div>
-                <ChevronDown size={15} />
-              </summary>
-              <QuestionResult
-                question={question}
-                visibility={visibility}
-                filter={filter}
-                data={data}
-                onAsset={onAsset}
-                onEvidence={onEvidence}
+          <div className="ov-next-actions">
+            <button
+              type="button"
+              className="og-button primary"
+              onClick={onQuestions}
+            >
+              {ready
+                ? '查看已选问题'
+                : suggested.length
+                  ? `审阅 ${suggested.length} 个${selected.length ? '已选' : '候选'}问题`
+                  : '整理搜索题单'}{' '}
+              <ArrowRight size={15} />
+            </button>
+            {ready && (
+              <button type="button" className="og-text-button" onClick={onTask}>
+                {groups.tasks.length ? '继续现有任务' : '创建搜索任务'}{' '}
+                <ArrowRight size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+        {suggested.length > 0 ? (
+          <ol className="ov-next-questions">
+            {shownQuestions.map((candidate) => (
+              <li key={candidate.id}>{candidate.query}</li>
+            ))}
+            {suggested.length > 3 && (
+              <li className="ov-next-more">
+                <button type="button" onClick={onQuestions}>
+                  另有 {suggested.length - 3} 个问题 <ArrowRight size={13} />
+                </button>
+              </li>
+            )}
+          </ol>
+        ) : null}
+      </section>
+      {featured && visibility ? (
+        <section className="ov-platform-section">
+          <header className="ov-section-heading">
+            <div>
+              <h2>平台回答与来源</h2>
+              <p>{featured.title}</p>
+            </div>
+            <div className="ov-provider-filter">
+              <span>搜索入口</span>
+              <GeoSelect<ProviderFilter>
+                label="筛选搜索入口"
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  { value: 'all', label: '全部入口' },
+                  ...visibility.providers.map((provider) => ({
+                    value: provider.id,
+                    label: provider.label,
+                  })),
+                ]}
               />
-            </details>
-          ))}
-        </div>
-      </details>
-      <div className="og-search-next">
-        <div>
-          <strong>已有改进任务</strong>
-          <p>继续查看已保存的方案与观察记录。</p>
-        </div>
-        <button type="button" className="og-text-button" onClick={onTask}>
-          查看改进任务 <ArrowRight size={14} />
-        </button>
-      </div>
+            </div>
+          </header>
+          <QuestionResults
+            question={featured}
+            visibility={visibility}
+            filter={filter}
+            data={data}
+            onAsset={onAsset}
+            onEvidence={onEvidence}
+          />
+          {featured.kind === 'brand' && (
+            <p className="ov-scope-note">
+              品牌提问下的记录，不能代表不提项目名时也能被找到。各入口、问法与测量日期分别保留。
+            </p>
+          )}
+        </section>
+      ) : (
+        <section className="ov-empty">
+          <h2>尚无平台回答</h2>
+          <p>确认题单并完成搜索后，这里会显示已保存的回答和来源。</p>
+        </section>
+      )}
+      {otherQuestions.length > 0 && visibility && (
+        <section className="ov-saved-records">
+          <header className="ov-section-heading">
+            <h2>其他问题的记录</h2>
+            <span>{otherQuestions.length} 条问法</span>
+          </header>
+          <div className="ov-question-list">
+            {otherQuestions.map((question) => (
+              <details
+                className="ov-question-record"
+                key={question.id}
+                open={question.results.some(
+                  (result) =>
+                    ['qwen', 'doubao'].includes(result.providerId) &&
+                    result.status !== 'unmeasured',
+                )}
+              >
+                <summary>
+                  <div>
+                    <h3>{question.title}</h3>
+                    <div className="ov-question-statuses">
+                      {visibility.providers
+                        .filter(
+                          (provider) =>
+                            filter === 'all' || provider.id === filter,
+                        )
+                        .map((provider) => {
+                          const result = question.results.find(
+                            (item) => item.providerId === provider.id,
+                          );
+                          return (
+                            <span key={provider.id}>
+                              {provider.label}
+                              <em className={result?.status ?? 'unmeasured'}>
+                                {result ? resultLabel(result) : '未测'}
+                              </em>
+                            </span>
+                          );
+                        })}
+                    </div>
+                  </div>
+                  <ChevronDown size={17} />
+                </summary>
+                <div className="ov-question-record-body">
+                  <QuestionResults
+                    question={question}
+                    visibility={visibility}
+                    filter={filter}
+                    data={data}
+                    onAsset={onAsset}
+                    onEvidence={onEvidence}
+                  />
+                </div>
+              </details>
+            ))}
+          </div>
+        </section>
+      )}
+      {groups.tasks.length > 0 && (
+        <footer className="ov-task-entry">
+          {groups.tasks.length > 0 && (
+            <button type="button" className="og-text-button" onClick={onTask}>
+              {groups.tasks.length} 项改进任务 <ArrowRight size={14} />
+            </button>
+          )}
+        </footer>
+      )}
     </div>
   );
 }

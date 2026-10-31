@@ -1,6 +1,6 @@
 # OpenGEO 选题场景路由
 
-当前交付是场景规范与一份项目内 Skill 文档；尚未接入应用路由，也未安装为个人全局 Skill。
+当前交付包括场景规范、项目内 Skill 和开源仓库场景的独立可执行 Workflow；尚未接入应用路由，也未安装为个人全局 Skill。独立运行方式见 [Workflow 说明](repository-topic-discovery/references/workflow.md)。
 
 用户提供一个入口即可。路由负责读取入口、形成临时场景判断、选择相应 Skill；不要求用户先准备产品分析、目标人群、内容清单或真实需求报告。
 

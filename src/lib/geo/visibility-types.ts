@@ -1,4 +1,10 @@
-export type GeoProviderId = 'chatgpt' | 'google' | 'gemini' | 'deepseek';
+export type GeoProviderId =
+  | 'chatgpt'
+  | 'google'
+  | 'gemini'
+  | 'deepseek'
+  | 'doubao'
+  | 'qwen';
 
 export interface GeoVisibilitySource {
   title: string;
@@ -20,6 +26,7 @@ export interface GeoVisibilityResult {
   mode?: string;
   caveat: string;
   searchResultCount?: number;
+  metric?: 'answer_target_citation';
 }
 
 export interface GeoVisibilityQuestion {

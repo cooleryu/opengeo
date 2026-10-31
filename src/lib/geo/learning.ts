@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { GeoRun, GeoTask } from './types';
 import type { GeoOutcome, StrategyMemory } from './workflow-types';
 import { buildSearchProtocolKey } from './search-protocol';
+import { validateImplementationDate } from './implementation';
 
 const time = (value: string) => Date.parse(value);
 const unique = (values: string[]) => [...new Set(values.filter(Boolean))];
@@ -10,14 +11,14 @@ const sameStrings = (left: string[], right: string[]) => JSON.stringify([...left
 function completeComparableRun(task: GeoTask, run: GeoRun, phase: 'baseline' | 'followup'): boolean {
   const workflow = task.workflow;
   if (!workflow || !workflow.questions.length || run.mode !== 'live' || run.status !== 'completed' || run.error || run.phase !== phase ||
-      !run.protocolKey || run.protocolKey !== workflow.protocolKey || workflow.protocolKey !== buildSearchProtocolKey(workflow.questions) ||
+      !run.protocolKey || run.protocolKey !== workflow.protocolKey || workflow.protocolKey !== buildSearchProtocolKey(workflow.questions, workflow.collection) ||
       run.queryCount !== workflow.questions.length || run.completedCount !== workflow.questions.length || run.questions.length !== workflow.questions.length ||
       new Set(run.questions.map(question => question.id)).size !== workflow.questions.length ||
       run.hitCount !== run.questions.filter(question => question.projectHit).length || !Number.isFinite(time(run.at)) || !Number.isFinite(time(run.measurementAt)) ||
       !run.completedAt || !Number.isFinite(time(run.completedAt)) || time(run.completedAt) < time(run.at) ||
       time(run.measurementAt) < time(run.at) || time(run.measurementAt) > time(run.completedAt)) return false;
   return workflow.questions.every(question => run.questions.some(result => result.id === question.id && result.query === question.query &&
-    result.language === question.language && result.provider === 'DeepSeek Search API' && Boolean(result.evidencePath) &&
+    result.language === question.language && result.provider === (workflow.collection?.label || 'DeepSeek Search API') && (workflow.collection?.metric !== 'answer_target_citation' || (result.answer?.searchPerformed === true && result.aiCited === result.projectHit && result.rank === null)) && Boolean(result.evidencePath) &&
     Number.isFinite(time(result.measurementAt)) && time(result.measurementAt) >= time(run.at) && time(result.measurementAt) <= time(run.completedAt!) &&
     sameStrings(result.matchingAssetIds || [], question.assetIds)));
 }
@@ -34,8 +35,9 @@ export function evaluateOutcome(task: GeoTask): GeoOutcome {
   const workflow = task.workflow;
   const baseline = workflow?.baseline;
   const implementation = task.implementation;
-  const limits = ['仅比较同一搜索 API、冻结题单和参数下的返回结果；不代表 ChatGPT、Gemini 或其他平台。',
-    '搜索命中变化属于观察关联，无法排除自然波动、索引延迟和同期变化，不能证明因果；AI 原生引用仍未测。'];
+  const answerMetric = workflow?.collection?.metric === 'answer_target_citation';
+  const limits = ['仅比较同一 API、模型、冻结题单和参数下的返回结果，不代表消费者 App 或其他平台。',
+    answerMetric ? '原生目标引用率变化属于观察关联，不证明引用内容支持相关论断或措施的因果效果。' : '搜索命中变化属于观察关联，无法排除自然波动、索引延迟和同期变化，不能证明因果；AI 原生引用仍未测。'];
   const result: GeoOutcome = {
     classification: 'inconclusive', summary: '还没有足够的可比真实观测，暂不能判断措施效果。', evaluatedAt: new Date().toISOString(),
     baselineRunId: baseline?.id || null, followupRunIds: [], beforeRate: null, afterRate: null,
@@ -50,8 +52,13 @@ export function evaluateOutcome(task: GeoTask): GeoOutcome {
     result.limitations.push('尚未确认当前方案版本的真实实施；演练或旧方案实施不能作为本次措施效果依据。');
     return result;
   }
+  let implementedAt: number;
+  try { implementedAt = time(validateImplementationDate(implementation.occurredAt, implementation.at)); }
+  catch {
+    result.limitations.push('实际实施时间缺失或无效；登记时间不能代替实际实施时间，旧记录需补充真实日期后才能比较。');
+    return result;
+  }
   const frozenAt = time(workflow.frozenAt);
-  const implementedAt = time(implementation.at);
   if (!Number.isFinite(frozenAt) || runTimes(baseline).some(at => at < frozenAt || at >= implementedAt)) {
     result.limitations.push('基线必须在题单冻结之后、实际实施之前完成；现有时间记录不满足比较条件。');
     return result;
@@ -71,24 +78,29 @@ export function evaluateOutcome(task: GeoTask): GeoOutcome {
   const delta = result.afterRate - result.beforeRate;
   result.classification = Math.abs(delta) < 1e-12 ? 'unchanged' : delta > 0 ? 'improved' : 'worse';
   const label = { improved: '上升', unchanged: '未变化', worse: '下降' }[result.classification];
-  result.summary = `同协议真实搜索命中率由 ${(result.beforeRate * 100).toFixed(1)}% 到 ${(result.afterRate * 100).toFixed(1)}%，观察到${label}（${followups.length} 轮实施后复测）。这不是因果结论。`;
+  result.summary = `同协议${answerMetric ? '回答目标引用率' : '真实搜索命中率'}由 ${(result.beforeRate * 100).toFixed(1)}% 到 ${(result.afterRate * 100).toFixed(1)}%，观察到${label}（${followups.length} 轮实施后复测）。这不是因果结论。`;
   result.limitations.push(`采用 ${followups.length} 轮完整复测的平均命中率；重复样本存在相关性，不作显著性声明。`);
   if (workflow.questions.some(question => question.exploratory)) result.limitations.push('题单包含探索题；总命中率不等于所有问题都值得争取排名，后续建议应保留问题适用范围。');
   if (followups.length !== task.runs.length) result.limitations.push('历史回放、失败/部分记录及不符合本次协议或实施版本的记录未计入比较。');
   return result;
 }
 
-export function buildStrategyMemory(task: GeoTask, projectId: string): StrategyMemory | null {
+export function buildStrategyMemory(task: GeoTask, projectId: string, createdAt = new Date().toISOString()): StrategyMemory | null {
   const outcome = evaluateOutcome(task);
   const workflow = task.workflow;
-  if (!workflow || !task.proposal || !task.implementation || outcome.classification === 'inconclusive' || outcome.beforeRate === null || outcome.afterRate === null || !outcome.baselineRunId) return null;
+  if (!workflow || !task.proposal || !task.implementation || (task.projectId && task.projectId !== projectId)
+    || outcome.classification === 'inconclusive' || outcome.beforeRate === null || outcome.afterRate === null || !outcome.baselineRunId) return null;
   const revision = task.implementation.proposalRevision!;
   const id = `strategy-${createHash('sha256').update(JSON.stringify([projectId, task.id, revision, workflow.protocolKey, [...outcome.followupRunIds].sort()])).digest('hex').slice(0, 24)}`;
-  const latestFollowup = task.runs.filter(run => outcome.followupRunIds.includes(run.id)).sort((left, right) => time(right.completedAt!) - time(left.completedAt!))[0];
+  const observedRuns = task.runs.filter(run => outcome.followupRunIds.includes(run.id));
+  if (!Number.isFinite(time(createdAt)) || observedRuns.some(run => time(run.completedAt!) > time(createdAt))) return null;
   const advice = outcome.classification === 'improved' ? '类似条件下可优先考虑这项措施，但仍需独立验证。' :
     outcome.classification === 'worse' ? '类似条件下先复查这项措施及同期变化，不直接重复推荐。' : '本次未观察到提升；先检查观察时长和实施情况，再决定是否重试。';
   return {
-    id, taskId: task.id, projectId, createdAt: latestFollowup.completedAt!,
+    id, taskId: task.id, projectId, createdAt,
+    status: 'candidate', version: 1,
+    history: [{ version: 1, action: 'created', at: createdAt, reason: '完整可比实测形成候选，尚未验证或生效。',
+      runIds: outcome.followupRunIds, evidencePaths: outcome.evidencePaths }],
     targetAssetId: task.proposal.targetAssetId, categories: [...new Set(workflow.questions.map(question => question.category))],
     protocolKey: workflow.protocolKey, outcome: outcome.classification,
     recommendation: `${advice} 适用范围：同项目、同目标内容、相同问题类别及搜索协议。${outcome.summary}`,
@@ -99,15 +111,17 @@ export function buildStrategyMemory(task: GeoTask, projectId: string): StrategyM
   };
 }
 
-export function selectStrategies(task: GeoTask, strategies: StrategyMemory[]): StrategyMemory[] {
+export function selectStrategies(task: GeoTask, strategies: StrategyMemory[], projectId = task.projectId): StrategyMemory[] {
   const workflow = task.workflow;
-  if (!workflow) return [];
+  if (!workflow || !projectId || (task.projectId && task.projectId !== projectId)) return [];
   const categories = new Set(workflow.questions.map(question => question.category));
   const assets = new Set(workflow.questions.flatMap(question => question.assetIds));
   if (task.proposal?.targetAssetId) assets.add(task.proposal.targetAssetId);
-  const applicable = strategies.filter(strategy => strategy.taskId !== task.id &&
+  const applicable = strategies.filter(strategy => strategy.status === 'active' && strategy.validation?.passed === true &&
+    strategy.history?.at(-1)?.action === 'activated' && strategy.projectId === projectId && strategy.taskId !== task.id &&
     strategy.protocolKey === workflow.protocolKey && assets.has(strategy.targetAssetId) &&
-    strategy.categories.some(category => categories.has(category)) && strategy.evidencePaths.length > 0 &&
+    (!task.proposal || task.proposal.targetAssetId === strategy.targetAssetId) &&
+    strategy.categories.length === categories.size && strategy.categories.every(category => categories.has(category)) && strategy.evidencePaths.length > 0 &&
     strategy.followupRunIds.length > 0).sort((left, right) => time(right.createdAt) - time(left.createdAt) || right.followupRunIds.length - left.followupRunIds.length);
   const latest = new Map<string, StrategyMemory>();
   for (const strategy of applicable) {

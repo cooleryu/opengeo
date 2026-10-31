@@ -1,0 +1,223 @@
+.cr-review {
+  margin-top: 14px;
+  border: 1px solid #e3e7e4;
+  border-radius: 7px;
+  font-size: 12px;
+  color: #343a36;
+  background: #fff;
+}
+.cr-review > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  list-style: none;
+  cursor: pointer;
+}
+.cr-review > summary > span {
+  font-weight: 500;
+}
+.cr-review > summary > span::before {
+  content: '›';
+  display: inline-block;
+  margin-right: 8px;
+  color: #778179;
+  transform-origin: center;
+}
+.cr-review[open] > summary > span::before {
+  transform: rotate(90deg);
+}
+.cr-review > summary small {
+  font-size: 11px;
+  color: #7b827e;
+}
+.cr-body {
+  border-top: 1px solid #e9ecea;
+  padding: 12px 14px;
+}
+.cr-records article {
+  padding: 0 0 15px;
+  margin-bottom: 15px;
+  border-bottom: 1px solid #edf0ed;
+}
+.cr-records header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.cr-records time {
+  color: #889089;
+  font-size: 10px;
+}
+.cr-conclusion {
+  color: #727b74;
+  background: #f0f2f0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+.cr-conclusion.supported {
+  color: #49745b;
+  background: #eef6f0;
+}
+.cr-conclusion.contradicted {
+  color: #9a6657;
+  background: #fbf1eb;
+}
+.cr-records blockquote {
+  border-left: 2px solid #c9d4cc;
+  margin: 12px 0;
+  padding: 2px 0 2px 10px;
+  color: #4a514b;
+  font-size: 12px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+.cr-records dl {
+  margin: 10px 0;
+  display: grid;
+  gap: 8px;
+}
+.cr-records dl > div {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 10px;
+}
+.cr-records dt {
+  color: #7c847e;
+  font-weight: 400;
+}
+.cr-records dd {
+  margin: 0;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.cr-records a {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: #44725a;
+  font-size: 11px;
+  text-decoration: none;
+}
+.cr-records a span {
+  color: #8b948e;
+  margin-left: 4px;
+}
+.cr-review button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.cr-add {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: #55725f;
+  padding: 1px 0;
+}
+.cr-body form {
+  display: grid;
+  gap: 12px;
+}
+.cr-body label {
+  display: grid;
+  gap: 6px;
+  color: #626c65;
+  font-size: 12px;
+}
+.cr-body input,
+.cr-body textarea,
+.cr-body .og-select-button {
+  font: inherit;
+  line-height: 1.6;
+  color: #38433c;
+  background: #fff;
+  border: 1px solid #dde3df;
+  border-radius: 5px;
+  padding: 7px 9px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.cr-body textarea {
+  resize: vertical;
+}
+.cr-body input:focus,
+.cr-body textarea:focus,
+.cr-body .og-select-button:focus-visible {
+  outline: 1px solid #7e9e8a;
+}
+.cr-form-row {
+  max-width: 190px;
+}
+.cr-form-actions {
+  display: flex;
+  gap: 8px;
+}
+.cr-form-actions button {
+  border: 1px solid #dce4df;
+  background: #fff;
+  color: #607066;
+  padding: 7px 12px;
+}
+.cr-form-actions button[type='submit'] {
+  color: #fff;
+  background: #292929;
+  border-color: #292929;
+}
+.cr-form-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cr-saved {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  color: #4b805e;
+  font-size: 11px;
+  margin: 10px 0 0;
+}
+.cr-error {
+  color: #ac4d3c;
+  margin: 0;
+  font-size: 12px;
+}
+.cr-review summary:focus-visible,
+.cr-review button:focus-visible,
+.cr-review a:focus-visible {
+  outline: 2px solid #688e76;
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .cr-review > summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+}
+
+.cr-record-evidence > summary {
+  color: #717171;
+  cursor: pointer;
+  font-size: 11px;
+}
+.cr-record-evidence[open] > summary {
+  margin-bottom: 10px;
+}
+.cr-record-evidence > a {
+  color: #444;
+}
+.cr-body form {
+  gap: 10px;
+}
+.cr-body input,
+.cr-body textarea,
+.cr-body .og-select-button {
+  padding: 6px 8px;
+}
+.cr-add {
+  color: #444;
+}

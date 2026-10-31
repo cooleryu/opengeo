@@ -1,0 +1,86 @@
+{
+  "type": "object",
+  "properties": {
+    "assessments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "candidate_id": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "priority",
+              "explore",
+              "exclude",
+              "merge"
+            ]
+          },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "trigger_grounded": {
+                "type": "boolean"
+              },
+              "intent_preserved": {
+                "type": "boolean"
+              },
+              "answer_satisfies": {
+                "type": "boolean"
+              },
+              "capability_supported": {
+                "type": "boolean"
+              },
+              "natural_query": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "trigger_grounded",
+              "intent_preserved",
+              "answer_satisfies",
+              "capability_supported",
+              "natural_query"
+            ],
+            "additionalProperties": false
+          },
+          "reason": {
+            "type": "string"
+          },
+          "merge_into": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "decision",
+          "checks",
+          "reason",
+          "merge_into"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "repair_required": {
+      "type": "boolean"
+    },
+    "repair_instructions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "summary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "assessments",
+    "repair_required",
+    "repair_instructions",
+    "summary"
+  ],
+  "additionalProperties": false
+}

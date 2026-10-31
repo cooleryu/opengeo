@@ -49,3 +49,23 @@ certificates
 *.tsbuildinfo
 /demo-*.jpg
 /.publish/
+
+# Private runtime data, evidence, local experiments
+/data/
+/uploads/
+/product-data/
+/product-notes/
+/evidence/
+/projects/
+/.impeccable/
+/public/previews/
+/src/app/previews/
+/docs/validation/
+*.sqlite*
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+*.pyc
+*.pem
+*.key

@@ -46,9 +46,10 @@ const ThemeSwitcher = ({ className }: { className?: string }) => {
 
   return (
     <Select
+      label="Theme"
       className={className}
       value={theme}
-      onChange={(e) => handleThemeSwitch(e.target.value as Theme)}
+      onChange={(value) => handleThemeSwitch(value as Theme)}
       options={[
         { value: 'light', label: 'Light' },
         { value: 'dark', label: 'Dark' },
