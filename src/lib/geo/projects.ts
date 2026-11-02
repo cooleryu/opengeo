@@ -1,11 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
-import exampleProject from './data/example-project.json';
-import exampleProjectTwo from './data/example-project-two.json';
+import { loadProjectSeed, readProjectCatalog } from './project-data';
 import type { GeoProject } from './types';
 
-export const DEFAULT_PROJECT_ID = 'example-project';
-export const GEO_PROJECT_IDS = [DEFAULT_PROJECT_ID, 'example-project-two'] as const;
+const catalog = readProjectCatalog();
+export const DEFAULT_PROJECT_ID = catalog.defaultProjectId;
+export const GEO_PROJECT_IDS = catalog.ids;
 export type GeoProjectId = typeof GEO_PROJECT_IDS[number];
 
 // Keep request scope stable across reloads without a mutable shared current project.
@@ -26,7 +26,7 @@ export function withGeoProject<T>(projectId: unknown, operation: () => T): T {
   return context.run(resolveGeoProject(projectId), operation);
 }
 export function listGeoProjects(): GeoProject[] {
-  return structuredClone([exampleProject.project, exampleProjectTwo.project]) as GeoProject[];
+  return GEO_PROJECT_IDS.map(id => loadProjectSeed(id).project);
 }
 export function projectDataDirectory(): string {
   const base = path.join(process.env.DATA_DIR || process.cwd(), 'data');

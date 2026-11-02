@@ -81,7 +81,7 @@ function projectIdentity(seed: GeoSeed): Identity {
 function containsName(text: string, identity: Identity): boolean {
   return [identity.name, ...identity.aliases].some((name) => {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Latin aliases must not match a longer product name such as 项目X.
+    // Latin aliases must not match a longer product name such as ExampleProjectX.
     return new RegExp(`(?<![a-z0-9_])${escaped}(?![a-z0-9_])`, 'iu').test(text) ||
       (/[^\x00-\x7F]/.test(name) && text.includes(name));
   });

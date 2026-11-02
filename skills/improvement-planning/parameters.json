@@ -15,5 +15,11 @@
     "temperature": 0.2,
     "maxTokens": 10000
   },
-  "defaultMaxQualityRounds": 3
+  "defaultMaxQualityRounds": 3,
+  "projectOptimization": {
+    "defaultMaxRounds": 2,
+    "focus": { "temperature": 0.2, "maxTokens": 7000 },
+    "deep": { "temperature": 0.2, "maxTokens": 14000 },
+    "review": { "temperature": 0, "maxTokens": 7000 }
+  }
 }

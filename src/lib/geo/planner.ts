@@ -225,6 +225,7 @@ const improvementParametersSchema = z.object({
   review: modelOptionsSchema,
   repair: modelOptionsSchema,
   defaultMaxQualityRounds: z.number().int().min(1).max(3),
+  projectOptimization: z.unknown().optional(), // Validated by the project optimization caller.
 }).strict();
 
 function improvementParameters() {

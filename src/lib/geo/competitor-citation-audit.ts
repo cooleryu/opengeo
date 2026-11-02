@@ -4,7 +4,7 @@ import { loadGeoModel, type GeoStructuredModel } from './connection-settings';
 import { singleRequestModel } from './connection-test';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel, { type ChatGPTInferenceMetadata } from './chatgpt-model';
-import { legacyAnswerAudit as legacyReviews } from './legacy-answer-audit';
+import { loadLegacyAnswerAudit } from './project-data';
 import { readCompetitorEvidence, readCompetitorObservationAnswer } from './competitors';
 import { parseQwenAnswer } from './providers/qwen';
 import { parseDoubaoAnswer } from './providers/doubao';
@@ -97,7 +97,7 @@ export function readCollectedCompetitorAnswer(
   }
   if (observation.engine !== 'chatgpt') return { issue: '该入口尚无可核实的平台原生引用捕获规范。' };
   const answerPath = observation.answerPath ?? observation.evidencePath;
-  const reviewed = legacyReviews.records.find((record) => record.projectId === batch.projectId && record.batchId === batch.id &&
+  const reviewed = loadLegacyAnswerAudit().records.find((record) => record.projectId === batch.projectId && record.batchId === batch.id &&
     record.questionId === questionId && record.engine === observation.engine && record.language === observation.language &&
     record.recordedAt === observation.recordedAt && record.evidencePath === answerPath);
   if (!reviewed?.answerComplete) return { issue: '这条历史 ChatGPT 回答缺少对应观测的正文完整性核实记录。' };

@@ -69,3 +69,8 @@ __pycache__/
 *.pyc
 *.pem
 *.key
+
+# Local design and deployment notes
+/OPENGEO.md
+/deploy/
+/.assets/

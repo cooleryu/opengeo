@@ -16,6 +16,10 @@ import type {
 } from '@/lib/geo/competitor-types';
 import { getCompetitorProgress } from '@/lib/geo/competitor-progress';
 import TaskPanel from './TaskPanel';
+import ProjectOptimizationPanel, {
+  projectOptimizationStatus,
+  projectOptimizationTitle,
+} from './ProjectOptimizationPanel';
 import TaskOutcomeHistory, {
   comparableChartRuns,
   realFollowupRuns,
@@ -26,10 +30,20 @@ import { buildQualityEvolution } from './quality-evolution-data';
 import { displayTaskTitle } from './question-labels';
 import './task-workspace.css';
 
-const historicalRecords: Record<string, { title: string; origin: string; summary: string }> = {};
+type HistoryContext = { title: string; origin: string; summary: string };
+function historyContext(task: GeoTask): HistoryContext | undefined {
+  return (task as GeoTask & { historyContext?: HistoryContext }).historyContext;
+}
+function historyPresentation(task: GeoTask): HistoryContext {
+  return historyContext(task) || {
+    title: task.title || task.goal,
+    origin: '历史记录',
+    summary: task.error || task.proposal?.rationale || task.goal,
+  };
+}
 
-export const isHistoricalTask = (task: GeoTask) =>
-  Boolean(historicalRecords[task.id]);
+// Display metadata arrives with local task state; no project records are bundled.
+export const isHistoricalTask = (task: GeoTask) => Boolean(historyContext(task));
 export const getTaskWorkspaceGroups = (tasks: GeoTask[]) => ({
   tasks: tasks.filter(
     (task) =>
@@ -68,6 +82,8 @@ const date = (value: string) =>
     day: 'numeric',
   });
 function taskState(task: GeoTask) {
+  if (task.projectOptimization)
+    return projectOptimizationStatus(task.projectOptimization);
   if (
     task.researchContext?.purpose === 'investigate_gap' &&
     !task.workflow &&
@@ -95,6 +111,14 @@ function taskState(task: GeoTask) {
   return task.proposal ? '候选待完善' : '待调查';
 }
 function nextAction(task: GeoTask) {
+  if (task.projectOptimization) {
+    const phase = task.projectOptimization.phase;
+    if (phase === 'planning' || phase === 'reviewing') return '查看方案进度';
+    if (phase === 'failed') return '查看原因并重试';
+    if (phase === 'blocked') return '查看待完善项';
+    if (phase === 'closed') return '查看记录';
+    return '审阅项目方案';
+  }
   if (
     task.researchContext?.purpose === 'investigate_gap' &&
     !task.workflow &&
@@ -309,8 +333,8 @@ export default function TaskWorkspace(props: TaskWorkspaceProps) {
           <div className="og-history-context">
             <Archive size={16} />
             <span>
-              {historicalRecords[task.id].origin} ·{' '}
-              {historicalRecords[task.id].summary}
+              {historyPresentation(task).origin} ·{' '}
+              {historyPresentation(task).summary}
             </span>
           </div>
         )}
@@ -321,11 +345,20 @@ export default function TaskWorkspace(props: TaskWorkspaceProps) {
             projectId={data.project.id}
           />
         )}
-        <TaskPanel
-          {...props}
-          task={task}
-          detailView={view === 'monitor' ? 'monitor' : 'task'}
-        />
+        {task.projectOptimization ? (
+          <ProjectOptimizationPanel
+            task={task}
+            busy={props.busy}
+            onAct={props.onAct}
+            onEvidence={onEvidence}
+          />
+        ) : (
+          <TaskPanel
+            {...props}
+            task={task}
+            detailView={view === 'monitor' ? 'monitor' : 'task'}
+          />
+        )}
       </div>
     );
 
@@ -353,6 +386,72 @@ export default function TaskWorkspace(props: TaskWorkspaceProps) {
               <span>下一步</span>
             </div>
             {groups.tasks.map((item) => {
+              if (item.projectOptimization) {
+                const optimization = item.projectOptimization;
+                const assetIds = new Set(
+                  optimization.actions.flatMap((action) => action.assetIds),
+                );
+                const targets = optimization.snapshot.assets
+                  .filter((asset) => assetIds.has(asset.id))
+                  .map((asset) => asset.title);
+                return (
+                  <article className="og-task-register-row" key={item.id}>
+                    <div className="og-task-register-name">
+                      <small>
+                        {optimization.questionCount} 个问题 · 项目方案
+                      </small>
+                      <h2>
+                        <button onClick={() => onSelect(item.id)}>
+                          {projectOptimizationTitle(item)}
+                        </button>
+                      </h2>
+                      <span className="og-tag neutral">{taskState(item)}</span>
+                    </div>
+                    <div className="og-task-register-problem">
+                      <p>
+                        {optimization.summary ||
+                          (optimization.phase === 'failed'
+                            ? '本次任务未完成，尚无可审阅方案'
+                            : optimization.phase === 'closed'
+                              ? '本轮记录已保存，未实施方案'
+                              : '正在整合已保存的回答与内容')}
+                      </p>
+                      <details>
+                        <summary>任务依据</summary>
+                        <dl>
+                          <dt>本次范围</dt>
+                          <dd>
+                            {optimization.questionCount}{' '}
+                            个问题，基于已保存的回答与内容。 本次不发起新搜索。
+                          </dd>
+                        </dl>
+                      </details>
+                    </div>
+                    <p className="og-task-register-target">
+                      {targets.length
+                        ? targets.join(' · ')
+                        : optimization.phase === 'closed'
+                          ? '未形成修改建议'
+                          : '形成方案后确定'}
+                    </p>
+                    <div className="og-task-register-tracking">
+                      <strong>尚未实施</strong>
+                      <span>
+                        {optimization.phase === 'closed'
+                          ? '本轮已结束'
+                          : '审阅后再安排'}
+                      </span>
+                      <p>效果尚未验证</p>
+                    </div>
+                    <button
+                      className="og-task-register-next"
+                      onClick={() => onSelect(item.id)}
+                    >
+                      {nextAction(item)} <ArrowRight size={16} />
+                    </button>
+                  </article>
+                );
+              }
               const presentation = taskPresentation(
                 item,
                 data.assets,
@@ -456,7 +555,7 @@ export default function TaskWorkspace(props: TaskWorkspaceProps) {
         <div className="og-history-list">
           {groups.history.length ? (
             groups.history.map((item) => {
-              const record = historicalRecords[item.id];
+              const record = historyPresentation(item);
               const realRuns = realFollowupRuns(item);
               const replays = item.runs.filter(
                 (run) => run.mode === 'replay',

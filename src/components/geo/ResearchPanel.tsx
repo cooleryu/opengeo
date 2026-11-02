@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Markdown from 'markdown-to-jsx';
 import {
   ArrowRight,
@@ -53,6 +53,7 @@ import { overviewProgress } from '@/lib/geo/overview-progress';
 import type { GeoTask, GeoProject, ClaimReviewRecord } from '@/lib/geo/types';
 
 type Props = {
+  projectOptimization?: ReactNode;
   batch: ResearchBatch;
   project?: GeoProject;
   tasks?: GeoTask[];
@@ -282,6 +283,7 @@ export default function ResearchPanel({
   onOverview,
   onReview,
   onImprove,
+  projectOptimization,
   onPlan,
   claimReviews = [],
   onClaimReview,
@@ -828,6 +830,7 @@ export default function ResearchPanel({
       <div className="rw-body">
         {view === 'overview' ? (
           <ProjectOverview
+            projectOptimization={projectOptimization}
             batch={batch}
             filters={filters}
             onFilters={changeFilters}

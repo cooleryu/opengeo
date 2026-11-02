@@ -124,6 +124,7 @@ export function OverviewAudit({
 }
 
 type Props = {
+  projectOptimization?: ReactNode;
   previewOnly?: boolean;
   previewComparison?: ReactNode;
   batch: ResearchBatch;
@@ -142,6 +143,7 @@ type Props = {
 };
 
 export default function ProjectOverview({
+  projectOptimization,
   previewOnly = false,
   previewComparison,
   batch,
@@ -570,8 +572,9 @@ export default function ProjectOverview({
         <section
           className="pov-questions"
           ref={questionArea}
-          aria-label="问题与回答"
+          aria-label={focus === 'all' && projectOptimization ? '项目优化' : '问题与回答'}
         >
+          {focus === 'all' && projectOptimization ? projectOptimization : <>
           <header>
             <h3>
               {focus === 'missed'
@@ -629,6 +632,7 @@ export default function ProjectOverview({
               </button>
             </p>
           )}
+          </>}
         </section>
         <section className="pov-platforms" aria-label="平台表现">
           <div className="pov-platform-primary">

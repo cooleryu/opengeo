@@ -5,6 +5,7 @@ import type { GeoObservation, GeoQuestion, GeoSeed, GeoTask } from './types';
 import type { WorkflowQuestion } from './workflow-types';
 import { frozenQuestion, matchesQuestionTarget } from './search-protocol';
 import { evidenceLocation } from './projects';
+import { readLocalProjectFile } from './project-data';
 import type {
   GeoProviderId,
   GeoVisibility,
@@ -12,11 +13,79 @@ import type {
   GeoVisibilitySource,
 } from './visibility-types';
 
-// Historical measurements are local runtime data, never bundled with the app.
-export const visibilityEvidencePaths: string[] = [];
+const visibilityImport = z.object({
+  evidencePaths: z.array(z.string()),
+  deepSeek: z.object({
+    summaryPath: z.string(),
+    rawDirectory: z.string(),
+    observationId: z.string(),
+    comparableGroup: z.string(),
+    comparabilityNote: z.string(),
+    homonymPattern: z.string().optional(),
+  }).optional(),
+  brand: z.object({
+    questionId: z.string(),
+    id: z.string(),
+    title: z.string(),
+    evidencePaths: z.object({ chatgpt: z.string(), google: z.string(), gemini: z.string() }),
+  }).optional(),
+});
 
+function readVisibilityImport(projectId: string): z.infer<typeof visibilityImport> | null {
+  try {
+    const records = readLocalProjectFile<Record<string, unknown>>('visibility-imports.json');
+    return records[projectId] ? visibilityImport.parse(records[projectId]) : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+export function visibilityEvidencePaths(projectId: string): string[] {
+  return readVisibilityImport(projectId)?.evidencePaths || [];
+}
+
+const timestamp = z
+  .string()
+  .refine((value) => Number.isFinite(Date.parse(value)));
 const webSource = z.object({ title: z.string().optional(), url: z.string() });
 const rawSearch = z.object({ results: z.array(webSource) });
+const deepSeekSummary = z.object({
+  measured_at_utc_first: timestamp,
+  observations: z.array(
+    z.object({
+      query_id: z.string(),
+      query: z.string(),
+      http_status: z.literal(200),
+      result_count: z.number().int().nonnegative(),
+      project_hit: z.boolean(),
+      top3: z.array(webSource),
+      evidence_file: z.string(),
+      measured_at_utc: timestamp,
+    }),
+  ),
+});
+const answerRecord = z.object({
+  recorded_at_utc: timestamp,
+  exact_prompt: z.string().min(1),
+  status: z.literal('completed'),
+  project_identity_mentioned: z.boolean(),
+  target_links_in_answer: z.array(z.string()),
+  sample_count: z.number().int().positive().optional(),
+  sample_count_completed: z.number().int().positive().optional(),
+  inline_target_citations_visible: z.boolean().optional(),
+  mode_shown: z.string().optional(),
+  mode_shown_before_submission: z.string().optional(),
+});
+const googleRecord = z.object({
+  recorded_at_utc: timestamp,
+  exact_query: z.string().min(1),
+  status: z.literal('completed'),
+  target_url_returned: z.boolean(),
+  target_url: z.string(),
+  sample_count: z.number().int().positive(),
+  observed_standard_web_result_position: z.number().int().positive(),
+});
 
 // Read only saved project evidence. Missing files must not become a positive result.
 function readEvidence(file: string): unknown {
@@ -98,11 +167,161 @@ function unmeasured(
   };
 }
 
-export function readImportedDeepSeek(_seed: GeoSeed): {
+export function readImportedDeepSeek(seed: GeoSeed): {
   questions: GeoQuestion[];
   observation: GeoObservation;
 } | null {
-  return null;
+  const imported = readVisibilityImport(seed.project.id)?.deepSeek;
+  if (!imported) return null;
+  const { summaryPath } = imported;
+  const homonym = imported.homonymPattern ? new RegExp(imported.homonymPattern, 'i') : null;
+  const parsed = deepSeekSummary.safeParse(readEvidence(summaryPath));
+  if (
+    !parsed.success ||
+    parsed.data.observations.length !== seed.questions.length
+  )
+    return null;
+  const observations = parsed.data.observations;
+  if (
+    new Set(observations.map((item) => item.query_id)).size !==
+    seed.questions.length
+  )
+    return null;
+  if (
+    !seed.questions.every((question) =>
+      observations.some(
+        (item) =>
+          item.query_id === question.id && item.query === question.query,
+      ),
+    )
+  )
+    return null;
+
+  const questions = seed.questions.map((question) => {
+    const record = observations.find((item) => item.query_id === question.id)!;
+    const expectedPath = `${imported.rawDirectory}/${question.id}.json`;
+    if (record.evidence_file !== expectedPath) return null;
+    const raw = rawSearch.safeParse(readEvidence(expectedPath));
+    const firstHit = raw.success
+      ? raw.data.results.findIndex((result) => isProjectURL(result.url, seed))
+      : -1;
+    return {
+      ...question,
+      measurementAt: record.measured_at_utc,
+      provider: 'DeepSeek Search API',
+      resultCount: record.result_count,
+      projectHit: record.project_hit,
+      rank: firstHit >= 0 ? firstHit + 1 : null,
+      aiCited: null,
+      topSources: record.top3.map((source, index) => {
+        let domain = '';
+        try {
+          domain = new URL(source.url).hostname;
+        } catch {
+          /* Invalid source remains visible in local evidence only. */
+        }
+        return {
+          position: index + 1,
+          title: source.title || domain || '未提供标题',
+          url: source.url,
+          domain,
+          isHomonym: homonym?.test(`${source.url} ${source.title || ''}`) ?? false,
+        };
+      }),
+      evidencePath: expectedPath,
+    } satisfies GeoQuestion;
+  });
+  if (questions.some((question) => question === null)) return null;
+  const complete = questions as GeoQuestion[];
+  return {
+    questions: complete,
+    observation: {
+      id: imported.observationId,
+      measurementAt: parsed.data.measured_at_utc_first,
+      provider: 'DeepSeek Search API',
+      comparableGroup: imported.comparableGroup,
+      queryCount: complete.length,
+      hitCount: complete.filter((question) => question.projectHit).length,
+      resultCount: complete.reduce(
+        (sum, question) => sum + question.resultCount,
+        0,
+      ),
+      rank: null,
+      aiCited: null,
+      sourcePath: summaryPath,
+      comparabilityNote: imported.comparabilityNote,
+    },
+  };
+}
+
+function answerResult(
+  providerId: 'chatgpt' | 'gemini',
+  seed: GeoSeed,
+  evidencePath: string,
+): GeoVisibilityResult {
+  const parsed = answerRecord.safeParse(readEvidence(evidencePath));
+  if (!parsed.success) return unmeasured(providerId, true);
+  const record = parsed.data;
+  const sampleCount = record.sample_count_completed || record.sample_count;
+  if (!sampleCount) return unmeasured(providerId, true);
+  const attribution =
+    providerId === 'chatgpt' && record.inline_target_citations_visible
+      ? 'citation'
+      : 'link';
+  const sources = [...new Set(record.target_links_in_answer)]
+    .filter((url) => isProjectURL(url, seed))
+    .map((url) => sourceFor(url, seed, attribution));
+  const found = record.project_identity_mentioned && sources.length > 0;
+  return {
+    providerId,
+    status: found ? 'found' : 'not_found',
+    query: record.exact_prompt,
+    recordedAt: record.recorded_at_utc,
+    summary: found
+      ? attribution === 'citation'
+        ? `正确识别项目，回答中引用了 ${sources.length} 个项目来源`
+        : `正确识别项目，回答中列出 ${sources.length} 个项目链接`
+      : '本次回答中未确认找到项目及其来源',
+    sources,
+    evidencePath,
+    sampleCount,
+    mode: record.mode_shown_before_submission || record.mode_shown,
+    caveat:
+      providerId === 'chatgpt'
+        ? '临时对话中的一次品牌提问；记录可见引用，未取得检索排名。不能据此推断不带项目名时也能发现项目。'
+        : '临时对话中的一次品牌提问；记录回答内的链接，未验证后台引用轨迹或检索排名。',
+  };
+}
+
+function googleResult(seed: GeoSeed, evidencePath: string): GeoVisibilityResult {
+  const parsed = googleRecord.safeParse(readEvidence(evidencePath));
+  if (!parsed.success) return unmeasured('google', true);
+  const record = parsed.data;
+  const found =
+    record.target_url_returned && isProjectURL(record.target_url, seed);
+  return {
+    providerId: 'google',
+    status: found ? 'found' : 'not_found',
+    query: record.exact_query,
+    recordedAt: record.recorded_at_utc,
+    summary: found
+      ? `GitHub 仓库出现在本次普通网页结果第 ${record.observed_standard_web_result_position} 位`
+      : '本次普通网页结果中未找到项目',
+    sources: found
+      ? [
+          sourceFor(
+            record.target_url,
+            seed,
+            'web_result',
+            record.observed_standard_web_result_position,
+          ),
+        ]
+      : [],
+    evidencePath,
+    sampleCount: record.sample_count,
+    caveat:
+      '仅代表这次浏览器会话的网页结果；账号、地区和时间可能影响排序，Google AI Overview 未测。',
+  };
 }
 
 function deepSeekResult(
@@ -276,10 +495,17 @@ export function buildVisibility(
       );
     }
   }
+  const brand = readVisibilityImport(seed.project.id)?.brand;
+  const mainBrand = brand ? seed.questions.find((question) => question.id === brand.questionId) : undefined;
   const questions = [...merged.values()].map((question) => {
+    const isMainBrand =
+      mainBrand !== undefined &&
+      questionKey(question) === questionKey(mainBrand);
     return {
-      id: questionKey(question),
-      title: question.query,
+      id: isMainBrand && brand ? brand.id : questionKey(question),
+      title: isMainBrand && brand
+        ? brand.title
+        : question.query,
       kind: ['L1', 'brand'].includes(question.tier)
         ? ('brand' as const)
         : ('scenario' as const),
@@ -295,7 +521,11 @@ export function buildVisibility(
             ? currentKeys.has(questionKey(question))
               ? deepSeekResult(question, seed)
               : unmeasured('deepseek')
-            : unmeasured(provider.id),
+            : !isMainBrand || !brand
+              ? unmeasured(provider.id)
+              : provider.id === 'google'
+                ? googleResult(seed, brand.evidencePaths.google)
+                : answerResult(provider.id, seed, brand.evidencePaths[provider.id]),
       ),
     };
   });

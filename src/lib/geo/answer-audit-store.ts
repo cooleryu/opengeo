@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
-import { legacyAnswerAudit as legacyAudit } from './legacy-answer-audit';
+import { legacyAnswerAuditSource, loadLegacyAnswerAudit } from './project-data';
 import type { AnswerAuditRecord } from './overview-metrics';
 import { projectDataDirectory, resolveGeoProject, withGeoProject } from './projects';
 import { isResearchEngine } from './research-engines';
@@ -10,7 +10,6 @@ import type { ResearchBatch } from './research-types';
 import { isChatGPTReasoningEffort } from './chatgpt-types';
 
 type AuditRow = { payload: string; appended_at: string };
-const legacySource = 'bundled-answer-audit';
 const schema = `
   CREATE TABLE IF NOT EXISTS geo_answer_audits (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,8 +151,11 @@ function insertAudit(db: Database.Database, record: AnswerAuditRecord, appendedA
 }
 
 function importLegacy(db: Database.Database, batch: ResearchBatch): void {
+  const legacySource = legacyAnswerAuditSource();
   if (db.prepare('SELECT 1 FROM geo_answer_audit_imports WHERE project_id = ? AND batch_id = ? AND source = ?')
     .get(batch.projectId, batch.id, legacySource)) return;
+  const legacyAudit = loadLegacyAnswerAudit();
+  if (!legacyAudit.records.length) return;
   db.transaction(() => {
     for (const record of legacyAudit.records) {
       if (record.projectId !== batch.projectId || record.batchId !== batch.id) continue;

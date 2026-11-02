@@ -38,6 +38,7 @@ async function readProjectEvidence(request: NextRequest) {
     ...state.observations.map(o=>o.sourcePath),
     ...state.questions.map(q=>q.evidencePath),
     ...state.visibility.questions.flatMap(q=>q.results.flatMap(r=>r.evidencePath ? [r.evidencePath] : [])),
+    ...visibilityEvidencePaths(seed.project.id),
   ]);
   if (!allowed.has(file)) return NextResponse.json({error:'这份材料不在当前项目的证据中。'},{status:404});
   const { root, target } = evidenceLocation(file);

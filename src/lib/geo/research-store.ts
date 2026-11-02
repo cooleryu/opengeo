@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import initialResearch from './data/research.json';
+import { loadInitialResearch } from './project-data';
 import { projectDataDirectory, resolveGeoProject, withGeoProject } from './projects';
 import type { ResearchBatch, ResearchObservation } from './research-types';
 import type { GeoRun } from './types';
@@ -50,7 +50,6 @@ export class ResearchStoreError extends Error {
 }
 
 type PayloadRow = { payload: string };
-const seedBatches = initialResearch as ResearchBatch[];
 const schema = `
   CREATE TABLE IF NOT EXISTS geo_research_batches (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,7 +89,7 @@ const schema = `
 
 function initializeResearch(db: Database.Database, projectId: string): void {
   if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'geo_research_one_running'").get()) db.exec(schema);
-  for (const batch of seedBatches.filter((item) => item.projectId === projectId)) {
+  for (const batch of loadInitialResearch().filter((item) => item.projectId === projectId)) {
     if (!db.prepare('SELECT 1 FROM geo_research_batches WHERE project_id = ? AND id = ?').get(projectId, batch.id)) {
       // A completed import is never refreshed from the fixture. Its original
       // observations stay in this immutable payload, preserving index-based links.

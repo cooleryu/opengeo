@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getSeed } from './seed';
+import { readLocalProjectFile } from './project-data';
 import { getLatestResearch } from './research';
 import { getCompetitorCandidates } from './competitor-candidates';
 import { attachOverviewData } from './overview-data';
@@ -26,6 +27,7 @@ import { reviewManualQuestion, saveManualQuestion } from './question-management'
 import type { GeoQuestionPlan } from './question-types';
 import type { AssetGovernanceInput, AssetGovernanceRecord, ClaimReviewRecord, GeoEvent, GeoMonitor, GeoRun, GeoState, GeoTask } from './types';
 import type { GeoWorkflow, StrategyMemory, WorkflowQuestion } from './workflow-types';
+import { buildProjectOptimization, freezeProjectOptimization, preserveProjectOptimizationHistory, setProjectOptimizationProgress, validateProjectOptimizationMode, type ProjectOptimizationDependencies } from './project-optimization';
 
 export class GeoError extends Error {
   constructor(message: string, public status = 400) { super(message); }
@@ -109,6 +111,7 @@ function database(): Database.Database {
   runtime.workflowSchemaReady = true;
   db.exec(governanceSchema);
   runtime.governanceSchemaReady = true;
+  // Empty installations start without synthetic tasks; saved tasks stay intact.
   // This runs once per server process, never on a routine state refresh.
   const stale = db.prepare('SELECT * FROM geo_task_locks').all() as Lock[];
   for (const lock of stale) {
@@ -116,6 +119,10 @@ function database(): Database.Database {
     if (lock.kind === 'investigate') {
       task.status = 'failed';
       task.error = '调查因服务重启中断，可以重新开始；原有记录已保留。';
+      if (task.projectOptimization) {
+        task.error = '项目优化因服务重启中断；已保存的候选、审核意见和修订历史已保留，可以按原范围重试。';
+        setProjectOptimizationProgress(task.projectOptimization, 'failed', task.error);
+      }
     } else {
       task.error = '上次观察因服务重启中断，未完成的问题不计为零命中。';
       const exists = task.runs.some(r => r.id === lock.run_id);
@@ -134,6 +141,10 @@ function database(): Database.Database {
   for (const task of listTasks().filter(t => t.status === 'investigating')) {
     task.status = 'failed';
     task.error = '上次调查未完成，可以重新开始。';
+    if (task.projectOptimization) {
+      task.error = '上次项目优化未完成；已保存的候选、审核意见和修订历史已保留，可以按原范围重试。';
+      setProjectOptimizationProgress(task.projectOptimization, 'failed', task.error);
+    }
     task.events.push(newEvent('调查等待重试', task.error, 'attention'));
     saveTask(task);
   }
@@ -248,10 +259,26 @@ export function chargeTask(id: string, cost: number): void {
   })();
 }
 
+type HistoryContext = { title: string; origin: string; summary: string };
+function taskDisplayMetadata(projectId: string): Record<string, HistoryContext> {
+  try {
+    const records = readLocalProjectFile<Record<string, Record<string, HistoryContext>>>('task-display.json');
+    const current = records[projectId] || {};
+    if (Object.values(current).some(record => !record ||
+      typeof record.title !== 'string' || typeof record.origin !== 'string' || typeof record.summary !== 'string'))
+      throw new Error('本地任务展示资料格式无效。');
+    return current;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw error;
+  }
+}
+
 export function getGeoState(): GeoState {
   const model = getGeoModelSettings();
   const seed = getSeed();
   const imported = readImportedDeepSeek(seed);
+  const history = taskDisplayMetadata(seed.project.id);
   const tasks = listTasks();
   for (const task of tasks) importTaskResearchRuns(task);
   const completeRuns = tasks.flatMap(task => task.runs).filter(run =>
@@ -260,21 +287,22 @@ export function getGeoState(): GeoState {
     run.questions.length === seed.questions.length &&
     seed.questions.every(fixed => run.questions.some(question => question.id === fixed.id && question.query === fixed.query && question.provider === 'DeepSeek Search API')),
   ).sort((a, b) => new Date(b.measurementAt).getTime() - new Date(a.measurementAt).getTime());
-  const baseline = seed.observations.find(observation => observation.comparableGroup === 'deepseek-search-v1-count50-fixed14');
+  const comparableGroup = `deepseek-search-v1-count50-fixed${seed.questions.length}`;
+  const baseline = seed.observations.find(observation => observation.comparableGroup === comparableGroup);
   const observations = [...completeRuns.map(run => ({
     id: `live-${run.id}`, measurementAt: run.measurementAt, provider: 'DeepSeek Search API',
-    comparableGroup: baseline?.comparableGroup || 'deepseek-search-v1-count50-fixed14',
+    comparableGroup: baseline?.comparableGroup || comparableGroup,
     queryCount: run.questions.length, hitCount: run.questions.filter(question => question.projectHit).length,
     resultCount: run.questions.reduce((sum, question) => sum + question.resultCount, 0), rank: null, aiCited: null,
     sourcePath: `data/geo-evidence/${run.id}/run.json`,
-    comparabilityNote: '固定题、同 DeepSeek 搜索入口、count=50、need_content=false。可与 2026-10-18 基线描述性比较；单次变化不证明因果，AI 引用仍未测。',
+    comparabilityNote: '固定题、同 DeepSeek 搜索入口、count=50、need_content=false；是否可比须核对对应基线执行条件。单次变化不证明因果，AI 引用仍未测。',
   })), ...(imported ? [imported.observation] : []), ...seed.observations].sort((a, b) => new Date(b.measurementAt).getTime() - new Date(a.measurementAt).getTime());
   const newest = completeRuns[0];
   const savedQuestions = imported && new Date(imported.observation.measurementAt).getTime() > new Date(seed.questions[0]?.measurementAt || 0).getTime() ? imported.questions : seed.questions;
   const questions = newest && new Date(newest.measurementAt).getTime() > new Date(savedQuestions[0]?.measurementAt || 0).getTime() ? newest.questions : savedQuestions;
   return {
     latestResearch: attachOverviewData(getLatestResearch(seed.project.id)), governanceRecords: listGovernanceRecords(), claimReviews: listClaimReviews(),
-    ...seed, projects: listGeoProjects(), questions, observations, tasks: tasks.map(task => ({ ...task, canContinueRevision: canContinueTaskRevision(task) })), questionPlan: getQuestionPlan(), visibility: buildVisibility(seed, questions, tasks), strategies: listStrategies(),
+    ...seed, projects: listGeoProjects(), questions, observations, tasks: tasks.map(task => ({ ...task, ...(history[task.id] ? { historyContext: history[task.id] } : {}), canContinueRevision: canContinueTaskRevision(task) })), questionPlan: getQuestionPlan(), visibility: buildVisibility(seed, questions, tasks), strategies: listStrategies(),
     settings: {
       liveSearchConfigured: Boolean(collectionKey('deepseek')),
       collectionProviders: collectionStatuses(),
@@ -292,6 +320,84 @@ function requireStatus(task: GeoTask, statuses: GeoTask['status'][]): void {
   if (!statuses.includes(task.status)) throw new GeoError('这一步暂时不可执行，请先完成上一阶段。', 409);
 }
 
+/** Creation and the active-task check share a write transaction, including across server requests. */
+export function createProjectOptimizationTask(input: { mode: unknown; batchId: unknown }): { task: GeoTask; created: boolean } {
+  return database().transaction(() => {
+    const mode = validateProjectOptimizationMode(input.mode);
+    const seed = getSeed();
+    const batch = getLatestResearch(seed.project.id);
+    if (!batch || input.batchId !== batch.id) throw new GeoError('当前问题批次已变化，请刷新后再开始。', 409);
+    const active = listTasks().find(task => task.projectOptimization && task.status !== 'failed' && task.status !== 'completed');
+    if (active) return { task: active, created: false };
+    if (!getGeoModelSettings().modelConfigured) throw new GeoError('请先在设置中配置分析模型。');
+    const plan = freezeProjectOptimization(batch, seed, mode, input.batchId);
+    const task = makeTask(`为 ${seed.project.name} 的当前 ${plan.questionCount} 个问题制定整体改进方案`);
+    task.title = `${seed.project.name} · ${mode === 'focus' ? '重点优化' : '深度优化'}`;
+    task.projectOptimization = plan;
+    task.status = 'investigating';
+    task.monitor.queryIds = [];
+    task.events = [newEvent('项目优化已开始', `已冻结当前批次全部 ${plan.questionCount} 个问题；使用已保存的回答与自有内容生成统一行动方案并独立审核，不启动新搜索。`)];
+    saveTask(task);
+    claimTask(task.id, 'investigate');
+    return { task, created: true };
+  }).immediate();
+}
+
+/** Explicit retry preparation preserves the original snapshot; it never reads newer evidence. */
+export function retryProjectOptimizationTask(id: string): GeoTask {
+  return database().transaction(() => {
+    const task = getTask(id);
+    if (!task.projectOptimization) throw new GeoError('这不是项目整体优化任务。');
+    if (task.status !== 'failed' && !(task.status === 'proposal_ready' && task.projectOptimization.phase === 'blocked'))
+      throw new GeoError('只有失败或未通过审核的项目方案可以重试；已归档方案请重新开始。', 409);
+    if (!getGeoModelSettings().modelConfigured) throw new GeoError('请先在设置中配置分析模型。');
+    if (listTasks().some(other => other.id !== id && other.projectOptimization && other.status !== 'failed' && other.status !== 'completed'))
+      throw new GeoError('已有项目优化任务待完成或审阅，请先查看该任务。', 409);
+    claimTask(id, 'investigate');
+    return updateTask(id, current => {
+      current.status = 'investigating';
+      const plan = current.projectOptimization!;
+      preserveProjectOptimizationHistory(plan);
+      plan.attempt = (plan.attempt ?? 1) + 1;
+      delete plan.stopReason;
+      setProjectOptimizationProgress(plan, 'initializing', '正在按原范围重新准备改动；此前候选与审核记录已保留。', 0);
+      delete current.error;
+      current.events.push(newEvent('按原范围重试项目优化', `保留 ${current.projectOptimization!.frozenAt} 冻结的问题、证据和模式；不读取新证据。此次仅按你的操作重新生成并审核，会再次调用分析模型。`));
+    });
+  }).immediate();
+}
+
+export async function finishProjectOptimization(id: string, dependencies: ProjectOptimizationDependencies = {}) {
+  try {
+    const original = getTask(id).projectOptimization;
+    if (!original) throw new Error('没有找到项目优化范围。');
+    const plan = await buildProjectOptimization(original, { ...dependencies, onProgress: async progress => {
+      updateTask(id, task => {
+        task.projectOptimization = progress;
+        task.source = progress.history?.length ? 'model' : 'evidence';
+        const titles = { initializing: '正在初始化', planning: '正在准备改动', reviewing: '正在独立审核', revising: '正在按意见修订',
+          awaiting_review: '整体方案待你审阅', blocked: '整体方案已停止', failed: '项目优化未完成', closed: '项目方案已归档' };
+        if (progress.phase === 'awaiting_review' || progress.phase === 'blocked') task.status = 'proposal_ready';
+        task.events.push(newEvent(titles[progress.phase], progress.progress!.message,
+          progress.phase === 'awaiting_review' ? 'success' : progress.phase === 'blocked' ? 'attention' : 'info'));
+      });
+      await dependencies.onProgress?.(progress);
+    } });
+    updateTask(id, task => {
+      task.projectOptimization = plan;
+      task.status = 'proposal_ready';
+      task.source = plan.history?.length ? 'model' : 'evidence';
+      delete task.error;
+    });
+  } catch (error) {
+    updateTask(id, task => {
+      task.status = 'failed';
+      task.error = error instanceof Error ? error.message : '项目优化未完成，请重试。';
+      if (task.projectOptimization) setProjectOptimizationProgress(task.projectOptimization, 'failed', `已停止：${task.error} 已保存的候选与审核记录已保留。`);
+      task.events.push(newEvent('项目优化未完成', task.error, 'error'));
+    });
+  } finally { releaseTask(id); }
+}
 async function finishInvestigation(id: string) {
   try {
     const taskBefore = getTask(id);
@@ -418,6 +524,13 @@ async function finishContinuation(original: GeoTask, maxAdditionalRounds: number
 
 export async function handleGeoAction(body: Record<string, unknown>): Promise<GeoState> {
   const action = body.action;
+  if (action === 'start_project_optimization') {
+    try {
+      const result = createProjectOptimizationTask({ mode: body.mode, batchId: body.batchId });
+      if (result.created) void finishProjectOptimization(result.task.id);
+    } catch (error) { throw error instanceof GeoError ? error : new GeoError(error instanceof Error ? error.message : '无法开始项目优化。'); }
+    return getGeoState();
+  }
   if (action === 'save_claim_review') {
     try {
       const review = buildClaimReview(body.review, getLatestResearch(currentGeoProject()), currentGeoProject());
@@ -540,10 +653,32 @@ export async function handleGeoAction(body: Record<string, unknown>): Promise<Ge
   const id = textInput(body.taskId, 120, '任务 ID');
   const task = getTask(id);
   if (taskIsBusy(id) && !['pause'].includes(String(action))) throw new GeoError('这条任务正在执行，请稍等片刻。', 409);
+  if (task.projectOptimization && !['retry_project_optimization', 'close_project_optimization'].includes(String(action))) throw new GeoError('项目整体方案当前仅供审阅，不能通过单题操作确认、实施或跟测。', 409);
   if (task.workflow && ['continue_revision', 'review_plan', 'accept_plan', 'confirm_implementation'].includes(String(action)) && body.proposalRevision !== task.workflow.proposalRevision) {
     throw new GeoError('方案已在其他窗口更新，请刷新并查看当前版本后再操作。', 409);
   }
   switch (action) {
+    case 'retry_project_optimization': {
+      retryProjectOptimizationTask(id);
+      void finishProjectOptimization(id);
+      break;
+    }
+    case 'close_project_optimization': {
+      database().transaction(() => {
+        const currentTask = getTask(id);
+        if (!currentTask.projectOptimization) throw new GeoError('这不是项目整体优化任务。');
+        if (taskIsBusy(id)) throw new GeoError('这条任务正在执行，请等本次完成后归档。', 409);
+        requireStatus(currentTask, ['failed', 'proposal_ready']);
+        updateTask(id, current => {
+          current.status = 'completed';
+          setProjectOptimizationProgress(current.projectOptimization!, 'closed', '任务已归档，候选与审核记录已保留；尚未实施、发布或验证效果。');
+          current.monitor.enabled = false;
+          current.monitor.nextRunAt = null;
+          current.events.push(newEvent('项目方案已归档', '仅关闭这次方案任务，保留冻结范围、证据、候选和审核记录；未实施、未发布、未验证效果。可使用当前最新材料重新开始。'));
+        });
+      }).immediate();
+      break;
+    }
     case 'plan_from_saved': {
       requireStatus(task, ['queued', 'failed', 'proposal_ready']);
       if (task.implementation) throw new GeoError('已实施任务保留原方案，请新建下一条改进任务。');

@@ -8,7 +8,7 @@
 
 | 数据 | 实际保存位置 / 更新方式 |
 | --- | --- |
-| 项目资料、已有资产正文、旧问题/发现 | `src/lib/geo/data/example-project.json`、`example-project-two.json`；当前资产目录无正文CRUD |
+| 项目资料、已有资产正文、旧问题/发现 | `data/local-projects/projects.json` 清单与本地 JSON（Git 忽略）；无本地配置时才读取 `src/lib/geo/data/example-project*.json` 空示例；当前资产目录无正文 CRUD |
 | 题单版本 | SQLite `geo_question_plans`，追加revision |
 | 冻结批次、追加观测、研究运行 | `geo_research_batches`、`geo_research_observations`、`geo_research_runs`；老批次/原问法保留 |
 | 每日问题计划 | `geo_research_schedules`；与任务自身的 monitor 配置分开 |
@@ -17,7 +17,7 @@
 | 搜索完整请求/返回/失败 | 项目 `geo-evidence/<runId>/` 文件；数据库存引用；请求记录不保存 Authorization header |
 | Target / 模型配置 | 项目 `competitor.json` / 应用 `data/geo-settings.json`，兼容 Vane `data/config.json`；不属于研究表 |
 | 访问/转化 | 上游 Umami 保存；OpenGEO当前只读，不落查询快照 |
-| 回答提及/引用审核 | SQLite `geo_answer_audits` 追加审核版本；`geo_answer_audit_imports` 保留兼容迁移标记；公开版不包含旧审核记录 |
+| 回答提及/引用审核 | SQLite `geo_answer_audits` 追加审核版本；`geo_answer_audit_imports` 保留兼容迁移标记；源码不包含本地旧审核记录 |
 
 主要路径：
 
@@ -27,6 +27,6 @@
 
 `geo_answer_audits` 保存 `seq,project_id,batch_id,observation_key,content,payload,appended_at`。观测键由 `questionId,engine,language,recordedAt,evidencePath` 组成，并与项目、批次及唯一既有观测精确匹配；`evidencePath` 使用观测的 `answerPath ?? evidencePath`。保存相同内容幂等，变更内容追加新序号，不覆盖原文、观测或旧审核。读取按同一观测键取最大 `seq`，再检查仍与批次观测匹配。
 
-兼容迁移按项目/批次/来源记录标记，不替换已有新版；公开版的旧审核输入为空。未知结论继续保留。`readAnswerAuditData` 返回审核与最近追加时间，`attachOverviewData` 在响应中生成 `answerAudits/overviewMetrics` 并提升 `batch.updatedAt`；汇总不是另一张持久化表，读取不启动模型分析。新研究执行器以外的历史导入记录，若没有对应审核，指标仍为未知。
+兼容迁移按项目/批次/来源记录标记，不替换已有新版；未配置本地资料时，旧审核输入为空。未知结论继续保留。`readAnswerAuditData` 返回审核与最近追加时间，`attachOverviewData` 在响应中生成 `answerAudits/overviewMetrics` 并提升 `batch.updatedAt`；汇总不是另一张持久化表，读取不启动模型分析。新研究执行器以外的历史导入记录，若没有对应审核，指标仍为未知。
 
 源码：[answer-audit-store](../../../src/lib/geo/answer-audit-store.ts)、[overview-data](../../../src/lib/geo/overview-data.ts)、[回答审核与口径](pages/overview.md)。

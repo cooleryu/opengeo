@@ -724,7 +724,7 @@ function AssetWorkspace({
       const params = new URLSearchParams(window.location.search);
       if (
         params.get('view') !== 'assets' ||
-        (params.get('project') || 'example-project') !== data.project.id
+        (params.get('project') || data.project.id) !== data.project.id
       )
         return;
       setLanguage(params.get('language') === 'en' ? 'en' : 'zh');
@@ -838,7 +838,7 @@ function AssetWorkspace({
     const url = new URL(window.location.href);
     if (
       url.searchParams.get('view') !== 'assets' ||
-      (url.searchParams.get('project') || 'example-project') !== data.project.id
+      (url.searchParams.get('project') || data.project.id) !== data.project.id
     )
       return;
     const values: Record<string, string | null> = {

@@ -25,6 +25,13 @@ export function GET(request: NextRequest) {
           }
           const runs = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='geo_research_runs'").get();
           version.push(runs ? db.prepare('SELECT MAX(updated_at) AS updatedAt FROM geo_research_runs WHERE project_id=?').get(projectId) : null);
+          const tasks = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='geo_tasks'").get();
+          // Each project has its own database. Task-only progress must refresh
+          // the overview even when no new search or answer audit was saved.
+          version.push(tasks ? db.prepare(`SELECT id, updated_at AS updatedAt,
+            json_extract(payload, '$.status') AS status,
+            json_extract(payload, '$.projectOptimization.phase') AS phase
+            FROM geo_tasks ORDER BY id`).all() : null);
         } finally { db.close(); }
       }
       const target = path.join(directory, 'competitor.json');

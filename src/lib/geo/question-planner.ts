@@ -209,26 +209,37 @@ function cited(seed: GeoSeed, assetIds: string[]) {
 /** Deterministic, manually curated starting point. It does not call an AI or a search provider. */
 export function buildInitialQuestionPlan(seed: GeoSeed): GeoQuestionPlan {
   const positioning = seed.project.description;
+  const localPlan = (seed as GeoSeed & { initialQuestionPlan?: {
+    additions?: Array<{ id: string; query: string; category: QuestionCategory; target: 'project' | 'article'; ids: string[]; intent: string }>;
+    reviews?: Record<string, { category: QuestionCategory; selected: boolean; decision: QuestionCandidate['review']['decision']; reason: string }>;
+  } }).initialQuestionPlan;
+
   const candidates: QuestionCandidate[] = seed.questions.map(question => {
     const brand = question.tier === 'L1' || identityTerms(seed).some(term => queryKey(question.query).includes(term));
-    const comparison = /500K.*(?:1M|1m)/i.test(question.query);
-    const compaction = /(?:减少.*压缩|reduce.*compaction)/i.test(question.query);
-    const exploratory = comparison || compaction;
-    const category: QuestionCategory = brand ? 'brand' : comparison ? 'comparison' : 'content';
+    const savedReview = localPlan?.reviews?.[question.id];
+    const category: QuestionCategory = savedReview?.category || (brand ? 'brand' : 'content');
     return {
       id: question.id, originalQuestionId: question.id, origin: 'existing', query: question.query, category,
       intent: brand ? '已知品牌后，查找正确的项目入口并区分同名对象。' : '寻找能够回答当前技术问题的文章或研究材料。',
       target: brand ? 'project' : 'article', ...cited(seed, question.matchingAssetIds || []),
       rationale: brand ? '品牌识别是基础检查，命中仍需实际测量。' : '保留旧题和历史来源；评估文章发现，不把文章主题当成产品已经具备的能力。',
       expectedResult: brand ? '出现本项目的官方入口或正确介绍；同名论文不算本项目。' : '相关公开文章被返回或引用；不要求一定推荐本项目作为产品方案。',
-      demandStatus: 'unverified', selected: !exploratory,
+      demandStatus: 'unverified', selected: savedReview?.selected ?? true,
       review: {
-        decision: exploratory ? 'explore' : 'include',
-        reason: comparison ? '现有文章提供选择方法，但没有实测 500K 与 1M 的优劣；仅作探索，不能作为产品主评分。' : compaction ? '这主要询问平台窗口特性；本项目未实测 Codex 500K，不作为产品主评分。' : brand ? '有明确身份与公开入口，可作为品牌基础检查；不承诺命中。' : '有对应公开文章，适合检查内容发现；仍未验证真实用户需求。',
+        decision: savedReview?.decision || 'include',
+        reason: savedReview?.reason || (brand ? '有明确身份与公开入口，可作为品牌基础检查；不承诺命中。' : '有对应公开文章，适合检查内容发现；仍未验证真实用户需求。'),
         concerns: ['题目需求尚未经外部搜索行为或用户反馈验证。'],
       },
     };
   });
+  for (const addition of localPlan?.additions || []) candidates.push({
+      id: addition.id, query: addition.query, category: addition.category, target: addition.target, intent: addition.intent,
+      origin: 'curated', ...cited(seed, addition.ids),
+      rationale: '由现有公开材料人工整理的候选问法，与历史命中情况无关；材料支持相关性，不证明存在搜索需求。',
+      expectedResult: addition.target === 'project' ? '发现定位相关的研究项目；不宣称已有普适有效的商用解决方案。' : '返回或引用对应文章中的解释、方法和有边界的实验证据。',
+      demandStatus: 'unverified', selected: true,
+      review: { decision: 'include', reason: '材料覆盖问题的主要意图，且没有带入品牌身份；可纳入待测题单。', concerns: ['问法为人工假设，尚未取得真实需求证据。', '是否能被发现尚未测量。'] },
+    });
   const at = `${seed.project.asOf.slice(0, 10)}T00:00:00.000Z`;
   return validateQuestionPlan({
     id: `${seed.project.id}-question-plan`, projectId: seed.project.id, revision: 1, createdAt: at, updatedAt: at,

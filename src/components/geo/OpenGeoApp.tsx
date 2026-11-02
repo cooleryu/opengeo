@@ -47,6 +47,9 @@ import TaskWorkspace, {
   getTaskWorkspaceGroups,
   isHistoricalTask,
 } from './TaskWorkspace';
+import ProjectOptimizationEntry from './ProjectOptimizationEntry';
+import { isOpenProjectOptimizationTask } from './project-optimization-progress';
+import type { ProjectOptimizationMode } from '@/lib/geo/project-optimization-types';
 import ImplementationRecordForm from './ImplementationRecordForm';
 import QuestionPlanPanel from './QuestionPlanPanel';
 import QuestionManagementPanel from './QuestionManagementPanel';
@@ -264,7 +267,7 @@ export default function OpenGeoApp() {
       format: string;
     } | null>(null);
   const [goal, setGoal] = useState(
-    '让 项目 在相关问题的搜索结果中被找到，给我一个有依据的改进方案，并持续观察它是否有效。',
+    '让项目在相关问题的搜索结果中被找到，给我一个有依据的改进方案，并持续观察它是否有效。',
   );
   const [collectionProvider, setCollectionProvider] =
     useState<CollectionProvider>('deepseek');
@@ -286,7 +289,7 @@ export default function OpenGeoApp() {
   const refresh = useCallback(
     async (options?: { signal?: AbortSignal; onSuccess?: () => void }) => {
       const requestedProject = projectRef.current;
-      if (!requestedProject || options?.signal?.aborted) return;
+      if (options?.signal?.aborted) return;
       refreshRequest.current?.abort();
       const controller = new AbortController();
       refreshRequest.current = controller;
@@ -298,7 +301,7 @@ export default function OpenGeoApp() {
         version === refreshVersion.current &&
         projectRef.current === requestedProject &&
         (new URLSearchParams(window.location.search).get('project') ||
-          'example-project') === requestedProject;
+          '') === requestedProject;
       try {
         const res = await fetch(
           `/api/geo?project=${encodeURIComponent(requestedProject)}`,
@@ -307,8 +310,16 @@ export default function OpenGeoApp() {
         if (!res.ok) throw new Error('暂时无法读取项目，请重试。');
         const next: GeoState = await res.json();
         if (!isCurrent()) return;
-        if (next.project.id !== requestedProject)
+        if (requestedProject && next.project.id !== requestedProject)
           throw new Error('项目内容与当前地址不一致，请重新加载。');
+        // Let the server resolve its configured default before caching an identity.
+        if (!requestedProject) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('project', next.project.id);
+          window.history.replaceState(null, '', url);
+          projectRef.current = next.project.id;
+          setProjectId(next.project.id);
+        }
         setData(next);
         setError('');
         options?.onSuccess?.();
@@ -333,7 +344,7 @@ export default function OpenGeoApp() {
         window.history.replaceState(null, '', url);
       }
       const requestedPage = params.get('view') as Page;
-      const requestedProject = params.get('project') || 'example-project';
+      const requestedProject = params.get('project') || '';
       const projectChanged = projectRef.current !== requestedProject;
       if (projectChanged) {
         refreshVersion.current += 1;
@@ -505,7 +516,7 @@ export default function OpenGeoApp() {
     const url = new URL(window.location.href);
     clearResearchDetailParams(url);
     if (
-      (url.searchParams.get('project') || 'example-project') !== projectRef.current
+      (url.searchParams.get('project') || '') !== projectRef.current
     ) {
       [
         'questionSearch',
@@ -724,6 +735,18 @@ export default function OpenGeoApp() {
     if (!taskId) return;
     navigate('tasks', taskId);
     await act('plan_from_saved', { taskId, maxQualityRounds: 2 }, '已开始比较已有回答、生成方案并独立审核');
+  };
+  const startProjectOptimization = async (mode: ProjectOptimizationMode) => {
+    if (!data?.latestResearch) throw new Error('请先添加监测问题。');
+    if (busy) throw new Error('另一项操作正在进行，请稍后重试。');
+    const result = await act('start_project_optimization', {
+      mode,
+      batchId: data.latestResearch.id,
+    });
+    if (!result) throw new Error(actionError.current || '暂时无法开始，请重试。');
+    const added = result.tasks.find(isOpenProjectOptimizationTask);
+    if (!added) throw new Error('没有找到本轮项目优化任务，请刷新后查看。');
+    navigate('tasks', added.id);
   };
   const openResearchTask = (
     question: ResearchQuestion,
@@ -1111,10 +1134,8 @@ export default function OpenGeoApp() {
         </nav>
         <div className="og-sidebar-bottom">
           <a
-            href={
-              data?.project.siteUrl ??
-              'https://example.com/example-project'
-            }
+            href={data?.project.siteUrl || data?.project.repositoryUrl || undefined}
+            aria-disabled={!data}
             target="_blank"
             rel="noreferrer"
           >
@@ -1238,6 +1259,15 @@ export default function OpenGeoApp() {
                   page === 'question-plan') && (
                   <ResearchPanel
                     key={`research-${data.project.id}`}
+                    projectOptimization={<ProjectOptimizationEntry
+                      key={data.project.id}
+                      projectName={data.project.name}
+                      questionCount={data.latestResearch.questions.length}
+                      activeTask={data.tasks.find(isOpenProjectOptimizationTask)}
+                      onStart={startProjectOptimization}
+                      onContinue={openTask}
+                      onQuestions={() => navigate('question-plan')}
+                    />}
                     batch={data.latestResearch}
                     project={data.project}
                     view={page === 'overview' ? 'overview' : 'questions'}
@@ -1279,6 +1309,7 @@ export default function OpenGeoApp() {
               )}
               {page === 'settings' && (
                 <ConnectionSettingsPanel
+                  projectId={data.project.id}
                   research={data.latestResearch}
                   onSaved={() => {
                     void refresh();

@@ -18,6 +18,7 @@ import ChatGPTConnection from './ChatGPTConnection';
 import './connection-settings.css';
 
 type Props = {
+  projectId: string;
   research: ResearchBatch | null | undefined;
   onSaved: () => void;
   onRecords: (engine: ResearchEngine) => void;
@@ -48,6 +49,7 @@ const platforms: { id: ResearchEngine; name: string; kind: string }[] = [
 ];
 
 export default function ConnectionSettingsPanel({
+  projectId,
   research,
   onSaved,
   onRecords,
@@ -227,7 +229,7 @@ export default function ConnectionSettingsPanel({
         </header>
         <div className="cs-model-grid">
           <ChatGPTConnection
-            projectId={research?.projectId || 'example-project'}
+            projectId={projectId}
             onSaved={onSaved}
           />
           <section className="cs-model-card" aria-labelledby="cs-model-title">

@@ -291,12 +291,31 @@ export function countContentReferences(
   };
 }
 
-// Public source contains no pre-approved relationships from private research.
-function assetCoverage(
-  _asset: GeoAsset,
-  _batch: ResearchBatch | null,
-): ContentCoverage[] {
-  return [];
+export interface ReviewedContentCoverage {
+  batchId: string;
+  reviewPath: string;
+  questionIds: string[];
+  source: string;
+  candidate?: boolean;
+}
+
+// Explicit editorial relationships travel with the locally supplied asset.
+// They never establish that an answer cited the asset or verified its capability.
+function assetCoverage(asset: GeoAsset, batch: ResearchBatch | null): ContentCoverage[] {
+  if (!batch) return [];
+  const mappings = (asset as GeoAsset & { reviewedCoverage?: ReviewedContentCoverage[] }).reviewedCoverage || [];
+  const mapping = mappings.find(entry => entry.batchId === batch.id && entry.reviewPath === batch.reviewPath);
+  if (!mapping) return [];
+  return [...batch.questions, ...batch.deferredQuestions]
+    .filter(question => mapping.questionIds.includes(question.id) && question.reviewPath === mapping.reviewPath)
+    .map(question => ({
+      question,
+      status: mapping.candidate ? ('candidate' as const) : ('documented' as const),
+      evidencePath: mapping.reviewPath,
+      basis: mapping.candidate
+        ? `复评明确对应 ${mapping.source}；该译本未被同一审阅单独核对，内容对应关系待确认。`
+        : `复评通过原来源表对应 ${mapping.source}。承接边界：${question.answerability}`,
+    }));
 }
 
 function headings(asset: GeoAsset): string[] {
