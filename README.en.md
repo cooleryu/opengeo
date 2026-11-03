@@ -1,6 +1,8 @@
 <div align="center">
 <h1>OpenGEO</h1>
-<p>An open-source, local workspace for AI search visibility: inspect answers and citations, compare competitors, and track improvements.</p>
+<p>People ask ChatGPT, DeepSeek, and other AI search engines about your brand, product, or open-source repository. The answer doesn't mention you, or gets you wrong — and you can't see who it cited or what to change.</p>
+<p>OpenGEO asks those questions for real, saves the full answers and citations, shows who was mentioned and whose content was cited, and turns the gap into one concrete improvement.</p>
+<p>Open source, runs locally. Every conclusion links back to the original answer — not a black-box score.</p>
 <p><a href="#inspect-answers-and-citations">Features</a> · <a href="#supported-platforms">Platforms</a> · <a href="#quick-start">Quick start</a> · <a href="README.md">中文</a></p>
 </div>
 
