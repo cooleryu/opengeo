@@ -1,5 +1,7 @@
 # How Vane Works
 
+This document describes the chat and search foundation inherited from Vane, not OpenGEO's current product workflow. For OpenGEO, start with the [API contracts](../API/OPENGEO-CONTRACTS.md) and [Agent guide](../../skills/README.md).
+
 This is a high level overview of how Vane answers a question.
 
 If you want a component level overview, see [README.md](README.md).

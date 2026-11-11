@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Archive,
-  ChevronRight,
   Plus,
   TrendingUp,
 } from 'lucide-react';
@@ -49,7 +48,6 @@ export const getTaskWorkspaceGroups = (tasks: GeoTask[]) => ({
     (task) =>
       !isHistoricalTask(task) || task.implementation?.kind === 'user_confirmed',
   ),
-  history: tasks.filter(isHistoricalTask),
   monitor: tasks.filter(
     (task) => task.implementation?.kind === 'user_confirmed',
   ),
@@ -57,7 +55,7 @@ export const getTaskWorkspaceGroups = (tasks: GeoTask[]) => ({
 
 export type TaskWorkspaceProps = {
   data: GeoState;
-  view: 'tasks' | 'history' | 'monitor';
+  view: 'tasks' | 'monitor';
   selectedTaskId: string;
   busy: string;
   onSelect: (id: string) => void;
@@ -319,9 +317,7 @@ export default function TaskWorkspace(props: TaskWorkspaceProps) {
   } = props;
   const groups = getTaskWorkspaceGroups(data.tasks);
   const task = data.tasks.find((item) => item.id === selectedTaskId);
-  const title = { tasks: '改进任务', history: '历史记录', monitor: '效果跟踪' }[
-    view
-  ];
+  const title = { tasks: '改进任务', monitor: '效果跟踪' }[view];
   if (task)
     return (
       <div className="og-task-workspace og-task-detail">
@@ -551,59 +547,6 @@ export default function TaskWorkspace(props: TaskWorkspaceProps) {
             </button>
           </section>
         ))}
-      {view === 'history' && (
-        <div className="og-history-list">
-          {groups.history.length ? (
-            groups.history.map((item) => {
-              const record = historyPresentation(item);
-              const realRuns = realFollowupRuns(item);
-              const replays = item.runs.filter(
-                (run) => run.mode === 'replay',
-              ).length;
-              return (
-                <button
-                  className="og-history-row"
-                  key={item.id}
-                  onClick={() => onSelect(item.id)}
-                >
-                  <span className="og-history-icon">
-                    <Archive size={19} />
-                  </span>
-                  <span className="og-history-copy">
-                    <strong>{record.title}</strong>
-                    <span>
-                      {record.origin} ·{' '}
-                      {item.implementation?.kind === 'user_confirmed'
-                        ? '已登记真实实施'
-                        : item.implementation?.kind === 'rehearsal'
-                          ? `${replays} 次回放 · 未真实实施`
-                          : item.status === 'failed' ||
-                              (record.origin === '失败记录' &&
-                                !(
-                                  item.workflow?.baseline?.mode === 'live' &&
-                                  item.workflow.baseline.status === 'completed'
-                                ))
-                            ? '采集未完成 · 没有新改稿'
-                            : '正文候选 · 未实施'}
-                      {realRuns.length > 0 &&
-                        ` · ${realRuns.length} 次真实跟测`}
-                    </span>
-                  </span>
-                  <time>{date(item.updatedAt)}</time>
-                  <ChevronRight size={18} />
-                </button>
-              );
-            })
-          ) : (
-            <section className="og-workspace-empty">
-              <Archive size={24} />
-              <div>
-                <h2>暂无历史记录</h2>
-              </div>
-            </section>
-          )}
-        </div>
-      )}
       {view === 'monitor' &&
         (groups.monitor.length ? (
           <div className="og-monitor-task-list">

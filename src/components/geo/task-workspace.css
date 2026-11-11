@@ -162,66 +162,6 @@
 .og-workspace-task-card footer .og-button {
   flex-shrink: 0;
 }
-.og-history-list {
-  display: grid;
-  gap: 0;
-  border: 1px solid var(--task-line);
-  border-radius: 8px;
-  overflow: hidden;
-  background: #fff;
-}
-.og-task-workspace .og-history-row {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  gap: 16px;
-  padding: 14px 18px;
-  border: 0;
-  border-radius: 0;
-  background: #fff;
-  text-align: left;
-  transition:
-    border-color 150ms,
-    background 150ms;
-  border-bottom: 1px solid var(--task-line);
-  min-height: 70px;
-}
-.og-task-workspace .og-history-row:hover {
-  border-color: #c9d5ce;
-  background: #fafbfa;
-}
-.og-history-icon {
-  width: 28px;
-  height: 30px;
-  border-radius: 5px;
-  background: #f5f5f5;
-  color: #777;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-}
-.og-history-copy {
-  display: grid;
-  gap: 3px;
-  flex: 1;
-  min-width: 0;
-}
-.og-history-copy strong {
-  font-size: 14px;
-  color: var(--task-ink);
-  font-weight: 500;
-  line-height: 1.5;
-}
-.og-history-copy > span,
-.og-history-row time {
-  color: var(--task-muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-.og-history-row > svg {
-  color: #777;
-  flex-shrink: 0;
-}
 .og-monitor-task-list {
   display: grid;
   gap: 24px;
@@ -598,19 +538,6 @@
   .og-workspace-empty > .og-button {
     margin-left: 0;
   }
-  .og-task-workspace .og-history-row {
-    gap: 13px;
-    padding: 21px 18px;
-  }
-  .og-history-icon {
-    display: none;
-  }
-  .og-history-row time {
-    display: none;
-  }
-  .og-history-copy strong {
-    font-size: 15px;
-  }
   .og-task-workspace .og-review-context {
     grid-template-columns: 1fr;
   }
@@ -777,13 +704,6 @@
   .og-task-register-next {
     grid-column: auto;
   }
-  .og-task-workspace .og-history-row {
-    padding: 18px 14px;
-    gap: 12px;
-  }
-  .og-history-row time {
-    display: none;
-  }
 }
 .og-task-workspace .og-task-stage:has(> .og-tracking-panel),
 .og-task-workspace
@@ -826,9 +746,6 @@
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.25px;
-}
-.og-task-workspace .og-history-row:last-child {
-  border-bottom: 0;
 }
 .og-app .og-task-workspace .og-button {
   min-height: 32px;

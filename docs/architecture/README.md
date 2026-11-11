@@ -1,5 +1,7 @@
 # Vane Architecture
 
+This document describes the chat and search foundation inherited from Vane, not OpenGEO's current product workflow. For OpenGEO, start with the [API contracts](../API/OPENGEO-CONTRACTS.md), [Agent guide](../../skills/README.md), and [contribution guide](../../CONTRIBUTING.md).
+
 Vane is a Next.js application that combines an AI chat experience with search.
 
 For a high level flow, see [WORKING.md](WORKING.md). For deeper implementation details, see [CONTRIBUTING.md](../../CONTRIBUTING.md).

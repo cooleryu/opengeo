@@ -1,82 +1,49 @@
-# How to Contribute to Vane
+# Contributing to OpenGEO
 
-Thanks for your interest in contributing to Vane! Your help makes this project better. This guide explains how to contribute effectively.
+OpenGEO is a local workbench for examining AI-search answers, citations, and possible improvements. Start with the [README](README.md) for the current product scope and [AGENTS.md](AGENTS.md) for repository conventions. The source repository is [cooleryu/opengeo](https://github.com/cooleryu/opengeo); `main` is the public branch, while development branches may contain unfinished work.
 
-Vane is a modern AI chat application with advanced search capabilities.
+## Where to make changes
 
-## Project Structure
+| Area | Entry point |
+| --- | --- |
+| OpenGEO pages and shared UI | [`src/components/geo`](src/components/geo) |
+| OpenGEO data, search collection, analysis, proposals, and tracking | [`src/lib/geo`](src/lib/geo) |
+| Next.js pages and routes | [`src/app`](src/app) |
+| OpenGEO API route handlers | [`src/app/api/geo`](src/app/api/geo) |
+| Page-specific Agent prompts and settings | [Agent guide](skills/README.md) |
+| Requests, responses, storage, and known implementation boundaries | [OpenGEO API contracts](docs/API/OPENGEO-CONTRACTS.md) |
 
-Vane's codebase is organized as follows:
+For a product change, start with the relevant page in the Agent guide and API contracts. Those documents distinguish connected functionality from work still in progress. Update the affected documentation when changing an interface or its behavior; do not describe a planned workflow as an implemented capability.
 
-- **UI Components and Pages**:
-  - **Components (`src/components`)**: Reusable UI components.
-  - **Pages and Routes (`src/app`)**: Next.js app directory structure with page components.
-    - Main app routes include: home (`/`), chat (`/c`), discover (`/discover`), and library (`/library`).
-  - **API Routes (`src/app/api`)**: Server endpoints implemented with Next.js route handlers.
-- **Backend Logic (`src/lib`)**: Contains all the backend functionality including search, database, and API logic.
-  - The search system lives in `src/lib/agents/search`.
-  - The search pipeline is split into classification, research, widgets, and writing.
-  - Database functionality is in `src/lib/db`.
-  - Chat model and embedding model providers are in `src/lib/models/providers`, and models are loaded via `src/lib/models/registry.ts`.
-  - Prompt templates are in `src/lib/prompts`.
-  - SearXNG integration is in `src/lib/searxng.ts`.
-  - Upload search lives in `src/lib/uploads`.
+## Retained chat and search foundation
 
-### Where to make changes
+OpenGEO builds on Vane. The following components remain useful when changing that foundation; they are separate from the OpenGEO page and Agent entry points above:
 
-If you are not sure where to start, use this section as a map.
+- `src/lib/agents/search` contains the inherited chat/search pipeline. `classifier.ts` selects the work, `researcher/` gathers information, and `widgets/` provides structured helpers.
+- Research tools live in `src/lib/agents/search/researcher/actions` and are registered in its `index.ts`.
+- Model providers live in `src/lib/models/providers`; `src/lib/models/registry.ts` loads them.
+- `src/lib/db` contains database support; `src/lib/uploads` handles uploaded-file search.
+- `src/lib/prompts` contains inherited chat prompts; `src/lib/searxng.ts` integrates the search backend.
 
-- **Search behavior and reasoning**
+The [architecture overview](docs/architecture/README.md), [chat/search flow](docs/architecture/WORKING.md), and [Search API](docs/API/SEARCH.md) describe this inherited foundation. For current OpenGEO routes, use the [OpenGEO API contracts](docs/API/OPENGEO-CONTRACTS.md).
 
-  - `src/lib/agents/search` contains the core chat and search pipeline.
-  - `classifier.ts` decides whether research is needed and what should run.
-  - `researcher/` gathers information in the background.
+## Local development
 
-- **Add or change a search capability**
+Use Node.js 24. From the repository root:
 
-  - Research tools (web, academic, discussions, uploads, scraping) live in `src/lib/agents/search/researcher/actions`.
-  - Tools are registered in `src/lib/agents/search/researcher/actions/index.ts`.
+```sh
+npm install
+npm run dev
+```
 
-- **Add or change widgets**
+Open [localhost:4327](http://127.0.0.1:4327). For a fresh checkout, you can copy `.env.example` to `.env.local` before starting; preserve any existing environment files. Follow [Getting started](docs/getting-started.md) to create a project and configure the services needed for your work. Model calls, searches, and connection tests can incur provider charges.
 
-  - Widgets live in `src/lib/agents/search/widgets`.
-  - Widgets run in parallel with research and show structured results in the UI.
+Keep credentials, local project materials, and databases out of Git. Preserve `data/` and any custom data directories when updating; see [Updating OpenGEO](docs/installation/UPDATING.md). Docker configuration is also retained, but local development uses `npm run dev`.
 
-- **Model integrations**
+## Contribution practices
 
-  - Providers live in `src/lib/models/providers`.
-  - Add new providers there and wire them into the model registry so they show up in the app.
-
-- **Architecture docs**
-  - High level overview: `docs/architecture/README.md`
-  - High level flow: `docs/architecture/WORKING.md`
-
-## API Documentation
-
-Vane includes API documentation for programmatic access.
-
-- **Search API**: For detailed documentation, see `docs/API/SEARCH.md`.
-
-## Setting Up Your Environment
-
-Before diving into coding, setting up your local environment is key. Here's what you need to do:
-
-1. Run `npm install` to install all dependencies.
-2. Use `npm run dev` to start the application in development mode.
-3. Open http://localhost:3000 and complete the setup in the UI (API keys, models, search backend URL, etc.).
-
-Database migrations are applied automatically on startup.
-
-For full installation options (Docker and non Docker), see the installation guide in the repository README.
-
-**Please note**: Docker configurations are present for setting up production environments, whereas `npm run dev` is used for development purposes.
-
-## Coding and Contribution Practices
-
-Before committing changes:
-
-1. Ensure that your code functions correctly by thorough testing.
-2. Always run `npm run format:write` to format your code according to the project's coding standards. This helps maintain consistency and code quality.
-3. We currently do not have a code of conduct, but it is in the works. In the meantime, please be mindful of how you engage with the project and its community.
-
-Following these steps will help maintain the integrity of Vane's codebase and facilitate a smoother integration of your valuable contributions. Thank you for your support and commitment to improving Vane.
+- Keep changes scoped to the issue and preserve existing user data and historical evidence.
+- Run checks relevant to the behavior you changed, and state what you verified and what remains unverified.
+- Format only changed files. `npm run format:write` formats the whole repository, so avoid using it when it would rewrite unrelated work.
+- Keep API contracts and the relevant Agent documentation aligned with implementation changes.
+- Preserve the inherited [MIT license and copyright notices](LICENSE), and discuss issues and contributions respectfully.
