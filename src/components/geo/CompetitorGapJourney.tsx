@@ -84,7 +84,7 @@ export default function CompetitorGapJourney({
 
   function questionHref(row?: CompetitorRow) {
     return `/?${new URLSearchParams({
-      view: 'questions',
+      view: 'question-plan',
       project: data.projectId,
       ...(data.batch ? { batch: data.batch.id } : {}),
       language: row?.language || language,

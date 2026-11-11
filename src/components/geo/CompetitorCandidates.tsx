@@ -541,7 +541,7 @@ export default function CompetitorCandidates({
       current.searchParams.set('candidateEngine', previewEngine);
     }
     const params = new URLSearchParams({
-      view: 'questions',
+      view: 'question-plan',
       project: projectId,
       question: record.questionId,
       language: record.language,
