@@ -1,6 +1,6 @@
 services:
   vane:
-    image: itzcrazykns1337/vane:latest
+    image: opengeo:local
     build:
       context: .
     ports:

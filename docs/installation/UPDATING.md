@@ -1,81 +1,66 @@
-# Update Vane to the latest version
+# Updating OpenGEO
 
-To update Vane to the latest version, follow these steps:
+Update from [cooleryu/opengeo](https://github.com/cooleryu/opengeo). The public branch is `main`; development branches can contain unfinished work. OpenGEO retains code from Vane, but Vane's published images are not OpenGEO updates.
 
-## For Docker users (Using pre-built images)
+## Before updating
 
-Simply pull the latest image and restart your container:
+From your existing OpenGEO checkout, check the repository and branch:
 
-```bash
-docker pull itzcrazykns1337/vane:latest
-docker stop vane
-docker rm vane
-docker run -d -p 3000:3000 -v vane-data:/home/vane/data --name vane itzcrazykns1337/vane:latest
+```sh
+git remote -v
+git branch --show-current
+git status --short
 ```
 
-For slim version:
+- Confirm that `origin` points to `cooleryu/opengeo` and that you are updating the intended branch. If the working tree has uncommitted changes, stop here and preserve or finish that work before updating. Do not use `reset --hard` or `clean` to make an update proceed.
+- Keep your existing `data/`, `.env`, and `.env.local`. Do not copy the example environment file over an existing configuration. If you use `DATA_DIR` or other custom local paths, retain those paths and their contents too.
+- Stop the application before backing up its local data, then keep a copy of that data and your configuration outside the checkout. For Docker, preserve the existing data volume and deployment settings.
 
-```bash
-docker pull itzcrazykns1337/vane:slim-latest
-docker stop vane
-docker rm vane
-docker run -d -p 3000:3000 -e SEARXNG_API_URL=http://your-searxng-url:8080 -v vane-data:/home/vane/data --name vane itzcrazykns1337/vane:slim-latest
+## Update the source
+
+If you are already on `main` with a clean working tree:
+
+```sh
+git pull --ff-only origin main
 ```
 
-Once updated, go to http://localhost:3000 and verify the latest changes. Your settings are preserved automatically.
+For a development branch, pull its configured tracking branch with `git pull --ff-only` instead. Do not switch branches or merge `main` just to update. If Git reports divergence or a missing tracking branch, resolve that branch choice before continuing.
 
-## For Docker users (Building from source)
+Review any configuration changes in [.env.example](../../.env.example) and add only the settings you need to your existing local environment file. Then use the section that matches your deployment.
 
-1. Navigate to your Vane directory and pull the latest changes:
+## Running from source
 
-   ```bash
-   cd Vane
-   git pull origin master
-   ```
+Use Node.js 24, as described in the [README](../../README.md). Install the dependencies for the updated source:
 
-2. Rebuild the Docker image:
+```sh
+npm install
+```
 
-   ```bash
-   docker build -t vane .
-   ```
+For development, restart with:
 
-3. Stop and remove the old container, then start the new one:
+```sh
+npm run dev
+```
 
-   ```bash
-   docker stop vane
-   docker rm vane
-   docker run -p 3000:3000 -p 8080:8080 --name vane vane
-   ```
+For an existing production deployment, stop its previous process, rebuild, and restart using the same environment and data paths. To run on the local OpenGEO port:
 
-4. Once the command completes, go to http://localhost:3000 and verify the latest changes.
+```sh
+npm run build
+npm run start -- --hostname 127.0.0.1 --port 4327
+```
 
-## For non-Docker users
+Open [localhost:4327](http://127.0.0.1:4327) and check that your existing projects and saved records are present. If a process manager runs the application, restart it with its existing configuration instead of starting a second instance.
 
-1. Navigate to your Vane directory and pull the latest changes:
+## Existing Docker Compose deployments
 
-   ```bash
-   cd Vane
-   git pull origin master
-   ```
+After updating the source, rebuild from this repository using the same Compose project and configuration as before:
 
-2. Install any new dependencies:
+```sh
+docker compose up -d --build
+```
 
-   ```bash
-   npm i
-   ```
+The repository's Compose file builds the local `opengeo:local` image. Its `vane` service name, `vane-data` volume, and `/home/vane/data` mount are retained for compatibility with existing deployments. Keep any environment settings, overrides, and additional mounts you already use; rebuilding does not copy host `.env.local` into the container.
 
-3. Rebuild the application:
+The default Compose port mapping remains `3000:3000`, so check [localhost:3000](http://127.0.0.1:3000), or your existing configured address. Verify that the original projects and saved records are present. Do not remove the data volume or run `docker compose down -v` during an update.
 
-   ```bash
-   npm run build
-   ```
-
-4. Restart the application:
-
-   ```bash
-   npm run start
-   ```
-
-5. Go to http://localhost:3000 and verify the latest changes. Your settings are preserved automatically.
-
----
+If you originally deployed with `docker run` or a custom Compose file, retain that deployment's volume mapping, environment, and port settings when rebuilding from this repository. Do not replace it with an upstream Vane image. Docker files are retained as a deployment option; this documentation update does not establish that the current OpenGEO workflow has been verified in Docker.

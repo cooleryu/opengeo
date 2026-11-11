@@ -23,11 +23,7 @@ const nextConfig = {
   ],
   outputFileTracingIncludes: {
     '/api/**': [
-      './skills/answer-evidence-review/**',
-      './skills/question-planning/**',
-      './skills/competitor-analysis/**',
-      './skills/competitor-citation-review/**',
-      './skills/improvement-planning/**',
+      './skills/**',
       './node_modules/@napi-rs/canvas/**',
       './node_modules/@napi-rs/canvas-linux-x64-gnu/**',
       './node_modules/@napi-rs/canvas-linux-x64-musl/**',
