@@ -6,13 +6,11 @@ import {
   ArrowRight,
   ArrowUpRight,
   Check,
-  CalendarDays,
   Info,
   ChevronDown,
   FileText,
   Search,
   X,
-  Plus,
   Library,
 } from 'lucide-react';
 import type {
@@ -25,14 +23,11 @@ import {
   getLatestResearchObservation,
   getResearchRows,
   getResearchMetrics,
-  isBrandQuestion,
   type ResearchFilter,
   type ResearchRow,
 } from '@/lib/geo/research-view';
 import {
-  RESEARCH_ENGINES,
   RESEARCH_ENGINE_NAMES as names,
-  getBatchResearchEngines,
   isResearchEngine,
   isConsumerResearchEngine,
 } from '@/lib/geo/research-engines';
@@ -42,7 +37,6 @@ import './question-detail.css';
 import ResearchChart from './ResearchChart';
 import QuestionDetailVisual from './QuestionDetailVisual';
 import AnswerText from './AnswerText';
-import GeoSelect from './GeoSelect';
 import ProjectOverview, {
   OverviewMention,
   OverviewAudit,
@@ -280,8 +274,6 @@ export default function ResearchPanel({
   hideHeader = false,
   onEvidence,
   onQuestions,
-  onOverview,
-  onReview,
   onImprove,
   projectOptimization,
   onPlan,
@@ -352,7 +344,6 @@ export default function ResearchPanel({
     ...initialFilters,
   });
   const [query, setQuery] = useState('');
-  const [deferred, setDeferred] = useState(false);
   const [drawer, setDrawer] = useState<Drawer | null>(null);
   const [readPath, setReadPath] = useState<string | null>(null);
   const [returnTo, setReturnTo] = useState<string | null>(null);
@@ -406,7 +397,6 @@ export default function ResearchPanel({
       };
       setFilters(next);
       setQuery(params.get('search') ?? '');
-      setDeferred(params.get('group') === 'deferred');
       setReadPath(params.get('evidence'));
       if (params.has('batch') && params.get('batch') !== batch.id) {
         setTraceError(batchError);
@@ -491,12 +481,26 @@ export default function ResearchPanel({
           collection,
           engine: next.engine,
         });
+      } else if (
+        detailsOnly &&
+        params.has('batch') &&
+        params.get('batch') !== latestBatch.id &&
+        !['question', 'source', 'directory', 'collection'].some((key) =>
+          params.has(key),
+        )
+      ) {
+        setDrawer({
+          title: collectionTitle(next.engine, 'all'),
+          rows,
+          collection: 'all',
+          engine: next.engine,
+        });
       } else setDrawer(null);
     };
     readLocation();
     window.addEventListener('popstate', readLocation);
     return () => window.removeEventListener('popstate', readLocation);
-  }, [batch, view, detailsOnly, batchError]);
+  }, [batch, view, detailsOnly, batchError, latestBatch.id]);
 
   useEffect(() => {
     if (drawer && !dialog.current?.open) {
@@ -545,7 +549,7 @@ export default function ResearchPanel({
         returnTo || window.location.href,
         window.location.origin,
       );
-      clearResearchDetailParams(url);
+      if (!returnTo) clearResearchDetailParams(url);
       window.history.replaceState(null, '', url);
       window.dispatchEvent(new PopStateEvent('popstate'));
       return;
@@ -626,40 +630,16 @@ export default function ResearchPanel({
       })
     );
   }
-  function changeGroup(isDeferred: boolean) {
-    setDeferred(isDeferred);
-    const url = new URL(window.location.href);
-    if (isDeferred) url.searchParams.set('group', 'deferred');
-    else url.searchParams.delete('group');
-    window.history.replaceState(null, '', url);
-  }
   function searchQuestions(value: string) {
     setQuery(value);
     const url = new URL(window.location.href);
     if (value) url.searchParams.set('search', value);
     else url.searchParams.delete('search');
+    url.searchParams.set('questionSearch', value);
     window.history.replaceState(null, '', url);
   }
 
   const baseRows = getResearchRows(batch, { ...filters, result: 'all' });
-  const visibleRows = getResearchRows(batch, filters);
-  const metrics = getResearchMetrics(baseRows);
-  const displayedEngines =
-    filters.engine === 'all'
-      ? getBatchResearchEngines(batch)
-      : [filters.engine];
-  const activeQuestions = (
-    view === 'questions' && deferred ? batch.deferredQuestions : batch.questions
-  ).filter((question) =>
-    view === 'overview'
-      ? baseRows.some((row) => row.question.id === question.id)
-      : (deferred || baseRows.some((row) => row.question.id === question.id)) &&
-        (question.zh + ' ' + question.en + ' ' + question.id)
-          .toLowerCase()
-          .includes(query.toLowerCase()) &&
-        (deferred ||
-          visibleRows.some((row) => row.question.id === question.id)),
-  );
   function openQuestion(
     question: ResearchQuestion,
     engine?: ResearchRow['engine'],
@@ -733,65 +713,7 @@ export default function ResearchPanel({
   const sources = [...sourceMap.values()].sort(
     (a, b) => b.rows.length - a.rows.length,
   );
-  const sourcePreview = sources.slice(0, 5);
-  const brandCount = batch.questions.filter(isBrandQuestion).length;
-  const questionsLabel =
-    filters.kind === 'brand'
-      ? '品牌基础'
-      : filters.kind === 'discovery'
-        ? '需求发现'
-        : '全部问题';
-
-  const toolbar = (
-    <div className="rw-toolbar">
-      <span className="rw-date">
-        <CalendarDays size={15} />
-        {(batch.updatedAt || batch.date).slice(0, 10)} · 各题最新
-      </span>
-      <label>
-        <span className="rw-sr-only">搜索入口</span>
-        <GeoSelect<ResearchFilter['engine']>
-          label="搜索入口"
-          value={filters.engine}
-          onChange={(engine) => changeFilters({ engine })}
-          options={[
-            { value: 'all', label: '全部入口' },
-            ...RESEARCH_ENGINES.map((engine) => ({ value: engine, label: names[engine] })),
-          ]}
-        />
-      </label>
-      {view === 'overview' && (
-        <label>
-          <span className="rw-sr-only">问题类型</span>
-          <GeoSelect<ResearchFilter['kind']>
-            label="问题类型"
-            value={filters.kind}
-            onChange={(kind) => changeFilters({ kind })}
-            options={[
-              { value: 'all', label: '全部问题' },
-              { value: 'brand', label: '品牌基础' },
-              { value: 'discovery', label: '需求发现' },
-            ]}
-          />
-        </label>
-      )}
-      <div className="rw-language" role="group" aria-label="问法语言">
-        <button
-          aria-pressed={filters.language === 'zh'}
-          onClick={() => changeFilters({ language: 'zh' })}
-        >
-          中文
-        </button>
-        <button
-          aria-pressed={filters.language === 'en'}
-          onClick={() => changeFilters({ language: 'en' })}
-        >
-          English
-        </button>
-      </div>
-    </div>
-  );
-  const pageContent = detailsOnly ? null : (
+  const pageContent = detailsOnly || view !== 'overview' ? null : (
     <>
       {!hideHeader && (
         <header className="rw-page-heading">
@@ -802,7 +724,7 @@ export default function ResearchPanel({
             >
               <span>O</span> OpenGEO
             </a>
-            <h1>{view === 'overview' ? '项目概览' : '搜索结果'}</h1>
+            <h1>项目概览</h1>
           </div>
           <form
             className="rw-global-search"
@@ -828,7 +750,6 @@ export default function ResearchPanel({
         </header>
       )}
       <div className="rw-body">
-        {view === 'overview' ? (
           <ProjectOverview
             projectOptimization={projectOptimization}
             batch={batch}
@@ -880,218 +801,6 @@ export default function ResearchPanel({
               </details>
             }
           />
-        ) : (
-          <>
-            <div className="rw-questions-grid">
-              <aside className="rw-groups" aria-label="问题分类">
-                <h2>问题分类</h2>
-                {(
-                  [
-                    ['all', '全部问题', batch.questions.length],
-                    ['brand', '品牌基础', brandCount],
-                    [
-                      'discovery',
-                      '需求发现',
-                      batch.questions.length - brandCount,
-                    ],
-                  ] as const
-                ).map(([kind, label, count]) => (
-                  <button
-                    key={kind}
-                    aria-pressed={!deferred && filters.kind === kind}
-                    onClick={() => {
-                      changeGroup(false);
-                      changeFilters({ kind, result: 'all' });
-                    }}
-                  >
-                    <span>{label}</span>
-                    <small>{count}</small>
-                  </button>
-                ))}
-                <button
-                  aria-pressed={deferred}
-                  onClick={() => {
-                    changeGroup(true);
-                    changeFilters({ kind: 'all', result: 'all' });
-                  }}
-                >
-                  <span>保留待补</span>
-                  <small>{batch.deferredQuestions.length}</small>
-                </button>
-
-                <button
-                  className="rw-muted-link"
-                  onClick={() => onEvidence(batch.reviewPath)}
-                >
-                  题单审核依据 <ArrowUpRight size={13} />
-                </button>
-              </aside>
-              <section className="rw-question-section">
-                {toolbar}
-                <header className="rw-section-heading">
-                  <div>
-                    <h2>{deferred ? '保留待补' : questionsLabel}</h2>
-                    <span>{activeQuestions.length} 个问题</span>
-                  </div>
-                  <button className="rw-primary" onClick={onReview}>
-                    <Plus size={15} /> 管理问题
-                  </button>
-                </header>
-                <div className="rw-list-tools">
-                  <label className="rw-search">
-                    <Search size={15} />
-                    <input
-                      aria-label="搜索本批问题"
-                      placeholder="搜索问题…"
-                      value={query}
-                      onChange={(event) => searchQuestions(event.target.value)}
-                    />
-                  </label>
-                  {!deferred && (
-                    <GeoSelect<ResearchFilter['result']>
-                      label="观测状态"
-                      value={filters.result}
-                      onChange={(result) => changeFilters({ result })}
-                      options={[
-                        { value: 'all', label: '全部状态' },
-                        { value: 'found', label: '已找到' },
-                        { value: 'not_observed', label: '本次未见' },
-                        { value: 'unmeasured', label: '未测' },
-                      ]}
-                    />
-                  )}
-                </div>
-                <div className="rw-table-scroll">
-                  <table className="rw-table">
-                    <thead>
-                      <tr>
-                        <th>问题</th>
-                        {displayedEngines.map((engine) => (
-                          <th key={engine}>{names[engine]}</th>
-                        ))}
-                        <th>
-                          <span className="rw-sr-only">详情</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activeQuestions.map((question) => {
-                        const rows = baseRows.filter(
-                          (row) => row.question.id === question.id,
-                        );
-                        return (
-                          <tr key={question.id}>
-                            <td>
-                              <button
-                                className="rw-question-title"
-                                onClick={() => openQuestion(question)}
-                              >
-                                <strong
-                                  title={
-                                    filters.language === 'zh'
-                                      ? question.zh
-                                      : question.en
-                                  }
-                                  lang={filters.language === 'en' ? 'en' : 'zh'}
-                                >
-                                  {filters.language === 'zh'
-                                    ? question.zh
-                                    : question.en}
-                                </strong>
-                              </button>
-                              {view === 'questions' && (
-                                <p
-                                  className="rw-question-value"
-                                  title={question.valueReason}
-                                >
-                                  {question.valueReason}
-                                </p>
-                              )}
-                            </td>
-                            {displayedEngines.map((engine) => (
-                              <td key={engine}>
-                                <button
-                                  className="rw-cell-action"
-                                  aria-label={
-                                    question[filters.language] +
-                                    ' · ' +
-                                    names[engine] +
-                                    ' 记录'
-                                  }
-                                  onClick={() => openQuestion(question, engine)}
-                                >
-                                  <Status
-                                    rows={rows.filter(
-                                      (row) => row.engine === engine,
-                                    )}
-                                  />
-                                </button>
-                              </td>
-                            ))}
-                            <td>
-                              <button
-                                className="rw-row-open"
-                                aria-label={
-                                  '查看问题：' + question[filters.language]
-                                }
-                                onClick={() => openQuestion(question)}
-                              >
-                                <ArrowRight size={16} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                {!activeQuestions.length && (
-                  <div className="rw-empty">
-                    当前筛选下没有问题。
-                    <button
-                      onClick={() => {
-                        searchQuestions('');
-                        changeGroup(false);
-                        changeFilters({ kind: 'all', result: 'all' });
-                      }}
-                    >
-                      查看全部问题
-                    </button>
-                  </div>
-                )}
-              </section>
-            </div>
-            <details className="rw-notes">
-              <summary>
-                调查依据与观测范围 <ChevronDown size={14} />
-              </summary>
-              <p>{batch.productSummary}</p>
-              <p>{batch.contributionSummary}</p>
-              <p>{batch.scopeNote}</p>
-              <p>
-                “本次未见”只表示这次观测没有找到官方来源，不代表未收录。中英问法共用题目
-                ID，结果分别记录。
-              </p>
-              <p>
-                列表与统计取每个问题、语言、入口的最新记录，可能来自不同日期。历史记录保留在问题详情。Google
-                指常规网页结果；DeepSeek、通义千问与豆包为 API
-                入口，不代表其消费端结果。此处不是综合评分，也不代表全网发现率。
-              </p>
-              <p>
-                <strong>下一步：</strong>
-                {batch.nextStep}
-              </p>
-              <div>
-                <button onClick={() => onEvidence(batch.sourceAuditPath)}>
-                  产品调查依据 <ArrowUpRight size={13} />
-                </button>
-                <button onClick={() => onEvidence(batch.reviewPath)}>
-                  题单审核依据 <ArrowUpRight size={13} />
-                </button>
-              </div>
-            </details>
-          </>
-        )}
       </div>
     </>
   );

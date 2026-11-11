@@ -180,7 +180,7 @@ function questionHref(
   engine: ResearchObservation['engine'] | 'all' = 'all',
 ) {
   const params = new URLSearchParams({
-    view: 'questions',
+    view: 'question-plan',
     project: projectId,
     question: questionId,
     language,

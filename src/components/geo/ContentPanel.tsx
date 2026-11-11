@@ -93,7 +93,7 @@ const observationIndex = (ref: ContentReference) =>
   Number(ref.observationId.match(/:observation:(\d+)$/)?.[1] ?? -1);
 function answerHref(ref: ContentReference) {
   const params = new URLSearchParams({
-    view: 'questions',
+    view: 'question-plan',
     project: ref.projectId,
     batch: ref.batchId,
     question: ref.questionId,
@@ -147,7 +147,7 @@ const questionHref = (
 ) =>
   '/?' +
   new URLSearchParams({
-    view: 'questions',
+    view: 'question-plan',
     project,
     question,
     language,

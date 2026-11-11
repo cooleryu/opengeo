@@ -58,12 +58,12 @@ import CompetitorPanel from './CompetitorPanel';
 import TrafficPanel from './TrafficPanel';
 import ConnectionSettingsPanel from './ConnectionSettingsPanel';
 import GeoSelect from './GeoSelect';
+import { normalizeQuestionMonitoringUrl } from './question-monitoring-url';
 import './opengeo.css';
 import './app-shell.css';
 
 type Page =
   | 'overview'
-  | 'questions'
   | 'question-plan'
   | 'competitor'
   | 'traffic'
@@ -73,7 +73,6 @@ type Page =
   | 'settings';
 const pages: Page[] = [
   'overview',
-  'questions',
   'question-plan',
   'competitor',
   'traffic',
@@ -335,7 +334,10 @@ export default function OpenGeoApp() {
   );
   useEffect(() => {
     const readLocation = () => {
-      const params = new URLSearchParams(window.location.search);
+      const currentUrl = new URL(window.location.href);
+      if (normalizeQuestionMonitoringUrl(currentUrl))
+        window.history.replaceState(window.history.state, '', currentUrl);
+      const params = currentUrl.searchParams;
       if (params.get('view') === 'history') {
         params.set('view', 'tasks');
         params.delete('task');
@@ -1008,11 +1010,7 @@ export default function OpenGeoApp() {
   ];
   const nav = navGroups.flatMap((group) => group.items);
   const sidebarPage =
-    page === 'questions'
-      ? 'question-plan'
-      : page === 'monitor'
-        ? 'tasks'
-        : page;
+    page === 'monitor' ? 'tasks' : page;
   const improvementWorkspace = page === 'tasks' || page === 'monitor';
   const workspaceViews = improvementWorkspace
     ? [
@@ -1198,9 +1196,10 @@ export default function OpenGeoApp() {
                         window.location.search,
                       );
                       const target = new URL('/', window.location.origin);
-                      target.searchParams.set('view', 'questions');
+                      target.searchParams.set('view', 'question-plan');
                       target.searchParams.set('project', projectId);
                       target.searchParams.set('search', String(search || ''));
+                      target.searchParams.set('questionSearch', String(search || ''));
                       for (const key of ['language', 'engine'])
                         if (current.has(key))
                           target.searchParams.set(key, current.get(key)!);
@@ -1248,15 +1247,13 @@ export default function OpenGeoApp() {
             )}
             <div
               className={
-                page !== 'overview' && page !== 'questions'
+                page !== 'overview'
                   ? 'og-workspace-body'
                   : undefined
               }
             >
               {data.latestResearch &&
-                (page === 'overview' ||
-                  page === 'questions' ||
-                  page === 'question-plan') && (
+                (page === 'overview' || page === 'question-plan') && (
                   <ResearchPanel
                     key={`research-${data.project.id}`}
                     projectOptimization={<ProjectOptimizationEntry
@@ -1272,14 +1269,13 @@ export default function OpenGeoApp() {
                     project={data.project}
                     view={page === 'overview' ? 'overview' : 'questions'}
                     detailsOnly={page === 'question-plan'}
-                    hideHeader={page === 'questions'}
                     tasks={groups.tasks}
                     onTask={openTask}
                     onCompetitor={() =>
                       navigate('competitor', '', data.latestResearch?.id)
                     }
                     onEvidence={openEvidence}
-                    onQuestions={() => navigate('questions')}
+                    onQuestions={() => navigate('question-plan')}
                     onOverview={() => navigate('overview')}
                     onReview={() => navigate('question-plan')}
                     onImprove={openResearchTask}
@@ -1299,7 +1295,7 @@ export default function OpenGeoApp() {
               {page === 'overview' && !data.latestResearch && (
                 <VisibilityPanel
                   data={data}
-                  onQuestions={() => navigate('questions')}
+                  onQuestions={() => navigate('question-plan')}
                   onTask={() =>
                     groups.tasks.length ? openTask() : setDialog('create')
                   }
@@ -1317,10 +1313,10 @@ export default function OpenGeoApp() {
                   onRecords={(engine) => {
                     const url = new URL(window.location.href);
                     clearResearchDetailParams(url);
-                    ['search', 'group', 'kind', 'result', 'collection'].forEach(
+                    ['search', 'questionSearch', 'questionScope', 'group', 'kind', 'result', 'collection'].forEach(
                       (key) => url.searchParams.delete(key),
                     );
-                    url.searchParams.set('view', 'questions');
+                    url.searchParams.set('view', 'question-plan');
                     url.searchParams.set('project', projectId);
                     url.searchParams.set('engine', engine);
                     if (data.latestResearch)
@@ -1340,7 +1336,7 @@ export default function OpenGeoApp() {
                         : (records[0]?.language ?? preferred),
                     );
                     window.history.pushState(null, '', url);
-                    setPage('questions');
+                    setPage('question-plan');
                     setSelectedTask('');
                   }}
                 />
@@ -1526,7 +1522,7 @@ export default function OpenGeoApp() {
                     setLegacyQuestionPlan(false);
                     setDialog('create');
                   }}
-                  onQuestions={() => navigate('questions')}
+                  onQuestions={() => navigate('question-plan')}
                   onAct={act}
                   onImplementation={openImplementation}
                   onMonitor={openMonitor}

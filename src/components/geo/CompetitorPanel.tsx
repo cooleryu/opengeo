@@ -309,7 +309,7 @@ function ComparisonWorkspace({ project }: { project: GeoProject }) {
     return (
       '/?' +
       new URLSearchParams({
-        view: 'questions',
+        view: 'question-plan',
         project: project.id,
         batch: data!.batch!.id,
         language: row.language,
