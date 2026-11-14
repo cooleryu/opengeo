@@ -1,4 +1,5 @@
 import type { GeoAsset, GeoQuestion, GeoState } from './types';
+import { isProjectOwnedUrl, resolveAssetOwnership } from './asset-ownership';
 import { isConsumerResearchEngine } from './research-engines';
 import type {
   ResearchBatch,
@@ -12,7 +13,7 @@ export type ContentGapCategory =
   | 'evidence'
   | 'capability'
   | 'investigate';
-export type ContentOwnership = 'owned' | 'external' | 'unknown';
+export type ContentOwnership = 'owned' | 'external';
 
 export interface ContentReference {
   id: string;
@@ -204,50 +205,12 @@ function sourceOwnership(
             : '本批次记为外部来源',
     };
   }
-  const current = webUrl(source.url);
-  const repository = webUrl(data.project.repositoryUrl);
-  const currentRepo = current && githubParts(current);
-  const projectRepo = repository && githubParts(repository);
-  if (
-    currentRepo &&
-    projectRepo &&
-    currentRepo.owner === projectRepo.owner &&
-    currentRepo.repo === projectRepo.repo
-  ) {
-    return {
-      ownership: 'owned',
-      ownershipBasis: '本批次标为官方；URL 位于项目的同一 GitHub 仓库',
-    };
-  }
-  const site = webUrl(data.project.siteUrl);
-  if (
-    current &&
-    site &&
-    normalizeContentUrl(current.href) === normalizeContentUrl(site.href)
-  ) {
-    return { ownership: 'owned', ownershipBasis: 'URL 与已登记的项目入口一致' };
-  }
-  // A scoped site path can be checked, but a shared hostname by itself cannot.
-  if (
-    current &&
-    site &&
-    !githubParts(site) &&
-    site.pathname !== '/' &&
-    current.origin === site.origin
-  ) {
-    const prefix = site.pathname.endsWith('/')
-      ? site.pathname
-      : site.pathname + '/';
-    if (current.pathname.startsWith(prefix)) {
-      return {
-        ownership: 'owned',
-        ownershipBasis: '本批次标为官方；URL 位于已登记的项目站点路径下',
-      };
-    }
-  }
+  if (isProjectOwnedUrl(source.url, data.project)) return {
+    ownership: 'owned', ownershipBasis: 'URL 位于当前项目登记的仓库或站点路径内。',
+  };
   return {
-    ownership: 'unknown',
-    ownershipBasis: '本批次标为官方，但尚未对应到已登记的资产或项目入口',
+    ownership: 'external',
+    ownershipBasis: '来源标签不能证明归属；URL 未对应到当前项目入口，作为外部参考。',
   };
 }
 
@@ -364,13 +327,12 @@ export function buildContentWorkspace(data: GeoState): ContentWorkspace {
     id: `${projectId}:asset:${asset.id}:${index}`,
     projectId,
     origin: 'asset',
-    ownership: 'owned',
-    ownershipBasis: '当前项目已登记的内容资产；内容自述不等于实测能力',
+    ...resolveAssetOwnership(asset, data),
     title: asset.title,
     url: asset.publicUrl,
     urls: asset.publicUrl ? [asset.publicUrl] : [],
-    kind: 'official',
-    kinds: ['official'],
+    kind: resolveAssetOwnership(asset, data).ownership === 'owned' ? 'official' : 'other',
+    kinds: [resolveAssetOwnership(asset, data).ownership === 'owned' ? 'official' : 'other'],
     asset,
     assetIds: [asset.id],
     type: asset.type,

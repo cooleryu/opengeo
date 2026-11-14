@@ -121,7 +121,7 @@ CREATE INDEX IF NOT EXISTS geo_competitor_citation_audits_batch
   ON geo_competitor_citation_audits(project_id, batch_id, observation_key, identity_key, seq);`;
 
 /** Append a revision without touching historical answers, searches or reviews. */
-export function saveCompetitorCitationAudit(record: CompetitorCitationAuditRecord): void {
+export function saveCompetitorCitationAudit(record: CompetitorCitationAuditRecord, assertActive?: (connection: Database.Database) => void): void {
   const normalized = validRecord(record);
   const batch = getResearchBatch(normalized.projectId, normalized.batchId);
   const matches = batch ? [...batch.questions, ...batch.deferredQuestions].flatMap((question) =>
@@ -134,6 +134,7 @@ export function saveCompetitorCitationAudit(record: CompetitorCitationAuditRecor
     db.pragma('busy_timeout = 5000');
     db.exec(schema);
     db.transaction(() => {
+      assertActive?.(db);
       // Identical retries do not replace a later revision just because their review time changed.
       const { reviewedAt: _reviewedAt, ...stable } = normalized;
       const content = JSON.stringify(stable);

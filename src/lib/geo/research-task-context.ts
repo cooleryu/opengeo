@@ -11,6 +11,8 @@ import { buildSearchProtocolKey } from './search-protocol';
 import { isResearchEngine } from './research-engines';
 import type { CompetitorCandidates } from './competitor-types';
 import type { ResearchCompetitorReference } from './types';
+import { loadProjectSeed } from './project-data';
+import { editableAssetIssue } from './asset-ownership';
 
 function workflowQuestion(
   context: ResearchTaskContext,
@@ -104,10 +106,15 @@ export function resolveResearchTaskContext(
       : assets.find((asset) => asset.id === input.targetAssetId);
   if (input.targetAssetId !== undefined && !targetAsset)
     throw new Error('所选修改材料不属于当前项目。');
+  const ownershipScope = loadProjectSeed(projectId);
+  if (targetAsset) {
+    const issue = editableAssetIssue(targetAsset, ownershipScope);
+    if (issue) throw new Error(issue);
+  }
   const candidateAssetIds = targetAsset
     ? [targetAsset.id]
     : assets
-        .filter((asset) => asset.publicUrl && asset.markdown.trim())
+        .filter((asset) => asset.publicUrl && asset.markdown.trim() && !editableAssetIssue(asset, ownershipScope))
         .map((asset) => asset.id);
   let competitorReference: ResearchCompetitorReference | undefined;
   if (input.candidateId !== undefined) {

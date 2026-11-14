@@ -5,6 +5,7 @@ import { CheckCircle2, CircleDashed, CircleMinus } from 'lucide-react';
 import type { QuestionDetail } from '@/lib/geo/question-detail-types';
 import type { ResearchEngine } from '@/lib/geo/research-types';
 import CompetitorCandidates from './CompetitorCandidates';
+import { useUiLanguage } from './UiLanguageContext';
 
 type Props = {
   projectId: string;
@@ -30,12 +31,18 @@ export default function QuestionDetailVisual(props: Props) {
     history,
     revision,
   } = props;
-  const [detail, setDetail] = useState<QuestionDetail | null>(null);
-  const [error, setError] = useState('');
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
+  const requestKey = `${projectId}:${batchId}:${questionId}:${language}:${engine}:${history ? '1' : '0'}:${revision}`;
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    detail: QuestionDetail | null;
+    error: string;
+  }>({ key: '', detail: null, error: '' });
+  const detail = loaded.key === requestKey ? loaded.detail : null;
+  const error = loaded.key === requestKey ? loaded.error : '';
   useEffect(() => {
     const controller = new AbortController();
-    setDetail(null);
-    setError('');
     const params = new URLSearchParams({
       project: projectId,
       batch: batchId,
@@ -60,14 +67,21 @@ export default function QuestionDetailVisual(props: Props) {
           result.language !== language
         )
           throw new Error('记录范围已变化，请重新打开详情。');
-        if (!controller.signal.aborted) setDetail(result);
+        if (!controller.signal.aborted) {
+          setLoaded({ key: requestKey, detail: result, error: '' });
+        }
       })
       .catch((reason) => {
-        if (!controller.signal.aborted)
-          setError(reason instanceof Error ? reason.message : '读取失败');
+        if (!controller.signal.aborted) {
+          setLoaded({
+            key: requestKey,
+            detail: null,
+            error: reason instanceof Error ? reason.message : '读取失败',
+          });
+        }
       });
     return () => controller.abort();
-  }, [projectId, batchId, questionId, language, engine, history, revision]);
+  }, [projectId, batchId, questionId, language, engine, history, revision, requestKey]);
 
   if (error)
     return (
@@ -79,26 +93,49 @@ export default function QuestionDetailVisual(props: Props) {
     return (
       <div className="qd-loading" role="status">
         <span className="qd-loading-bar" />
-        正在读取平台结果…
+        {isEn ? 'Loading platform results…' : '正在读取平台结果…'}
       </div>
     );
   const platforms = detail.platforms.filter((platform) =>
     props.recordKeys.includes(platform.recordKey),
   );
   return (
-    <section className="qd-visual" aria-label="选择平台记录">
+    <section className="qd-visual" aria-label={isEn ? 'Select platform record' : '选择平台记录'}>
       <div className="qd-platform-grid">
         {platforms.map((platform) => {
           const selected = platform.recordKey === props.selectedKey;
           const known = platform.totalSources !== null && platform.officialCount !== null;
-          const sourceLabel = platform.engine === 'google' || platform.engine === 'deepseek'
-            ? '官方网页' : '官方来源';
-          const state =
-            platform.status === 'found'
+          const sourceLabel = platform.entryType === 'web_search' || platform.entryType === 'api_search' ||
+            (!platform.entryType && (platform.engine === 'google' || platform.engine === 'deepseek'))
+            ? (isEn ? 'Official page' : '官方网页')
+            : (isEn ? 'Official source' : '官方来源');
+          const hasMention = platform.mention !== undefined;
+          const state = hasMention
+            ? platform.mention === 'yes' || platform.status === 'found'
+              ? 'found'
+              : platform.mention === 'unknown' || platform.status === 'unmeasured'
+                ? 'unknown'
+                : 'missing'
+            : platform.status === 'found'
               ? 'found'
               : platform.status === 'unmeasured'
                 ? 'unknown'
                 : 'missing';
+          const mentionText =
+            platform.mention === 'yes'
+              ? (isEn ? 'Mentioned' : '回答已提及')
+              : platform.mention === 'no'
+                ? (isEn ? 'Not mentioned' : '回答未提及')
+                : (isEn ? 'Pending' : '提及待核实');
+          const entryDisplay = isEn
+            ? ({
+                '网页回答': 'Web Answer',
+                'AI 概览': 'AI Overview',
+                'AI 搜索': 'AI Search',
+                '网页搜索': 'Web Search',
+                '搜索 API': 'Search API',
+              }[platform.entryLabel] ?? platform.entryLabel)
+            : platform.entryLabel;
           return (
             <article
               className={`qd-platform ${state}${selected ? ' selected' : ''}`}
@@ -107,7 +144,11 @@ export default function QuestionDetailVisual(props: Props) {
               <button
                 className="qd-platform-select"
                 aria-pressed={selected}
-                aria-label={`查看 ${platform.label} ${platform.recordedAt?.slice(0, 10) || '未测'} 记录`}
+                aria-label={
+                  isEn
+                    ? `View ${platform.label} ${platform.recordedAt?.slice(0, 10) || 'unmeasured'} record`
+                    : `查看 ${platform.label} ${platform.recordedAt?.slice(0, 10) || '未测'} 记录`
+                }
                 onClick={() => props.onSelect(platform.recordKey)}
               >
                 <div className="qd-platform-head">
@@ -115,7 +156,9 @@ export default function QuestionDetailVisual(props: Props) {
                     {platform.label[0]}
                   </span>
                   <strong>{platform.label}</strong>
-                  <time title={platform.recordedAt || undefined}>{platform.recordedAt?.slice(5, 10) || '未测'}</time>
+                  <time title={platform.recordedAt || undefined}>
+                    {platform.recordedAt?.slice(5, 10) || (isEn ? 'Not run' : '未测')}
+                  </time>
                 </div>
                 <div className="qd-platform-meta">
                 <span className={`qd-result ${state}`}>
@@ -126,16 +169,62 @@ export default function QuestionDetailVisual(props: Props) {
                   ) : (
                     <CircleMinus size={16} />
                   )}
-                  <span>
-                    {known ? sourceLabel : state === 'unknown' ? '暂无有效结果' : '待核实'}
-                  </span>
-                  {known && (
-                    <span className="qd-count" aria-label={`${sourceLabel} ${platform.officialCount}，共 ${platform.totalSources} 个来源`}>
-                      <strong>{platform.officialCount}</strong><span>/ {platform.totalSources}</span>
-                    </span>
+                  {hasMention ? (
+                    <>
+                      <span>{mentionText}</span>
+                      {known && (
+                        <span
+                          className="qd-count"
+                          aria-label={
+                            isEn
+                              ? `Official links ${platform.officialCount} of ${platform.totalSources} sources`
+                              : `官网链接 ${platform.officialCount}，共 ${platform.totalSources} 个来源`
+                          }
+                        >
+                          <span className="qd-count-sep">
+                            {isEn ? '· Official links' : '· 官网链接'}
+                          </span>
+                          <strong>{platform.officialCount}</strong>
+                          <span>/ {platform.totalSources}</span>
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        {known
+                          ? sourceLabel
+                          : state === 'unknown'
+                            ? (isEn ? 'Unavailable' : '暂无有效结果')
+                            : (isEn ? 'Pending' : '待核实')}
+                      </span>
+                      {known && (
+                        <span
+                          className="qd-count"
+                          aria-label={
+                            isEn
+                              ? `${sourceLabel} ${platform.officialCount} of ${platform.totalSources} sources`
+                              : `${sourceLabel} ${platform.officialCount}，共 ${platform.totalSources} 个来源`
+                          }
+                        >
+                          <strong>{platform.officialCount}</strong><span>/ {platform.totalSources}</span>
+                        </span>
+                      )}
+                    </>
                   )}
                   </span>
-                  <span className="qd-platform-entry" title={platform.otherSourcesCount ? `另有 ${platform.otherSourcesCount} 个附带来源` : undefined}>{platform.entryLabel}</span>
+                  <span
+                    className="qd-platform-entry"
+                    title={
+                      platform.otherSourcesCount
+                        ? isEn
+                          ? `${platform.otherSourcesCount} additional sources`
+                          : `另有 ${platform.otherSourcesCount} 个附带来源`
+                        : undefined
+                    }
+                  >
+                    {entryDisplay}
+                  </span>
                 </div>
               </button>
             </article>

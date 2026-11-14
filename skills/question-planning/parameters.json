@@ -1,6 +1,8 @@
 {
   "maxNewCandidates": 18,
   "maxInputBytes": 49152,
+  "subscriptionTimeoutMs": 1200000,
+  "maxConcurrency": 3,
   "materials": {
     "maxTotalCharacters": 120000,
     "maxCharactersPerAsset": 20000
@@ -11,6 +13,10 @@
   },
   "review": {
     "temperature": 0,
-    "maxTokens": 4500
+    "maxTokens": 6500
+  },
+  "planning": {
+    "temperature": 0.2,
+    "maxTokens": 5000
   }
 }

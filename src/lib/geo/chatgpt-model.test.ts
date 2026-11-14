@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import z from 'zod';
-import ChatGPTModel, { ChatGPTModelError, type ChatGPTInferenceMetadata } from './chatgpt-model';
+import ChatGPTModel, { ChatGPTModelError, type ChatGPTInferenceMetadata, type ChatGPTRequestActivity } from './chatgpt-model';
 
 const secret = 'synthetic-access-token-not-real';
 const selectedModel = 'synthetic-chatgpt-model';
@@ -16,6 +16,12 @@ function completed(text = JSON.stringify(object), extras: Record<string, unknown
       content: [{ type: 'output_text', text }] }],
     usage: { input_tokens: 18, output_tokens: 9, total_tokens: 27, unsafe_extra: secret }, ...extras,
   } };
+}
+
+function messageDone(text = JSON.stringify(object), extras: Record<string, unknown> = {}, outputIndex = 0) {
+  return { type: 'response.output_item.done', output_index: outputIndex, sequence_number: outputIndex + 1,
+    item: { id: `msg_${outputIndex}`, type: 'message', role: 'assistant', status: 'completed',
+      content: [{ type: 'output_text', text }], ...extras } };
 }
 
 function sse(events: unknown[], byteChunks = false): Response {
@@ -73,6 +79,137 @@ test('handles SSE delimiters and multi-byte UTF-8 characters split across networ
     completed(),
   ], true));
   assert.deepEqual(await adapter.generateObject(input), object);
+});
+
+test('uses completed message items when the completed response omits its output snapshot', async () => {
+  for (const extras of [{ output: [] }, { output: undefined }, { output: [], status: undefined }]) {
+    let calls = 0;
+    let metadata: ChatGPTInferenceMetadata | undefined;
+    const adapter = model(async () => {
+      calls++;
+      return sse([
+        { type: 'response.output_text.delta', delta: JSON.stringify(object) },
+        messageDone(), completed('', extras),
+      ], true);
+    }, value => { metadata = value; });
+    assert.deepEqual(await adapter.generateObject(input), object);
+    assert.equal(calls, 1);
+    assert.deepEqual(metadata?.usage, { inputTokens: 18, outputTokens: 9, totalTokens: 27 });
+  }
+});
+
+test('completed item fallback respects output indexes rather than item completion order', async () => {
+  assert.deepEqual(await model(async () => sse([
+    messageDone('"evidence":["中文证据"]}', {}, 2),
+    { type: 'response.output_item.done', output_index: 0, item: { type: 'reasoning', status: 'completed', summary: [] } },
+    messageDone('{"ok":true,', {}, 1),
+    completed('', { output: [] }),
+  ])).generateObject(input), object);
+});
+
+test('nonempty terminal output takes precedence and cannot be replaced by a valid completed item', async () => {
+  const terminalObject = { ok: true, evidence: ['终止事件中的完整证据'] };
+  assert.deepEqual(await model(async () => sse([
+    messageDone(), completed(JSON.stringify(terminalObject)),
+  ])).generateObject(input), terminalObject);
+  // A malformed unused fallback must not override a complete terminal response.
+  assert.deepEqual(await model(async () => sse([
+    messageDone('unused', { status: 'incomplete' }), completed(),
+  ])).generateObject(input), object);
+  const cases = [
+    { event: completed('{'), code: 'invalid_object' },
+    { event: completed(JSON.stringify(object), { output: [messageDone('', { status: 'incomplete' }).item] }), code: 'invalid_response' },
+    { event: completed('', { output: [{ type: 'reasoning', status: 'completed', summary: [] }] }), code: 'invalid_response' },
+    { event: completed('', { output: [messageDone('', { content: [{ type: 'refusal', refusal: secret }] }).item] }), code: 'refused' },
+  ];
+  for (const { event, code } of cases) await assert.rejects(
+    model(async () => sse([messageDone(), event])).generateObject(input),
+    error => error instanceof ChatGPTModelError && error.code === code,
+  );
+});
+
+test('completed message items still require a noncontradictory response completion event', async () => {
+  const cases = [
+    { event: { type: 'response.failed', response: { error: { code: 'server_error' } } }, code: 'request_failed' },
+    { event: { type: 'response.incomplete', response: {} }, code: 'incomplete' },
+    { event: { type: 'error', code: 'server_error' }, code: 'request_failed' },
+    { event: undefined, code: 'interrupted' },
+    ...['incomplete', 'failed', 'in_progress', null].map(status => ({ event: completed('', { output: [], status }), code: 'invalid_response' })),
+    { event: completed('', { output: [], error: { message: secret } }), code: 'invalid_response' },
+    { event: completed('', { output: null }), code: 'invalid_response' },
+  ];
+  for (const { event, code } of cases) await assert.rejects(
+    model(async () => sse([messageDone(), ...(event ? [event] : [])])).generateObject(input),
+    error => error instanceof ChatGPTModelError && error.code === code && !String(error).includes(secret),
+  );
+});
+
+test('text deltas, text done, and added items cannot substitute for completed message items', async () => {
+  const events = [
+    { type: 'response.output_text.delta', delta: JSON.stringify(object) },
+    { type: 'response.output_text.done', text: JSON.stringify(object) },
+    { ...messageDone(), type: 'response.output_item.added' },
+  ];
+  for (const emitted of [...events.map(event => [event]), events]) await assert.rejects(
+    model(async () => sse([...emitted, completed('', { output: [] })])).generateObject(input),
+    error => error instanceof ChatGPTModelError && error.code === 'invalid_response',
+  );
+});
+
+test('completed item fallback keeps message integrity and strict JSON schema validation', async () => {
+  const invalidItems = [
+    messageDone('', { role: 'user' }), messageDone('', { status: 'in_progress' }),
+    messageDone('', { status: 'incomplete' }), messageDone('', { status: undefined }),
+    messageDone('', { content: null }), messageDone('', { content: [null] }),
+    messageDone('', { content: [{ type: 'output_text', text: 123 }] }),
+    messageDone('', { content: [{ type: 'input_text', text: JSON.stringify(object) }] }),
+    messageDone(''), messageDone(JSON.stringify(object), {}, -1),
+  ];
+  for (const event of invalidItems) await assert.rejects(
+    model(async () => sse([event, completed('', { output: [] })])).generateObject(input),
+    error => error instanceof ChatGPTModelError && error.code === 'invalid_response',
+  );
+  await assert.rejects(model(async () => sse([
+    messageDone(), messageDone(), completed('', { output: [] }),
+  ])).generateObject(input), error => error instanceof ChatGPTModelError && error.code === 'invalid_response');
+  await assert.rejects(model(async () => sse([
+    messageDone('', { content: [{ type: 'refusal', refusal: secret }] }), completed('', { output: [] }),
+  ])).generateObject(input), error => error instanceof ChatGPTModelError && error.code === 'refused');
+  for (const text of ['{', '```json\n' + JSON.stringify(object) + '\n```', '{"ok":true}', '{"ok":true,"evidence":[]}',
+    JSON.stringify({ ...object, unexpected: secret }), 'null', '[]']) await assert.rejects(
+    model(async () => sse([messageDone(text), completed('', { output: [] })])).generateObject(input),
+    error => error instanceof ChatGPTModelError && error.code === 'invalid_object' && !String(error).includes(secret),
+  );
+});
+
+test('activity exposes transport counts but never content, reasoning, or credentials', async () => {
+  const events: ChatGPTRequestActivity[] = [];
+  const adapter = model(async () => sse([
+    { type: 'response.reasoning_text.delta', delta: 'private reasoning' },
+    { type: 'response.output_text.delta', delta: JSON.stringify(object) },
+    completed(),
+  ])).withRequestOptions({ onActivity: value => events.push(value) });
+  await adapter.generateObject(input);
+  assert.deepEqual(events.map(value => value.phase), ['connecting', 'connected', 'receiving', 'completed']);
+  assert.equal(events.at(-1)?.eventCount, 3);
+  assert.equal(events.at(-1)?.outputCharacters, JSON.stringify(object).length);
+  assert.equal(events.at(-1)?.requestId, 'req_synthetic');
+  assert.ok(events.at(-1)?.lastEventAt);
+  const wire = JSON.stringify(events);
+  for (const value of [secret, 'private reasoning', '中文证据']) assert.ok(!wire.includes(value));
+});
+
+test('a failed stream reports its observed activity without accepting partial output', async () => {
+  const events: ChatGPTRequestActivity[] = [];
+  const adapter = model(async () => sse([
+    { type: 'response.output_text.delta', delta: 'partial' },
+    { type: 'response.failed', response: { error: { code: 'server_error', message: secret } } },
+  ])).withRequestOptions({ onActivity: value => events.push(value) });
+  await assert.rejects(adapter.generateObject(input), ChatGPTModelError);
+  assert.equal(events.at(-1)?.phase, 'failed');
+  assert.equal(events.at(-1)?.eventCount, 2);
+  assert.equal(events.at(-1)?.outputCharacters, 7);
+  assert.ok(!JSON.stringify(events).includes(secret));
 });
 
 test('forwards the selected GPT-6.1 Terra max effort and records only the selected effort in metadata', async () => {

@@ -181,8 +181,9 @@ export function readLatestCompetitorAnalysis(batchId: string | null, status: 're
     return row ? JSON.parse(row.payload) : null;
   });
 }
-export function saveCompetitorAnalysis(value: StoredCompetitorAnalysis): void {
+export function saveCompetitorAnalysis(value: StoredCompetitorAnalysis, assertActive?: (connection: Database.Database) => void): void {
   inDatabase((db, projectId) => db.transaction(() => {
+    assertActive?.(db);
     // Retain a successful result before a retry overwrites this input's status.
     db.prepare(`INSERT OR IGNORE INTO geo_competitor_ready_analyses(project_id,input_key,payload,updated_at)
       SELECT project_id,input_key,payload,updated_at FROM geo_competitor_analyses
@@ -197,5 +198,5 @@ export function saveCompetitorAnalysis(value: StoredCompetitorAnalysis): void {
       const current = db.prepare('SELECT saved FROM geo_competitors WHERE project_id=? AND id=?').get(projectId, candidate.id) as { saved: number } | undefined;
       putCandidate(db, projectId, { ...candidate, saved: current ? Boolean(current.saved) : candidate.saved });
     }
-  })());
+  }).immediate());
 }

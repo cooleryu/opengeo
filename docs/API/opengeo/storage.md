@@ -2,13 +2,15 @@
 
 [总目录](../OPENGEO-CONTRACTS.md) · [共享协议](shared.md)
 
-核对日期：2026-10-28。描述当前代码协议；新增或变更接口时同步维护本页。
+项目调查存储更新：2026-11-11；其余按既有接口说明。描述当前代码协议；新增或变更接口时同步维护本页。
 
-默认项目：`${DATA_DIR || cwd}/data/db.sqlite`；第二个示例项目：同根目录的 `data/projects/example-project-two/db.sqlite`。不是每种数据都存SQLite。
+旧清单的默认项目：`${DATA_DIR || cwd}/data/db.sqlite`；其他项目及网页创建的项目：同根目录的 `data/projects/<projectId>/db.sqlite`。项目 ID 决定目录，迁移时不要改掉已有默认项目或目录。不是每种数据都存 SQLite。
 
 | 数据 | 实际保存位置 / 更新方式 |
 | --- | --- |
-| 项目资料、已有资产正文、旧问题/发现 | `data/local-projects/projects.json` 清单与本地 JSON（Git 忽略）；无本地配置时才读取 `src/lib/geo/data/example-project*.json` 空示例；当前资产目录无正文 CRUD |
+| 旧项目资料、已有资产正文、旧问题/发现 | `data/local-projects/projects.json` 清单与本地 JSON（Git 忽略）；旧记录保留，空示例不含个人资料 |
+| 网页创建的项目目录与理解摘要 | `data/created-projects/projects.json`；读取状态、用户补充及修订沿用现有项目目录存储 |
+| 自动调查的资料与关联 | 当前项目 SQLite `geo_project_research_runs/sources/relations`；保存实际 URL、全文、读取时间、归属、关联及逐字引用，逐次追加；最新批次进入内容资产与后续选题 |
 | 题单版本 | SQLite `geo_question_plans`，追加revision |
 | 冻结批次、追加观测、研究运行 | `geo_research_batches`、`geo_research_observations`、`geo_research_runs`；老批次/原问法保留 |
 | 每日问题计划 | `geo_research_schedules`；与任务自身的 monitor 配置分开 |
@@ -20,6 +22,8 @@
 | 回答提及/引用审核 | SQLite `geo_answer_audits` 追加审核版本；`geo_answer_audit_imports` 保留兼容迁移标记；源码不包含本地旧审核记录 |
 
 主要路径：
+
+0. **新建项目调查**：提交公开入口 → 读取和补找资料 → 原文及能力/贡献/需求关联写入项目 SQLite → 当前理解与选题读取；每次成功读取先保存，失败保留 partial 状态及原文。`geo-evidence/onboarding-*/` 是供原文入口查阅的副本，全文读取与选题不依赖人工整理文件。旧独立调查目录只保留历史，不再生产新结果。
 
 1. **问题搜索**：编辑与审核题单 → 明确确认 → 冻结研究批次 → 单题/批量/每日调度 → 同一采集执行器 → 逐题追加观测与费用 → 校验证据并分析、追加回答审核（不适用/缺证据/失败保留 unknown）→ API 附带审核及服务端汇总 → 列表、图表和原文展示；可见概览通过小版本检查更新。
 2. **改进后跟测**：问题/缺口创建任务 → 真实基线 → 诊断/方案/独立审核 → 用户接受并登记实施 → 复测 → 比较真实可比结果 → 策略候选 → 验证 → 明确启用。评分通过不等于真实改善。

@@ -24,7 +24,7 @@ type Props = {
   onRecords: (engine: ResearchEngine) => void;
 };
 type ModelDraft = {
-  provider: 'deepseek' | 'openai' | 'custom';
+  provider: 'gemini' | 'deepseek' | 'openai' | 'custom';
   model: string;
   baseURL: string;
   apiKey: string;
@@ -37,15 +37,19 @@ const modelDraft = (model: GeoConnectionSettings['model']): ModelDraft => ({
   apiKey: '',
 });
 const presets = {
-  deepseek: { model: 'deepseek-chat', baseURL: 'https://api.deepseek.com' },
+  gemini: {
+    model: 'gemini-3.8-flash',
+    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  },
+  deepseek: { model: 'deepseek-flash', baseURL: 'https://api.deepseek.com' },
   openai: { model: '', baseURL: 'https://api.openai.com/v1' },
 };
 const platforms: { id: ResearchEngine; name: string; kind: string }[] = [
+  { id: 'chatgpt', name: 'ChatGPT', kind: '网页回答' },
+  { id: 'google', name: 'Google', kind: '网页搜索' },
   { id: 'deepseek', name: 'DeepSeek', kind: '搜索 API' },
   { id: 'qwen', name: '千问', kind: '联网回答 API' },
   { id: 'doubao', name: '豆包', kind: '联网回答 API' },
-  { id: 'chatgpt', name: 'ChatGPT', kind: '网页回答' },
-  { id: 'google', name: 'Google', kind: '网页搜索' },
 ];
 
 export default function ConnectionSettingsPanel({
@@ -228,15 +232,11 @@ export default function ConnectionSettingsPanel({
           </div>
         </header>
         <div className="cs-model-grid">
-          <ChatGPTConnection
-            projectId={projectId}
-            onSaved={onSaved}
-          />
           <section className="cs-model-card" aria-labelledby="cs-model-title">
             <header className="cs-section-heading">
               <div>
                 <h3 id="cs-model-title">API 模型</h3>
-                <p>用于拟题、诊断、改稿与方案审核。</p>
+                <p>用于问题生成、分析、改稿与独立审核。</p>
               </div>
               <span
                 className={`cs-status ${settings.model.configured ? 'cs-configured' : ''}`}
@@ -269,6 +269,7 @@ export default function ConnectionSettingsPanel({
                       report('model', {});
                     }}
                     options={[
+                      { value: 'gemini', label: 'Google Gemini' },
                       { value: 'deepseek', label: 'DeepSeek' },
                       { value: 'openai', label: 'OpenAI / GPT' },
                       { value: 'custom', label: '其他兼容接口' },
@@ -370,6 +371,16 @@ export default function ConnectionSettingsPanel({
               {result('model')}
             </form>
           </section>
+          <details className="cs-web-records">
+            <summary>
+              暂存：ChatGPT 账号套餐登录分析（默认使用上方 API 模型）
+              <ChevronDown size={14} className="cs-disclosure-chevron" />
+            </summary>
+            <ChatGPTConnection
+              projectId={projectId}
+              onSaved={onSaved}
+            />
+          </details>
         </div>
       </section>
 
@@ -379,246 +390,249 @@ export default function ConnectionSettingsPanel({
             <Search size={21} />
           </span>
           <div>
-            <h2 id="cs-search-title">搜索 API</h2>
-            <p>连接实际搜索问题、获取回答与来源的平台。</p>
+            <h2 id="cs-search-title">搜索平台</h2>
+            <p>当前聚焦 ChatGPT 与 Google 真实回答及引用采集；其他 API 平台已暂存收起。</p>
           </div>
         </header>
-        <div className="cs-table-wrap">
-          <table className="cs-table">
-            <thead>
-              <tr>
-                <th>平台</th>
-                <th>入口</th>
-                <th>连接状态</th>
-                <th>本批记录</th>
-                <th>
-                  <span className="sr-only">操作</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {platforms
-                .filter((platform) =>
-                  settings.search.some((entry) => entry.id === platform.id),
-                )
-                .map((platform) => {
-                  const connection = settings.search.find(
-                    (entry) => entry.id === platform.id,
-                  );
-                  const count = observations.filter(
-                    (observation) => observation.engine === platform.id,
-                  ).length;
-                  const section = connection?.id;
-                  return (
-                    <Fragment key={platform.id}>
-                      <tr>
-                        <th scope="row">{platform.name}</th>
-                        <td>{platform.kind}</td>
-                        <td>
-                          <span
-                            className={`cs-status ${connection?.configured ? 'cs-configured' : ''}`}
-                          >
-                            {connection
-                              ? connection.configured
-                                ? '已配置'
-                                : '未配置'
-                              : '未接自动采集'}
-                          </span>
-                        </td>
-                        <td>
-                          {count ? (
-                            <button
-                              type="button"
-                              className="cs-link"
-                              onClick={() => onRecords(platform.id)}
+        <div className="cs-web-record-list">
+          {platforms
+            .filter(
+              (platform) =>
+                !settings.search.some((entry) => entry.id === platform.id),
+            )
+            .map((platform) => {
+              const count = observations.filter(
+                (observation) => observation.engine === platform.id,
+              ).length;
+              return (
+                <div className="cs-web-record" key={platform.id}>
+                  <div>
+                    <strong>{platform.name}</strong>
+                    <span>{platform.kind} · 主力平台 · 浏览器真实采集</span>
+                  </div>
+                  {count ? (
+                    <button
+                      type="button"
+                      className="cs-link"
+                      onClick={() => onRecords(platform.id)}
+                    >
+                      {count} 条记录
+                    </button>
+                  ) : (
+                    <span className="cs-muted">本批暂无</span>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+        <details
+          className="cs-web-records"
+          open={editing === 'deepseek' || editing === 'qwen' || editing === 'doubao'}
+        >
+          <summary>
+            暂存扩展平台（DeepSeek / 千问 / 豆包 API · 暂不启用）
+            <ChevronDown size={14} className="cs-disclosure-chevron" />
+          </summary>
+          <div className="cs-table-wrap">
+            <table className="cs-table">
+              <thead>
+                <tr>
+                  <th>平台</th>
+                  <th>入口</th>
+                  <th>连接状态</th>
+                  <th>本批记录</th>
+                  <th>
+                    <span className="sr-only">操作</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {platforms
+                  .filter((platform) =>
+                    settings.search.some((entry) => entry.id === platform.id),
+                  )
+                  .map((platform) => {
+                    const connection = settings.search.find(
+                      (entry) => entry.id === platform.id,
+                    );
+                    const count = observations.filter(
+                      (observation) => observation.engine === platform.id,
+                    ).length;
+                    const section = connection?.id;
+                    return (
+                      <Fragment key={platform.id}>
+                        <tr>
+                          <th scope="row">{platform.name}</th>
+                          <td>{platform.kind}</td>
+                          <td>
+                            <span
+                              className={`cs-status ${connection?.configured ? 'cs-configured' : ''}`}
                             >
-                              {count} 条记录
-                            </button>
-                          ) : (
-                            <span className="cs-muted">本批暂无</span>
-                          )}
-                        </td>
-                        <td className="cs-row-actions">
-                          {connection && section ? (
-                            <>
+                              {connection
+                                ? connection.configured
+                                  ? '已配置'
+                                  : '未配置'
+                                : '未接自动采集'}
+                            </span>
+                          </td>
+                          <td>
+                            {count ? (
                               <button
                                 type="button"
                                 className="cs-link"
-                                disabled={!!busy}
-                                aria-expanded={editing === section}
-                                onClick={() => {
-                                  setEditing(
-                                    editing === section ? null : section,
-                                  );
-                                  setSearchDraft({
-                                    apiKey: '',
-                                    model: connection.model || '',
-                                  });
-                                  setTestConfirmation(null);
-                                  report(section, {});
-                                }}
+                                onClick={() => onRecords(platform.id)}
                               >
-                                {editing === section
-                                  ? '收起'
-                                  : connection.configured
-                                    ? '编辑'
-                                    : '配置'}
+                                {count} 条记录
                               </button>
-                              <button
-                                type="button"
-                                className="cs-link"
-                                disabled={
-                                  !!busy ||
-                                  !connection.configured ||
-                                  editing === section
-                                }
-                                onClick={() => setTestConfirmation(section)}
-                              >
-                                {busy === `test:${section}`
-                                  ? '测试中…'
-                                  : '测试连接'}
-                              </button>
-                            </>
-                          ) : (
-                            <span className="cs-muted">仅查看已有记录</span>
-                          )}
-                        </td>
-                      </tr>
-                      {connection &&
-                        section &&
-                        (editing === section ||
-                          feedback[section]?.error ||
-                          feedback[section]?.message ||
-                          testConfirmation === section) && (
-                          <tr className="cs-detail-row">
-                            <td colSpan={5}>
-                              {editing === section && (
-                                <form
-                                  onSubmit={(event) => {
-                                    event.preventDefault();
-                                    void save(section, {
-                                      apiKey: searchDraft.apiKey,
-                                      ...(connection.model !== null
-                                        ? { model: searchDraft.model }
-                                        : {}),
+                            ) : (
+                              <span className="cs-muted">本批暂无</span>
+                            )}
+                          </td>
+                          <td className="cs-row-actions">
+                            {connection && section ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="cs-link"
+                                  disabled={!!busy}
+                                  aria-expanded={editing === section}
+                                  onClick={() => {
+                                    setEditing(
+                                      editing === section ? null : section,
+                                    );
+                                    setSearchDraft({
+                                      apiKey: '',
+                                      model: connection.model || '',
                                     });
+                                    setTestConfirmation(null);
+                                    report(section, {});
                                   }}
                                 >
-                                  <div className="cs-search-fields">
-                                    <label>
-                                      {platform.name} API Key
-                                      <input
-                                        type="password"
-                                        value={searchDraft.apiKey}
-                                        required={!connection.keyConfigured}
-                                        autoComplete="new-password"
-                                        spellCheck={false}
-                                        placeholder={
-                                          connection.keyConfigured
-                                            ? '已设置，留空保留'
-                                            : '填写 API Key'
-                                        }
-                                        onChange={(event) =>
-                                          setSearchDraft({
-                                            ...searchDraft,
-                                            apiKey: event.target.value,
-                                          })
-                                        }
-                                      />
-                                    </label>
-                                    {connection.model !== null && (
+                                  {editing === section
+                                    ? '收起'
+                                    : connection.configured
+                                      ? '编辑'
+                                      : '配置'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="cs-link"
+                                  disabled={
+                                    !!busy ||
+                                    !connection.configured ||
+                                    editing === section
+                                  }
+                                  onClick={() => setTestConfirmation(section)}
+                                >
+                                  {busy === `test:${section}`
+                                    ? '测试中…'
+                                    : '测试连接'}
+                                </button>
+                              </>
+                            ) : (
+                              <span className="cs-muted">仅查看已有记录</span>
+                            )}
+                          </td>
+                        </tr>
+                        {connection &&
+                          section &&
+                          (editing === section ||
+                            feedback[section]?.error ||
+                            feedback[section]?.message ||
+                            testConfirmation === section) && (
+                            <tr className="cs-detail-row">
+                              <td colSpan={5}>
+                                {editing === section && (
+                                  <form
+                                    onSubmit={(event) => {
+                                      event.preventDefault();
+                                      void save(section, {
+                                        apiKey: searchDraft.apiKey,
+                                        ...(connection.model !== null
+                                          ? { model: searchDraft.model }
+                                          : {}),
+                                      });
+                                    }}
+                                  >
+                                    <div className="cs-search-fields">
                                       <label>
-                                        模型
+                                        {platform.name} API Key
                                         <input
-                                          value={searchDraft.model}
-                                          required
+                                          type="password"
+                                          value={searchDraft.apiKey}
+                                          required={!connection.keyConfigured}
+                                          autoComplete="new-password"
+                                          spellCheck={false}
+                                          placeholder={
+                                            connection.keyConfigured
+                                              ? '已设置，留空保留'
+                                              : '填写 API Key'
+                                          }
                                           onChange={(event) =>
                                             setSearchDraft({
                                               ...searchDraft,
-                                              model: event.target.value,
+                                              apiKey: event.target.value,
                                             })
                                           }
                                         />
                                       </label>
-                                    )}
-                                    <button
-                                      type="submit"
-                                      className="cs-button cs-primary"
-                                      disabled={!!busy}
-                                    >
-                                      {busy === `save:${section}` && (
-                                        <Loader2 size={14} className="spin" />
+                                      {connection.model !== null && (
+                                        <label>
+                                          模型
+                                          <input
+                                            value={searchDraft.model}
+                                            required
+                                            onChange={(event) =>
+                                              setSearchDraft({
+                                                ...searchDraft,
+                                                model: event.target.value,
+                                              })
+                                            }
+                                          />
+                                        </label>
                                       )}
-                                      保存
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="cs-link"
-                                      disabled={!!busy}
-                                      onClick={() => {
-                                        setEditing(null);
-                                        setSearchDraft({
-                                          apiKey: '',
-                                          model: '',
-                                        });
-                                      }}
-                                    >
-                                      取消
-                                    </button>
-                                  </div>
-                                  {connection.model !== null && (
-                                    <p className="cs-hint">
-                                      模型变更用于新搜索，已有跟测保持原条件。
-                                    </p>
-                                  )}
-                                </form>
-                              )}
-                              {confirmation(section)}
-                              {result(section)}
-                            </td>
-                          </tr>
-                        )}
-                    </Fragment>
-                  );
-                })}
-            </tbody>
-          </table>
-        </div>
-        <details className="cs-web-records">
-          <summary>
-            已有网页采集记录
-            <ChevronDown size={14} className="cs-disclosure-chevron" />
-          </summary>
-          <div className="cs-web-record-list">
-            {platforms
-              .filter(
-                (platform) =>
-                  !settings.search.some((entry) => entry.id === platform.id),
-              )
-              .map((platform) => {
-                const count = observations.filter(
-                  (observation) => observation.engine === platform.id,
-                ).length;
-                return (
-                  <div className="cs-web-record" key={platform.id}>
-                    <div>
-                      <strong>{platform.name}</strong>
-                      <span>{platform.kind} · 未接自动采集</span>
-                    </div>
-                    {count ? (
-                      <button
-                        type="button"
-                        className="cs-link"
-                        onClick={() => onRecords(platform.id)}
-                      >
-                        {count} 条记录
-                      </button>
-                    ) : (
-                      <span className="cs-muted">本批暂无</span>
-                    )}
-                  </div>
-                );
-              })}
+                                      <button
+                                        type="submit"
+                                        className="cs-button cs-primary"
+                                        disabled={!!busy}
+                                      >
+                                        {busy === `save:${section}` && (
+                                          <Loader2 size={14} className="spin" />
+                                        )}
+                                        保存
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="cs-link"
+                                        disabled={!!busy}
+                                        onClick={() => {
+                                          setEditing(null);
+                                          setSearchDraft({
+                                            apiKey: '',
+                                            model: '',
+                                          });
+                                        }}
+                                      >
+                                        取消
+                                      </button>
+                                    </div>
+                                    {connection.model !== null && (
+                                      <p className="cs-hint">
+                                        模型变更用于新搜索，已有跟测保持原条件。
+                                      </p>
+                                    )}
+                                  </form>
+                                )}
+                                {confirmation(section)}
+                                {result(section)}
+                              </td>
+                            </tr>
+                          )}
+                      </Fragment>
+                    );
+                  })}
+              </tbody>
+            </table>
           </div>
         </details>
       </section>

@@ -22,7 +22,7 @@ export default function manifest(): MetadataRoute.Manifest {
       },
       {
         src: '/icon.png',
-        sizes: '440x440',
+        sizes: '512x512',
         type: 'image/png',
         purpose: 'any',
       },

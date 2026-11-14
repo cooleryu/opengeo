@@ -1,19 +1,22 @@
 import { importTaskResearchRuns } from './research-task-import';
 import Database from 'better-sqlite3';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getSeed } from './seed';
+import { getChatGPTStatus } from './chatgpt-auth';
+import { shouldUseChatGPTSubscription } from './connection-settings';
 import { readLocalProjectFile } from './project-data';
 import { getLatestResearch } from './research';
 import { getCompetitorCandidates } from './competitor-candidates';
-import { attachOverviewData } from './overview-data';
+import { readRelationalOverview } from './db';
 import { freezeResearchTaskContext, resolveResearchTaskContext } from './research-task-context';
 import { updateAssetGovernance } from './asset-governance';
 import { buildClaimReview } from './claim-review';
 import { validateImplementationDate } from './implementation';
 import { normalizeStrategyMemory, validateStrategyMemory, activateStrategyMemory, revertStrategyMemory } from './strategy-lifecycle';
-import { currentGeoProject, DEFAULT_PROJECT_ID, listGeoProjects, projectDataDirectory } from './projects';
+import { currentGeoProject, DEFAULT_PROJECT_ID, listGeoProjects, projectDataDirectory, withGeoProject } from './projects';
 import { buildVisibility, readImportedDeepSeek } from './visibility';
 import { buildResearchGapReview, buildTaskDiagnosisContext, buildTaskPlan, canContinueTaskRevision, continueTaskRevision, getGeoModelSettings, proposalDigest, reviewEditedProposal } from './planner';
 import { validateDiagnosis, validateProposal } from './diagnosis';
@@ -24,13 +27,26 @@ import type { CollectionProvider } from './providers/types';
 import { evaluateOutcome, buildStrategyMemory, selectStrategies } from './learning';
 import { buildInitialQuestionPlan, generateQuestionPlan, validateQuestionPlan } from './question-planner';
 import { reviewManualQuestion, saveManualQuestion } from './question-management';
-import type { GeoQuestionPlan } from './question-types';
+import type { GeoQuestionPlan, QuestionGenerationProgress } from './question-types';
+import { QuestionGenerationJobs } from './question-generation-job';
+import { getProjectOnboarding, getProjectOnboardingPlanningContext } from './project-onboarding-store';
 import type { AssetGovernanceInput, AssetGovernanceRecord, ClaimReviewRecord, GeoEvent, GeoMonitor, GeoRun, GeoState, GeoTask } from './types';
 import type { GeoWorkflow, StrategyMemory, WorkflowQuestion } from './workflow-types';
-import { buildProjectOptimization, freezeProjectOptimization, preserveProjectOptimizationHistory, setProjectOptimizationProgress, validateProjectOptimizationMode, type ProjectOptimizationDependencies } from './project-optimization';
+import { buildProjectOptimization, freezeProjectOptimization, preserveProjectOptimizationHistory, recoverUnreadProjectEvidence, setProjectOptimizationProgress, validateProjectOptimizationMode, type ProjectOptimizationDependencies } from './project-optimization';
+import { selectProjectDelivery } from './project-optimization-delivery';
+import { editableAssetIssue } from './asset-ownership';
 
 export class GeoError extends Error {
   constructor(message: string, public status = 400) { super(message); }
+}
+
+function requireOwnedProposalTarget(task: GeoTask): void {
+  const seed = getSeed();
+  const saved = task.researchContext?.snapshot?.targetAsset;
+  const target = seed.assets.find(asset => asset.id === task.proposal?.targetAssetId)
+    ?? (saved && saved.id === task.proposal?.targetAssetId ? saved : undefined);
+  const issue = editableAssetIssue(target, seed);
+  if (issue) throw new GeoError(issue);
 }
 
 type Lock = { task_id: string; kind: string; started_at: string; run_id: string | null; mode: string | null; cost: number };
@@ -210,6 +226,12 @@ function currentQuestionPlan(body: Record<string, unknown>): GeoQuestionPlan {
 function saveQuestionPlan(input: GeoQuestionPlan, expected: GeoQuestionPlan, onlyCandidateId?: string): void {
   database().transaction(() => {
     currentQuestionPlan({ planId: expected.id, revision: expected.revision });
+    // An edit must not carry forward a coverage judgment for a different selection or question.
+    if (input.coverageReview && isDeepStrictEqual(input.coverageReview, expected.coverageReview)
+      && (input.positioning !== expected.positioning || !isDeepStrictEqual(input.candidates, expected.candidates))) {
+      input = { ...input };
+      delete input.coverageReview;
+    }
     let plan = validateQuestionPlan({ ...input, id: expected.id, createdAt: expected.createdAt, revision: expected.revision + 1, updatedAt: nowISO() }, getSeed());
     if (onlyCandidateId) {
       const reviewed = plan.candidates.find(item => item.id === onlyCandidateId);
@@ -218,6 +240,62 @@ function saveQuestionPlan(input: GeoQuestionPlan, expected: GeoQuestionPlan, onl
     }
     database().prepare('INSERT INTO geo_question_plans (project_id,plan_id,revision,payload,created_at) VALUES (?,?,?,?,?)').run(plan.projectId, plan.id, plan.revision, JSON.stringify(plan), plan.updatedAt);
   })();
+}
+
+export type QuestionGenerationRuntime = { generate?: typeof generateQuestionPlan };
+
+function questionGenerationJobs(runtime: QuestionGenerationRuntime = {}): QuestionGenerationJobs {
+  const projectId = currentGeoProject();
+  return new QuestionGenerationJobs({
+    db: database(), projectId, currentPlan: getQuestionPlan,
+    fingerprint: () => {
+      const seed = getSeed();
+      const onboarding = getProjectOnboarding(projectId);
+      // Only inputs to understanding/question planning invalidate this work; unrelated observation refreshes do not.
+      return createHash('sha256').update(JSON.stringify({ project: seed.project, assets: seed.assets,
+        questions: seed.questions.map(({ id, query, language, tier }) => ({ id, query, language, tier })),
+        onboarding: onboarding && { status: onboarding.status, notes: onboarding.notes,
+          analysis: onboarding.analysis, revision: onboarding.revision } })).digest('hex');
+    },
+    assertReady: () => {
+      if (projectRuntime().generatingQuestions) throw new GeoError('正在复评问题，请等本次完成。', 409);
+      getProjectOnboardingPlanningContext(projectId);
+    },
+    generate: (positioning, onProgress, resume) =>
+      (runtime.generate ?? generateQuestionPlan)(getSeed(), positioning, { onProgress, ...(resume ? { resume } : {}) }),
+    save: (generated, expected) => {
+      // Save the newly recommended draft as a whole. Reinstating historical
+      // selections here would exceed its eight-question limit. Confirmed search
+      // questions remain in their separate research batch until explicit confirmation.
+      saveQuestionPlan({ ...generated, status: 'draft' }, expected);
+      return expected.revision + 1;
+    },
+  });
+}
+
+export function getQuestionGeneration() { return questionGenerationJobs().get(); }
+
+/** Called only by explicit starts and the authorized onboarding continuation, never by GET. */
+export function startQuestionGeneration(body: Record<string, unknown>, runtime: QuestionGenerationRuntime = {},
+  onProgress?: (progress: QuestionGenerationProgress) => void) {
+  return questionGenerationJobs(runtime).start({ planId: body.planId, revision: body.revision,
+    positioning: body.positioning, requestId: body.requestId }, onProgress);
+}
+
+export function startOnboardingQuestionGeneration(projectId: string, runtime: QuestionGenerationRuntime = {}) {
+  return withGeoProject(projectId, () => {
+    const onboarding = getProjectOnboarding(projectId);
+    if (onboarding?.status !== 'ready' || !onboarding.analysis) return;
+    const current = getQuestionGeneration();
+    // Repeated continuation callbacks never retry completed, failed or interrupted work.
+    if (current && current.status !== 'superseded') return { job: current, started: false };
+    const plan = getQuestionPlan();
+    const requestId = 'onboarding_' + createHash('sha256').update(
+      `${projectId}:${onboarding.revision?.id ?? onboarding.createdAt}`
+    ).digest('hex');
+    return startQuestionGeneration({ planId: plan.id, revision: plan.revision,
+      positioning: onboarding.analysis.summary, requestId }, runtime);
+  });
 }
 export function getTask(id: string): GeoTask {
   const row = database().prepare('SELECT payload FROM geo_tasks WHERE id = ?').get(id) as { payload: string } | undefined;
@@ -301,12 +379,13 @@ export function getGeoState(): GeoState {
   const savedQuestions = imported && new Date(imported.observation.measurementAt).getTime() > new Date(seed.questions[0]?.measurementAt || 0).getTime() ? imported.questions : seed.questions;
   const questions = newest && new Date(newest.measurementAt).getTime() > new Date(savedQuestions[0]?.measurementAt || 0).getTime() ? newest.questions : savedQuestions;
   return {
-    latestResearch: attachOverviewData(getLatestResearch(seed.project.id)), governanceRecords: listGovernanceRecords(), claimReviews: listClaimReviews(),
-    ...seed, projects: listGeoProjects(), questions, observations, tasks: tasks.map(task => ({ ...task, ...(history[task.id] ? { historyContext: history[task.id] } : {}), canContinueRevision: canContinueTaskRevision(task) })), questionPlan: getQuestionPlan(), visibility: buildVisibility(seed, questions, tasks), strategies: listStrategies(),
+    latestResearch: readRelationalOverview(seed.project.id), governanceRecords: listGovernanceRecords(), claimReviews: listClaimReviews(),
+    ...seed, projects: listGeoProjects(), questions, observations, tasks: tasks.map(task => ({ ...task, ...(history[task.id] ? { historyContext: history[task.id] } : {}), canContinueRevision: canContinueTaskRevision(task) })), questionPlan: getQuestionPlan(), questionGeneration: getQuestionGeneration(), visibility: buildVisibility(seed, questions, tasks), strategies: listStrategies(),
     settings: {
       liveSearchConfigured: Boolean(collectionKey('deepseek')),
       collectionProviders: collectionStatuses(),
       modelConfigured: model.modelConfigured, modelName: model.modelName,
+      questionModelConfigured: shouldUseChatGPTSubscription(getChatGPTStatus(), model.modelConfigured) || model.modelConfigured,
       mode: 'demo', schedulerRunning: geoRuntime.schedulerRunning,
     },
   };
@@ -357,6 +436,9 @@ export function retryProjectOptimizationTask(id: string): GeoTask {
     return updateTask(id, current => {
       current.status = 'investigating';
       const plan = current.projectOptimization!;
+      if (recoverUnreadProjectEvidence(plan)) {
+        current.events.push(newEvent('已读回原始回答', '已按原先保存的路径重新核验回答格式；问题、采集时间和条件保持不变，没有重新搜索。'));
+      }
       preserveProjectOptimizationHistory(plan);
       plan.attempt = (plan.attempt ?? 1) + 1;
       delete plan.stopReason;
@@ -371,7 +453,12 @@ export async function finishProjectOptimization(id: string, dependencies: Projec
   try {
     const original = getTask(id).projectOptimization;
     if (!original) throw new Error('没有找到项目优化范围。');
-    const plan = await buildProjectOptimization(original, { ...dependencies, onProgress: async progress => {
+    const plan = await buildProjectOptimization(original, { ...dependencies,
+      prepareMaterials: dependencies.prepareMaterials ?? (async plan => {
+        updateTask(id, task => { setProjectOptimizationProgress(task.projectOptimization!, 'planning', '正在读完整的项目介绍与使用文档，核对已有内容。'); });
+        const { prepareOptimizationMaterials } = await import('./project-optimization-delivery');
+        return prepareOptimizationMaterials(plan);
+      }), onProgress: async progress => {
       updateTask(id, task => {
         task.projectOptimization = progress;
         task.source = progress.history?.length ? 'model' : 'evidence';
@@ -389,6 +476,7 @@ export async function finishProjectOptimization(id: string, dependencies: Projec
       task.source = plan.history?.length ? 'model' : 'evidence';
       delete task.error;
     });
+    if (plan.phase === 'awaiting_review' && plan.review?.passed) await finishProjectDelivery(id);
   } catch (error) {
     updateTask(id, task => {
       task.status = 'failed';
@@ -398,11 +486,61 @@ export async function finishProjectOptimization(id: string, dependencies: Projec
     });
   } finally { releaseTask(id); }
 }
-async function finishInvestigation(id: string) {
+
+/** Keep selection, exact draft, authorization and follow-up on the same saved task. */
+export async function finishProjectDelivery(id: string, dependencies: {
+  readMaterial?: typeof import('./project-optimization-delivery').readDeliveryMaterial;
+  buildPlan?: typeof buildTaskPlan;
+} = {}) {
+  try {
+    const original = getTask(id);
+    if (original.implementation || original.proposal?.status === 'accepted') throw new Error('已有确认或实施记录，不能重新生成并覆盖修改稿。');
+    const selected = selectProjectDelivery(original.projectOptimization!, getSeed());
+    updateTask(id, task => {
+      task.status = 'investigating';
+      task.projectOptimization!.delivery = { actionId: selected.action.id, phase: 'reading',
+        message: `正在读取「${selected.asset.title}」的完整原文。`, updatedAt: nowISO() };
+      task.events.push(newEvent('已选定优先改动', selected.action.title));
+    });
+    const { readDeliveryMaterial } = await import('./project-optimization-delivery');
+    const material = await (dependencies.readMaterial ?? readDeliveryMaterial)(selected.asset);
+    selected.context.snapshot!.targetAsset = material.asset;
+    updateTask(id, task => {
+      if (task.workflow) (task.workflowHistory ??= []).push(structuredClone(task.workflow));
+      task.researchContext = selected.context;
+      task.goal = `先完成这一项改动：${selected.action.title}\n拟改内容：${selected.action.change}\n选择理由：${selected.action.rationale}\n待核实的假设：${selected.action.hypothesis}\n验收：${selected.action.verification}\n限制：${selected.action.limitations.join('；')}\n必须对照刚读取的原文重新核实，不把整体方案通过当作修改稿通过。`;
+      task.proposal = null; task.blocks = []; delete task.error;
+      task.projectOptimization!.delivery!.materialReadAt = material.readAt;
+    });
+    const { prepareSavedResearchWorkflow } = await import('./planner');
+    const workflow = prepareSavedResearchWorkflow(getTask(id), getSeed());
+    updateTask(id, task => {
+      task.workflow = workflow;
+      task.monitor = { ...task.monitor, enabled: false, nextRunAt: null, queryIds: workflow.questions.map(question => question.id) };
+      task.events.push(newEvent('开始准备具体修改稿', '原问题和采集条件已保留；原文已完整读取，将生成可替换内容并独立审核。'));
+    });
+    await finishInvestigation(id, dependencies.buildPlan);
+  } catch (error) {
+    updateTask(id, task => {
+      task.status = 'proposal_ready';
+      const message = error instanceof Error ? error.message : '修改稿暂未准备好。';
+      const plan = task.projectOptimization!;
+      plan.delivery = { ...plan.delivery, actionId: plan.delivery?.actionId ?? plan.actions[0]?.id ?? '',
+        phase: 'blocked', message, updatedAt: nowISO() };
+      task.events.push(newEvent('修改稿尚未就绪', message, 'attention'));
+    });
+  } finally { releaseTask(id); }
+}
+
+async function finishInvestigation(id: string, buildPlan = buildTaskPlan) {
   try {
     const taskBefore = getTask(id);
     const strategies = selectStrategies(taskBefore, listStrategies(), currentGeoProject());
-    const result = await buildTaskPlan(taskBefore, getSeed(), strategies);
+    const result = await buildPlan(taskBefore, getSeed(), strategies, taskBefore.projectOptimization?.delivery ? progress => {
+      updateTask(id, task => {
+        Object.assign(task.projectOptimization!.delivery!, progress, { updatedAt: nowISO() });
+      });
+    } : undefined);
     updateTask(id, task => {
       task.proposal = result.proposal; task.blocks = result.blocks; task.source = result.source;
       if (task.workflow) {
@@ -415,10 +553,16 @@ async function finishInvestigation(id: string) {
       }
       task.status = 'proposal_ready'; delete task.error;
       const passed = result.quality.rounds.some(round => round.review.passed && round.review.proposalDigest === proposalDigest(result.proposal));
+      if (task.projectOptimization?.delivery) Object.assign(task.projectOptimization.delivery, {
+        phase: passed ? 'ready' : 'blocked', updatedAt: nowISO(),
+        message: passed ? '修改稿已准备好并通过独立审核，等待确认实施。' : '修改稿尚未通过审核，当前不能实施。',
+      });
       task.events.push(newEvent(passed ? '诊断和复检完成，方案待确认' : '诊断已保存，方案尚未通过审核', passed ? `已完成 ${result.quality.rounds.length} 轮检查，候选达到当前审核标准；外部效果仍待实施后验证。` : result.quality.stopReason === 'needs_configuration' ? '已保留本地预览；请配置生成模型后运行独立审核，未通过的草稿不能确认实施。' : `停止原因：${result.quality.stopReason}。请查看检查问题和证据缺口。`, passed ? 'success' : 'attention'));
     });
   } catch (error) {
-    updateTask(id, task => { task.status = 'failed'; task.error = error instanceof Error ? error.message : '调查失败，请重试。'; task.events.push(newEvent('调查未完成', task.error, 'error')); });
+    updateTask(id, task => { task.status = 'failed'; task.error = error instanceof Error ? error.message : '调查失败，请重试。';
+      if (task.projectOptimization?.delivery) Object.assign(task.projectOptimization.delivery, { phase: 'blocked', message: task.error, updatedAt: nowISO() });
+      task.events.push(newEvent('调查未完成', task.error, 'error')); });
   } finally { releaseTask(id); }
 }
 
@@ -522,8 +666,25 @@ async function finishContinuation(original: GeoTask, maxAdditionalRounds: number
   } finally { releaseTask(id); }
 }
 
-export async function handleGeoAction(body: Record<string, unknown>): Promise<GeoState> {
+export async function handleGeoAction(body: Record<string, unknown>, options: { onQuestionProgress?: (progress: QuestionGenerationProgress) => void; questionGenerationRuntime?: QuestionGenerationRuntime } = {}): Promise<GeoState> {
   const action = body.action;
+  if (action === 'start_question_generation' || action === 'generate_questions') {
+    try {
+      const started = startQuestionGeneration(body, options.questionGenerationRuntime, options.onQuestionProgress);
+      if (action === 'generate_questions') {
+        if (started.completion) await started.completion;
+        const job = getQuestionGeneration();
+        if (job?.id !== started.job.id || job.status !== 'completed') {
+          throw new GeoError(job?.error || job?.message || '问题准备仍在后台进行。', 409);
+        }
+      }
+    } catch (error) {
+      if (error instanceof GeoError) throw error;
+      throw new GeoError(error instanceof Error ? error.message : '无法开始准备问题。',
+        typeof (error as { status?: number })?.status === 'number' ? (error as { status: number }).status : 400);
+    }
+    return getGeoState();
+  }
   if (action === 'start_project_optimization') {
     try {
       const result = createProjectOptimizationTask({ mode: body.mode, batchId: body.batchId });
@@ -563,11 +724,11 @@ export async function handleGeoAction(body: Record<string, unknown>): Promise<Ge
     } catch (error) { throw new GeoError(error instanceof Error ? error.message : '无法保存核查记录。'); }
     return getGeoState();
   }
-  if (['generate_questions', 'audit_question', 'save_question', 'review_question', 'select_question', 'confirm_questions'].includes(String(action))) {
+  if (['audit_question', 'save_question', 'review_question', 'select_question', 'confirm_questions'].includes(String(action))) {
     const plan = currentQuestionPlan(body);
     if (action === 'audit_question') {
       const runtime = projectRuntime();
-      if (runtime.generatingQuestions) throw new GeoError('正在拟题或复评，请等本次完成。', 409);
+      if (runtime.generatingQuestions || ['queued', 'running'].includes(getQuestionGeneration()?.status ?? '')) throw new GeoError('正在拟题或复评，请等本次完成。', 409);
       const candidateId = textInput(body.candidateId, 180, '候选问题');
       runtime.generatingQuestions = true;
       try {
@@ -588,16 +749,6 @@ export async function handleGeoAction(body: Record<string, unknown>): Promise<Ge
         if (error instanceof GeoError) throw error;
         throw new GeoError(error instanceof Error ? error.message : '无法保存问题。');
       }
-    } else if (action === 'generate_questions') {
-      const runtime = projectRuntime();
-      if (runtime.generatingQuestions) throw new GeoError('正在拟题和审核，请等本次完成。', 409);
-      const positioning = textInput(body.positioning, 1000, '项目定位');
-      runtime.generatingQuestions = true;
-      try {
-        const generated = await generateQuestionPlan(getSeed(), positioning);
-        const previousSelections = new Map(plan.candidates.filter(item => item.origin === 'existing').map(item => [item.originalQuestionId, item.selected]));
-        saveQuestionPlan({ ...generated, status: 'draft', candidates: generated.candidates.map(item => item.origin === 'existing' && previousSelections.has(item.originalQuestionId) ? { ...item, selected: previousSelections.get(item.originalQuestionId)! } : item) }, plan);
-      } finally { runtime.generatingQuestions = false; }
     } else if (action === 'select_question') {
       const candidate = plan.candidates.find(item => item.id === body.candidateId);
       if (!candidate) throw new GeoError('没有找到这道候选题。', 404);
@@ -653,11 +804,24 @@ export async function handleGeoAction(body: Record<string, unknown>): Promise<Ge
   const id = textInput(body.taskId, 120, '任务 ID');
   const task = getTask(id);
   if (taskIsBusy(id) && !['pause'].includes(String(action))) throw new GeoError('这条任务正在执行，请稍等片刻。', 409);
-  if (task.projectOptimization && !['retry_project_optimization', 'close_project_optimization'].includes(String(action))) throw new GeoError('项目整体方案当前仅供审阅，不能通过单题操作确认、实施或跟测。', 409);
+  if (task.projectOptimization && !(task.projectOptimization.delivery && task.workflow?.savedResearch)
+    && !['retry_project_optimization', 'close_project_optimization', 'prepare_project_change'].includes(String(action)))
+    throw new GeoError('项目整体方案当前仅供审阅，需要先生成具体修改稿并独立审核。', 409);
   if (task.workflow && ['continue_revision', 'review_plan', 'accept_plan', 'confirm_implementation'].includes(String(action)) && body.proposalRevision !== task.workflow.proposalRevision) {
     throw new GeoError('方案已在其他窗口更新，请刷新并查看当前版本后再操作。', 409);
   }
   switch (action) {
+    case 'prepare_project_change': {
+      if (!task.projectOptimization) throw new GeoError('这不是项目优化任务。');
+      if (task.implementation || task.proposal?.status === 'accepted') throw new GeoError('当前改动已确认，请继续实施与跟测。', 409);
+      if (!getGeoModelSettings().modelConfigured) throw new GeoError('请先配置分析模型。');
+      try { selectProjectDelivery(task.projectOptimization, getSeed()); }
+      catch (error) { throw new GeoError(error instanceof Error ? error.message : '优先行动尚未就绪。'); }
+      claimTask(id, 'investigate');
+      updateTask(id, current => { current.status = 'investigating'; });
+      void finishProjectDelivery(id);
+      break;
+    }
     case 'retry_project_optimization': {
       retryProjectOptimizationTask(id);
       void finishProjectOptimization(id);
@@ -818,6 +982,7 @@ export async function handleGeoAction(body: Record<string, unknown>): Promise<Ge
     case 'accept_plan': {
       requireStatus(task, ['proposal_ready']);
       if (!task.proposal) throw new GeoError('还没有可确认的方案。');
+      requireOwnedProposalTarget(task);
       const after = body.after === undefined ? task.proposal.after : textInput(body.after, 50000, '修改内容');
       if (after !== task.proposal.after || !hasCurrentApproval(task)) throw new GeoError('当前版本尚未通过审核，或正文已修改。请先完整复检再确认方案。');
       updateTask(id, t => { t.proposal = { ...t.proposal!, after, status: 'accepted' }; t.status = 'awaiting_implementation'; t.workflow!.stage = 'implementation'; t.events.push(newEvent('已确认改进方案', '通过审核的具体修改已保存。请实施后记录改动和链接；系统不会自动修改线上内容。', 'success')); });
@@ -842,6 +1007,7 @@ export async function handleGeoAction(body: Record<string, unknown>): Promise<Ge
         refreshTaskOutcome(id);
         break;
       }
+      requireOwnedProposalTarget(task);
       if (body.kind !== 'rehearsal' && body.kind !== 'user_confirmed') throw new GeoError('请选择演练或确认已经实际实施。');
       const kind = body.kind;
       const note = body.note === undefined ? '' : textInput(body.note, 3000, '实施说明', false);

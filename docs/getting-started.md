@@ -1,46 +1,167 @@
-# Getting started / 开始使用
+# Getting Started: Run OpenGEO Locally and Capture Your First ChatGPT + Google AI Overview Answers
 
-[中文首页](../README.md) · [English README](../README.en.md)
+[简体中文](getting-started.zh-CN.md)
 
-## 中文
+Ask ChatGPT or Google AI Overviews which tools track brand visibility in AI answers, and you get a tidy list — Otterly, Peec AI, Profound, Ahrefs, Semrush — with their pages cited underneath. Your own repository is not in that answer, and nothing in your docs tells those assistants what you actually do.
 
-先按首页步骤启动应用，再完成以下配置。
+That gap keeps working against you. Buyers who used to scroll a results page now ask an assistant and act on the first three names it returns, and the pages those models have already read are the pages that get quoted. Running the questions yourself, keeping the real answers, and fixing the pages that lose is how you get into that set.
 
-1. **添加项目资料。** 将 [example-project.json](../src/lib/geo/data/example-project.json) 复制到本地 `data/local-projects/my-project.json` 后编辑项目资料与资产，并按下方清单登记相同项目 ID。这个目录被 Git 忽略，勿在源码示例里填写真实资料。当前尚无应用内创建项目或导入材料入口。
-2. **连接搜索与分析服务。** 在「设置」配置搜索服务和分析模型，或参考 [.env.example](../.env.example)。API 分析模型用于拟题、回答审核、方案生成与独立审核；ChatGPT 订阅连接可用于部分分析操作，具体见[设置说明](API/opengeo/pages/settings.md)。
-3. **选择问题并搜索。** 查看已有记录和保存设置不会发起搜索。连接测试、拟题、搜索及分析可能收费；搜索费用上限不覆盖分析模型费用。启用每日计划需要本地服务持续运行，真实定时触发仍待验证。
+This guide takes you from a fresh install to a first recorded round. By the end you will have a project built from your public links, real ChatGPT and Google AI Overview answers stored with their citation links, a read of the winner pages behind the questions that miss you, and a retest of the original question once a draft goes live.
 
-密钥、登录状态和业务数据库保存在本地；调用服务时会向所选供应商发送必要材料。不要公开密钥或私人项目资料。
+## How it works
 
-当前支持单题改进、实施登记与跟测，项目整体优化仍在开发。重新拟题与历史候选的完整合并仍待完善，已有搜索观测独立保留。[仓库选题 Skill](../skills/repository-topic-discovery/SKILL.md) 可单独使用，尚未接入应用建项目和材料导入。
+OpenGEO is a local workbench for one loop: ask the questions your customers ask AI search, keep the full answer and the pages it cited, find the questions where you are missing, and get a draft written for each gap. It runs on your own machine — the project profile, saved answers, and the keys you enter stay in local files and never leave your computer.
 
-需要开发细节时，查看[接口文档](API/OPENGEO-CONTRACTS.md)、[Agent 说明](../skills/README.md)和[数据存储说明](API/opengeo/storage.md)。
+Four things to recognise before you click anything:
 
-## English
+| Concept | What it is | Why you need it |
+| --- | --- | --- |
+| Your project profile | Your public homepage or repository page, plus a few sentences on who you serve and how you differ | The workbench reads it to understand your product; question generation and draft writing both depend on it |
+| Customer questions | The phrases a buyer would type into an AI to find something like yours, compare alternatives, or look you up by name | One fixed list is what makes before-and-after answers comparable |
+| Answer evidence | The full answer text saved after each question, plus the reference pages shown under it | You check conclusions against the original text instead of your memory |
+| Winner breakdown, matching drafts, retest | A read of the externally cited pages that beat you, the draft written against them, and the same question asked again after you publish | Each change maps to something you can actually observe |
 
-Start the app using the README instructions, then complete the following setup.
+The loop in three moves: **create a project -> collect and compare answers -> break down the winners, adopt a draft, retest with the original question.**
 
-1. **Add project material.** Copy [example-project.json](../src/lib/geo/data/example-project.json) to local `data/local-projects/my-project.json`, edit the project and assets, and register the matching project ID in the manifest below. This directory is Git-ignored; do not put private material in the source examples. In-app project creation and material import are not yet available.
-2. **Connect search and analysis services.** Configure search services and analysis models in Settings, or refer to [.env.example](../.env.example). API analysis models support question drafting, answer review, proposal generation, and independent review. A ChatGPT subscription connection supports selected analysis operations; see the [settings documentation](API/opengeo/pages/settings.md).
-3. **Choose a question and search.** Viewing saved records and saving settings do not start searches. Connection tests, question drafting, searches, and analysis may incur charges. The search spending cap does not cover analysis model costs. Daily schedules require the local service to keep running; a real scheduled trigger has not yet been verified.
-
-Keys, login state, and the business database are stored locally. Service calls send necessary material to your selected providers. Do not share keys or private project information.
-
-This release supports proposals for individual questions, implementation records, and follow-up collection. Project-wide optimization and complete merging of redrafted questions with historical candidates are still in development; existing search observations remain separately preserved. The [repository topic-discovery Skill](../skills/repository-topic-discovery/SKILL.md) is available separately and is not connected to in-app project creation or material import.
-
-For development details, see the [API documentation](API/OPENGEO-CONTRACTS.md), [Agent guide](../skills/README.md), and [data storage documentation](API/opengeo/storage.md).
-
-## 本地项目清单 / Local project manifest
-
-`data/local-projects/projects.json`（示例 / example）：
-
-```json
-{
-  "defaultProjectId": "example-project",
-  "projects": [{ "id": "example-project", "seedFile": "my-project.json" }]
-}
+```mermaid
+flowchart LR
+    A["List the questions customers actually ask"] --> B["Collect answers with their citation links"]
+    B --> C["Spot questions that miss you or cite someone else"]
+    C --> D["Read the cited winner pages and get matching drafts"]
+    D --> E["Adopt one draft and publish it yourself"]
+    E --> F["Ask the same question again on the same platform"]
 ```
 
-重启后读取清单；无本地清单时展示空示例。可通过 `GEO_LOCAL_PROJECTS_DIR` 指定材料目录。`DATA_DIR` 单独控制数据库根目录，迁移已有项目时保留项目 ID、默认项目和原数据库位置。
+## 1 · Launch the workbench and create a project
 
-Restart to load the manifest; without one, the app uses empty examples. `GEO_LOCAL_PROJECTS_DIR` selects the materials directory. `DATA_DIR` controls databases separately. Preserve existing project IDs, the default project, and database locations during migration.
+The quickest way to get the UI open is to hand the repository to the AI coding assistant you already use — Claude Code, Cursor, Codex and Antigravity all work. Paste `https://github.com/cooleryu/opengeo` and say: "follow the repo instructions, run it on my machine, and open the UI for me." It installs the dependencies, starts the local service, and gives you an address to open in your browser.
+
+From there you stay in the browser. The first screen is the new-project form, and it asks for three things:
+
+1. **Display language: English or Chinese.** Set it at the top of the form. Every analysis report, draft and UI label follows that choice afterwards, so pick the language you want to read results in. If your UI is in Chinese while you are targeting English readers, you can keep the workspace in Chinese and turn on the Chinese companion draft option alongside English deliverables.
+2. **Project type: open-source project, or software or website.** This only changes how the generated questions are worded and angled — nothing else. You can change it later.
+3. **A public link and a few sentences of positioning.** Your homepage, repository page or product site all work. Then describe who uses it, what problem it solves, and what makes it stronger than the alternatives. Those sentences drive everything downstream, so two minutes here pays for itself.
+
+Click **Start analysis**. It reads the public pages it can reach and shows you what it understood, then derives up to 8 core questions from a buyer's point of view: a direct brand search, a category recommendation, a specific scenario need, and a competitor comparison. Read them, cut what does not fit, and add a phrase customers have actually said to you. You never start from a blank page.
+
+Pages behind a login cannot be read. The project stays in your list, so retry with a publicly reachable URL.
+
+When the project is created you land on **Overview**, which answers two things only: do these answers mention you, and do the cited links include your domain. Mentions and citations are counted separately — being named in the prose and being cited as a source are different wins, and the workbench keeps them apart.
+
+![Overview screen showing AI answer mentions, official website citations, platform breakdown, and monitored customer questions](images/overview-en.png)
+
+*Live Overview screen — mentions and website citations are tracked separately across your core prompts, with the optimization summary right in the middle.*
+
+<details><summary>Prefer to start from a terminal? (developer option)</summary>
+
+Full setup steps live in the Quick Start section of [the README](../README.md). You need Node.js 24; the service then runs locally on port 4327. Leave any missing API keys blank during setup and add them in the UI later.
+
+</details>
+
+## 2 · Connect services and collect real answers
+
+Open **Settings** and fill in what you already have. Two separate things live there: the model service that reads your product, audits saved answers and writes drafts; and the platforms you collect answers from. One working provider is enough for the first round.
+
+| What you want to collect | How OpenGEO gets it | What you can check afterwards |
+| --- | --- | --- |
+| ChatGPT answers | Capture from your own browser session, one question at a time at a human pace; or ask in a private window and paste the answer text plus the links shown under it | The full answer, every link it listed, and whether your domain is among them |
+| Google AI Overviews | Same two paths, recorded against the same question list | Whether the overview names you, and which sites the source panel points to |
+| DeepSeek / Qwen / Doubao (optional) | Add the provider key, then run questions from the list with one click | The full answer plus the cited pages the provider returns |
+
+Browser capture works inside your own logged-in session, so the answer you save is the answer a real person gets — not a server-side approximation. When a platform shows a verification prompt, capture stops and hands control back to you instead of trying to slip past it; nothing in the workbench works around those checks. If you would rather not run capture at all, ask the question in a private window and paste the full answer and its links into the matching record. Both paths land in the same project library.
+
+```mermaid
+flowchart TD
+    A["ChatGPT or Google AI Overviews in your browser"] --> B["Capture question by question at a human pace"]
+    B --> C["Verification prompt: pause and hand control back"]
+    A --> D["Or ask in a private window and paste answer plus links"]
+    E["DeepSeek / Qwen / Doubao with an API key"] --> F["One-click online question"]
+    C --> G["Same project library: full text plus citation links"]
+    D --> G
+    F --> G
+    G --> H["Overview counts mentions and citations separately"]
+```
+
+When you paste, paste the whole answer and every link, not the one sentence you liked. Every later judgement about "did it cite me?" is checked against that saved text and that link list.
+
+**Optional: pick one main competitor to compare.** Same question set, same platform, side by side. That immediately separates two very different situations — nobody in your category got mentioned for this question at all, or a specific competitor page was cited while yours was ignored. The first means you need content that answers the question; the second means you should study the angle they wrote from.
+
+![Question detail drawer showing the exact prompt, full captured answer, and extracted competitors for that question](images/question-answer-en.png)
+
+*Question detail — click any prompt from Overview to inspect the exact saved answer and see which competitors appeared instead of you.*
+
+For the first pass, run the questions the workbench already prepared (up to 8) on one or two platforms you actually care about. That is enough to see the direction: which questions name you, which cite a competitor comparison page, which return no link to your site at all.
+
+## 3 · Break down the winners, review each draft, and retest with the original question
+
+Open **Optimization & Tracking** for a question where you are missing — a category recommendation that lists three competitors, or an answer that quotes someone else's comparison post. OpenGEO first probes the pages the AI actually cited for that question and reads their skeleton: the headings they use, what they answer in the first two sentences, which dimensions they compare. A summary of those reference winners sits at the top of the page, so you know what you are up against before you read a single draft.
+
+It then writes one to three complementary drafts for that question — typically a README front page, a getting-started guide, and a public comparison or hands-on article — rather than restating the same point three ways. Each draft opens as **new draft against original text**, and each passes an independent review before it reaches you, so you are editing something publishable instead of a pile of suggestions.
+
+Nothing gets pushed out in bulk. If a draft fits, click **Adopt this draft**. If you want to wait, click **Not adopting for now** and come back later. Publishing itself stays with you: the workbench writes nothing to your remote repository until you explicitly adopt and confirm pushing, or copy an article out yourself.
+
+Once the content is live, ask the original question again — same platform, same entry point, same wording — and open both records on one timeline. You are comparing your own two answers, not guessing across sources.
+
+```mermaid
+flowchart TD
+    A["Pick a question that misses you"] --> B["Read the cited winner pages and their structure"]
+    B --> C["Get one to three complementary drafts"]
+    C --> D["Compare the new draft with the original, side by side"]
+    D --> E["Adopt this draft, or not adopting for now"]
+    E --> F["You publish it yourself"]
+    F --> G["Ask the original question again, same platform and entry point"]
+    G --> H["Both records sit on one timeline"]
+    H --> A
+```
+
+![Optimization Studio screen showing the draft list, cited winner references, markdown article view, and adoption controls](images/improvement-tracking-en.png)
+
+*Optimization & Tracking — read each draft in full, compare before/after changes on existing pages, switch to a Chinese companion translation when needed, and adopt one piece at a time.*
+
+## Cost and local data
+
+Four things hold true however you use it.
+
+- Browsing past answers, adjusting settings and reading drafts costs nothing. No request leaves your machine until you start something.
+- Requests go out only when you trigger them: project analysis, an online question, draft generation, a retest. Those calls hit the accounts you configured and are billed by that provider at their own rates. A question asked once is one call, and an idle workbench does not keep spending.
+- API keys, login state and the project database live in local files on your computer, not on anyone's server. Keep those files out of public commits.
+- Stopping the local service loses nothing. Start it again and continue where you stopped; with the service down, the UI simply will not open.
+
+## Frequently asked questions
+
+### Can I collect ChatGPT and Google AI Overview answers without buying a search API?
+
+Yes. Those two platforms are recorded from your own browser session, or from a private window where you paste the answer and its links back — no search API involved. What the workbench does need is an analysis model key you already have, since that is what reads your profile, audits saved answers and writes drafts. With no key at all you can still store answers and read them yourself; only the automatic analysis and drafting wait.
+
+### Do I have to invent the monitoring questions myself?
+
+No. Creating a project reads your public links, works out what your product is, and derives the question set for you: a direct brand search, a category recommendation, a specific scenario need, and a competitor comparison, narrowed down to at most 8 core questions. Review them, delete the ones that do not sound like your buyers, or add a sentence a customer actually said to you.
+
+### Why does an API answer look different from what I see on the web or in the mobile app?
+
+This is normal. Retrieval settings, the number of results pulled in, memory and personalisation differ between API endpoints and consumer apps, so the same model can legitimately answer differently through different doors. Compare one entry point before and after a change; comparing an API answer against a mobile-app answer gives you a difference that has nothing to do with your content.
+
+### How should I choose between OpenGEO, paid monthly SaaS, and other open-source monitors?
+
+They overlap on watching, and diverge on what happens after you see the number. Pick by team size, budget, and whether you need a dashboard to report or a draft to ship.
+
+| | Asking AI by hand plus a spreadsheet | Paid monthly SaaS (Otterly.AI, Peec AI, Profound) | Monitoring-only open source (Elmo, Gego, Limelit Open) | OpenGEO local workbench |
+| --- | --- | --- | --- | --- |
+| Cost | Free, costs your time | Monthly subscription, usually scaled by questions and engines | Free software, you host and maintain it | Open source and free; you pay only your own model and search usage |
+| Who runs collection | You, by hand, whenever you remember | The vendor, on a schedule, while your laptop is closed | Your server or CLI | Your machine, whenever you start the service |
+| What gets captured | Whatever you bothered to paste | ChatGPT, Google AI Overviews, AI Mode, Gemini, Claude, Perplexity, Copilot and more, where supported | Scheduled prompts across several engines, with citations and mentions captured | ChatGPT and Google AI Overviews from your own browser; DeepSeek, Qwen and Doubao through their APIs |
+| What you get out | A pile of rows and your own judgement | Dashboards, share of voice, trend lines, weekly reports | Mention and citation counts in a hosted dashboard | Full answer text with citation links, a winner breakdown, a draft per gap, and a same-question retest |
+| Where the data lives | Your laptop | The vendor's servers | Your own infrastructure | Your own laptop |
+| Best fit | A first rough gut check | Teams that need scheduled reports and wide engine coverage | Teams that want raw tracking data on infrastructure they control | Teams that want to know which page to fix next week and get the draft written along the way |
+
+The two sides also work together fine: a paid platform for scheduled trend reporting, this workbench for first-hand answers, the cited pages behind them, and the draft you actually ship.
+
+### After I ship the doc or publish the article, how long should I wait before retesting?
+
+Longer than feels natural. Search engines and model crawlers need time to pick up and re-read a page, so a retest a few minutes after publishing usually returns the old answer and tells you nothing. Give it days rather than minutes. If several rounds still show no change, open the citation list for that question before rewriting anything: you may have edited a page the model never cites, while the answer was quoting a third-party review or a comparison post the whole time.
+
+### Will OpenGEO publish anything for me?
+
+No. Drafts stay drafts until you explicitly adopt them or copy them into your repository, your docs or your blog. Nothing pushes to GitHub or any live site without your confirmation, so your judgement stays on the final publish step.
+
+Stuck on a step? Open an issue with the saved answer or a screenshot and it gets much easier to pin down: `https://github.com/cooleryu/opengeo/issues/new`.

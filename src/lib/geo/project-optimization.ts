@@ -1,13 +1,15 @@
 import { z } from 'zod';
 import { readAgentParameters, readAgentText } from './agent-files';
-import { loadGeoModel, type GeoStructuredModel } from './connection-settings';
+import type { GeoStructuredModel } from './connection-settings';
+import { loadImprovementModel } from './improvement-model';
 import { readRegisteredEvidence } from './diagnosis';
 import { readSavedResearchEvidence } from './saved-research-evidence';
 import type { ResearchBatch } from './research-types';
 import type { GeoSeed } from './types';
+import { editableAssetIssue, resolveAssetOwnership } from './asset-ownership';
 import type { ProjectOptimization, ProjectOptimizationMode, ProjectOptimizationPhase, ProjectOptimizationReview } from './project-optimization-types';
 
-const optimizationBoundary = '仅使用本次冻结的已有回答和自有内容；未重新搜索、实施、发布或跟测。诊断原因是待验证假设，审核通过也不代表真实效果。';
+const optimizationBoundary = '仅使用本次冻结的已有回答、自有内容和外部参考；外部参考不可作为修改目标。未重新搜索、实施、发布或跟测。诊断原因是待验证假设，审核通过也不代表真实效果。';
 
 const modelOptionsSchema = z.object({ temperature: z.number().min(0).max(2), maxTokens: z.number().int().positive() }).strict();
 const maxRoundsSchema = z.number().int().min(1).max(2);
@@ -68,6 +70,16 @@ export function freezeProjectOptimization(batch: ResearchBatch | null, seed: Geo
   if (new Set(batch.questions.map(question => question.id)).size !== batch.questions.length) throw new Error('问题批次包含重复 ID，无法冻结范围。');
   const snapshot: ProjectOptimization['snapshot'] = { project: structuredClone(seed.project), batchDate: batch.date,
     questions: structuredClone(batch.questions), assets: structuredClone(seed.assets), evidence: [], limitations: [] };
+  collectFrozenEvidence(snapshot, read);
+  const maxRounds = projectParameters().defaultMaxRounds;
+  return { mode, batchId: batch.id, questionIds: snapshot.questions.map(question => question.id),
+    questionCount: snapshot.questions.length, frozenAt, phase: 'initializing', attempt: 1, maxRounds, history: [],
+    progress: { message: '已保存整批原题、条件与已有材料，正在准备改动。', round: 0, maxRounds, updatedAt: frozenAt },
+    summary: '', actions: [], review: null, snapshot,
+    limitations: [...snapshot.limitations, optimizationBoundary] };
+}
+
+function collectFrozenEvidence(snapshot: ProjectOptimization['snapshot'], read = readRegisteredEvidence): void {
   const questionBudget = Math.floor(512 * 1024 / snapshot.questions.length);
   for (const question of snapshot.questions) {
     const observationBudget = Math.min(32 * 1024, Math.floor(questionBudget / Math.max(1, question.observations.length)));
@@ -89,12 +101,18 @@ export function freezeProjectOptimization(batch: ResearchBatch | null, seed: Geo
         conditions: observation.conditions, evidencePath: saved.evidencePath, text, boundary: saved.boundary });
     });
   }
-  const maxRounds = projectParameters().defaultMaxRounds;
-  return { mode, batchId: batch.id, questionIds: snapshot.questions.map(question => question.id),
-    questionCount: snapshot.questions.length, frozenAt, phase: 'initializing', attempt: 1, maxRounds, history: [],
-    progress: { message: '已保存整批原题、条件与已有材料，正在准备改动。', round: 0, maxRounds, updatedAt: frozenAt },
-    summary: '', actions: [], review: null, snapshot,
-    limitations: [...snapshot.limitations, optimizationBoundary] };
+}
+
+/** Recover a reader failure using only paths frozen before the model ran. */
+export function recoverUnreadProjectEvidence(plan: ProjectOptimization, read = readRegisteredEvidence): boolean {
+  if (plan.stopReason !== 'no_evidence' || plan.snapshot.evidence.length || plan.history?.length || plan.actions.length) return false;
+  const recovered = structuredClone(plan.snapshot);
+  recovered.limitations = [];
+  collectFrozenEvidence(recovered, read);
+  if (!recovered.evidence.length) return false;
+  plan.snapshot = recovered;
+  plan.limitations = [...recovered.limitations, optimizationBoundary];
+  return true;
 }
 
 const text = (max = 6000) => z.string().trim().min(1).max(max);
@@ -116,13 +134,19 @@ const reviewSchema = z.object({ issues: strings(), actions: z.array(z.object({ a
 function modelContext(plan: ProjectOptimization) {
   const deep = plan.mode === 'deep';
   // Retry uses the same primary record, not limitations or judgments written by an earlier candidate.
-  const limitations = [...plan.snapshot.limitations, optimizationBoundary];
+  const limitations = [...plan.snapshot.limitations, ...(plan.preparedMaterials?.limitations ?? []), optimizationBoundary];
   // Separate pools prevent plentiful answers from consuming owned-content space.
   // Divide the answer pool by all frozen questions, then each question's saved records.
-  const questionBudget = Math.floor((deep ? 176 : 56) * 1024 / Math.max(1, plan.questionCount));
+  const selected = new Set(plan.actions.flatMap(action => action.questionIds));
+  const totalBudget = (deep ? 176 : 56) * 1024;
+  const selectedRecords = plan.snapshot.evidence.filter(item => selected.has(item.questionId));
+  const selectedBudget = Math.min(32 * 1024, selectedRecords.reduce((sum, item) => sum + Buffer.byteLength(item.text), 0));
+  const questionBudget = Math.floor((totalBudget - selectedBudget) / Math.max(1, plan.questionCount - selected.size));
   const evidence = plan.questionIds.flatMap(questionId => {
     const records = plan.snapshot.evidence.filter(item => item.questionId === questionId);
-    const recordBudget = Math.min((deep ? 16 : 4) * 1024, Math.floor(questionBudget / Math.max(1, records.length)));
+    const recordBudget = selected.has(questionId)
+      ? Math.floor(selectedBudget / Math.max(1, selectedRecords.length))
+      : Math.min((deep ? 16 : 8) * 1024, Math.floor(questionBudget / Math.max(1, records.length)));
     return records.flatMap(item => {
       const excerpt = utf8Prefix(item.text, recordBudget);
       const note = omission(item.id, excerpt, item.text, '本模式的逐题回答预算');
@@ -130,19 +154,22 @@ function modelContext(plan: ProjectOptimization) {
       return excerpt ? [{ ...item, text: excerpt }] : [];
     });
   });
-  const assetBudget = Math.floor((deep ? 64 : 32) * 1024 / Math.max(1, plan.snapshot.assets.length));
-  const assets = plan.snapshot.assets.map(asset => {
+  const materials = plan.preparedMaterials?.assets ?? plan.snapshot.assets;
+  const assetBudget = Math.floor((deep ? 64 : 32) * 1024 / Math.max(1, materials.length));
+  const assets = materials.map(asset => {
     const markdown = utf8Prefix(asset.markdown, assetBudget);
-    const note = omission(asset.id, markdown, asset.markdown, '本模式的自有正文预算');
+    const note = omission(asset.id, markdown, asset.markdown, '本模式的材料正文预算');
     if (note) limitations.push(note);
-    if (asset.markdownIsExcerpt) limitations.push(`${asset.id}：保存的自有正文原本就是节选，完整来源的未提供字节数未知。`);
+    if (asset.markdownIsExcerpt) limitations.push(`${asset.id}：保存的正文原本就是节选，完整来源的未提供字节数未知。`);
     return { id: asset.id, title: asset.title, language: asset.language, publicUrl: asset.publicUrl,
-      sourcePath: asset.sourcePath, markdown, excerpt: markdown.length < asset.markdown.length || Boolean(asset.markdownIsExcerpt) };
+      sourcePath: asset.sourcePath, ...resolveAssetOwnership(asset, plan.snapshot),
+      editable: !editableAssetIssue(asset, plan.snapshot), markdown,
+      excerpt: markdown.length < asset.markdown.length || Boolean(asset.markdownIsExcerpt) };
   });
   return { mode: plan.mode, maximumActions: deep ? 8 : 3, project: plan.snapshot.project,
     batchId: plan.batchId, frozenAt: plan.frozenAt, questionCount: plan.questionCount,
     questions: plan.snapshot.questions.map(({ observations: _observations, diagnosis: _diagnosis, ...question }) => question),
-    assets, evidence, limitations };
+    assets, allowedTargetAssetIds: assets.filter(asset => asset.editable).map(asset => asset.id), evidence, limitations };
 }
 type ModelContext = ReturnType<typeof modelContext>;
 
@@ -154,8 +181,17 @@ function actionIssues(action: z.infer<typeof actionSchema>, context: ModelContex
     if (!action.evidence.some(ref => context.evidence.some(item => item.id === ref.evidenceId && item.questionId === id)))
       issues.push(`问题 ${id} 没有绑定到本行动的可核验原始证据。`);
   }
-  for (const id of action.assetIds) if (!context.assets.some(asset => asset.id === id && asset.markdown.trim())) issues.push(`自有内容 ${id} 不存在或没有提供正文。`);
+  for (const id of action.assetIds) {
+    const asset = context.assets.find(asset => asset.id === id);
+    if (!asset?.editable) issues.push(`材料 ${id} 不是当前项目可修改的自有内容，外部参考只能作为证据。`);
+    else if (!asset.markdown.trim()) issues.push(`自有内容 ${id} 没有提供正文。`);
+  }
   for (const reference of action.evidence) {
+    const asset = context.assets.find(item => item.id === reference.evidenceId);
+    if (asset) {
+      if (!asset.markdown.includes(reference.quote)) issues.push(`材料 ${asset.id} 的引文不在提供的原文中。`);
+      continue;
+    }
     const evidence = context.evidence.find(item => item.id === reference.evidenceId);
     if (!evidence || !action.questionIds.includes(evidence.questionId)) issues.push(`证据 ${reference.evidenceId} 未绑定到本行动原题。`);
     else if (!evidence.text.includes(reference.quote)) issues.push(`证据 ${reference.evidenceId} 的引文不在提供的原文中。`);
@@ -166,6 +202,7 @@ function actionIssues(action: z.infer<typeof actionSchema>, context: ModelContex
 export interface ProjectOptimizationDependencies {
   loadModel?: () => Promise<GeoStructuredModel>;
   onProgress?: (plan: ProjectOptimization) => void | Promise<void>;
+  prepareMaterials?: (plan: ProjectOptimization) => Promise<NonNullable<ProjectOptimization['preparedMaterials']>>;
 }
 
 function assessCandidate(candidate: z.infer<typeof draftSchema>, assessment: z.infer<typeof reviewSchema>, context: ModelContext): ProjectOptimizationReview {
@@ -210,7 +247,8 @@ export async function buildProjectOptimization(input: ProjectOptimization, depen
   preserveProjectOptimizationHistory(plan);
   plan.history ??= [];
   delete plan.stopReason;
-  const context = modelContext(plan);
+  if (dependencies.prepareMaterials && !plan.preparedMaterials) plan.preparedMaterials = await dependencies.prepareMaterials(plan);
+  let context = modelContext(plan);
   const publish = async (phase: ProjectOptimizationPhase, message: string, round: number) => {
     setProjectOptimizationProgress(plan, phase, message, round);
     await dependencies.onProgress?.(structuredClone(plan));
@@ -221,7 +259,7 @@ export async function buildProjectOptimization(input: ProjectOptimization, depen
     await publish('blocked', '已停止：冻结材料没有可核验的原始回答；已有成果已保留，需要补齐材料后新建任务。', 0);
     return plan;
   }
-  const load = dependencies.loadModel ?? loadGeoModel;
+  const load = dependencies.loadModel ?? loadImprovementModel;
   let previousCandidate: z.infer<typeof draftSchema> | undefined;
   let previousReview: ProjectOptimizationReview | undefined;
   for (let round = 1; round <= plan.maxRounds; round += 1) {
@@ -235,6 +273,9 @@ export async function buildProjectOptimization(input: ProjectOptimization, depen
       options: parameters[plan.mode] }));
     plan.summary = candidate.summary;
     plan.actions = candidate.actions.map(action => ({ ...action, status: 'blocked' }));
+    // Spend the same answer budget on the chosen questions before review and repair.
+    // The first comparison still sees every frozen question; measurement data is unchanged.
+    context = modelContext(plan);
     plan.review = null;
     const covered = new Set(plan.actions.flatMap(action => action.questionIds));
     const uncovered = plan.questionIds.filter(id => !covered.has(id));

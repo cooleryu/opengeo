@@ -1,25 +1,53 @@
 import { observationFromResult } from './research-observation';
+import path from 'node:path';
 import { currentGeoProject } from './projects';
-import { GeoError } from './store';
+import { dataDirectory, GeoError } from './store';
 import { collectLive } from './monitor';
 import { collectionProvider, collectionReservation, getCollectionConfig, requireCollectionKey } from './providers/config';
-import { appendResearchObservation, getLatestResearch, getResearchBatch, getResearchRun, listResearchRuns, saveResearchRun, type ResearchRunRecord } from './research';
+import { getLatestResearch, getResearchBatch, getResearchRun, listResearchRuns, saveResearchRun, type ResearchRunRecord } from './research';
 import { normalizeResearchBudget, type NormalizedResearchBudget } from './research-budget';
 import { buildSearchProtocolKey, frozenQuestion } from './search-protocol';
 import type { CollectionTask } from './collection-runtime';
 import type { WorkflowQuestion } from './workflow-types';
 import { analyzeResearchObservation } from './answer-audit';
+import { saveAnswerAudit } from './answer-audit-store';
 import { attachOverviewData } from './overview-data';
+import { assertResearchRunOwner, beginResearchQuestion, claimResearchRun, completeResearchQuestion, failResearchQuestion, heartbeatResearchRun,
+  newResearchExecution, ResearchLeaseLostError, updateOwnedResearchRun, type ResearchOwnershipCheck } from './research-store';
+import { questionFromCollectionResponse, readCollectionResponse } from './collection-response';
+import { isResearchScheduleEnabled } from './research-tracking';
+import type { GeoQuestion } from './types';
 
-export function recoverStoppedResearchRuns() {
+// Legacy jobs have no heartbeat. Bound their stale lock without guessing whether
+// a provider billed them; newer jobs use the execution lease exclusively.
+export const LEGACY_RESEARCH_STALE_MS = 15 * 60_000;
+const processStartedAt = Date.now() - process.uptime() * 1000;
+
+export function recoverStoppedResearchRuns(now = Date.now()) {
   const projectId = currentGeoProject();
   for (const run of listResearchRuns(projectId)) {
-    if (run.status !== 'running' || !run.ownerPid) continue;
-    try { process.kill(run.ownerPid, 0); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') continue;
-      saveResearchRun(projectId, { ...run, status: run.stopRequestedAt ? 'interrupted' : run.completedCount ? 'partial' : 'failed', currentQuestionId: undefined, phase: undefined, updatedAt: new Date().toISOString(), completedAt: new Date().toISOString(), error: '采集进程已退出。已保存结果和费用预留保留，未自动重试。' });
+    if (run.status !== 'running' || run.execution) continue;
+    let stale = !Number.isFinite(Date.parse(run.updatedAt)) || now - Date.parse(run.updatedAt) > LEGACY_RESEARCH_STALE_MS;
+    if (run.ownerPid === process.pid && Date.parse(run.updatedAt) < processStartedAt - 1000) stale = true;
+    if (run.ownerPid) {
+      try { process.kill(run.ownerPid, 0); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') stale = true; }
     }
+    if (!stale) continue;
+    saveResearchRun(projectId, { ...run, status: run.stopRequestedAt ? 'interrupted' : run.completedCount ? 'partial' : 'failed',
+      currentQuestionId: undefined, phase: undefined, updatedAt: new Date(now).toISOString(), completedAt: new Date(now).toISOString(),
+      error: '旧采集过程已中断或长时间无进展。已保存结果和费用预留保留；缺少安全续跑记录，未自动重试。' });
+  }
+}
+
+/** Called by the existing scheduler even when no browser is open. */
+export async function recoverResearchRuns(): Promise<void> {
+  recoverStoppedResearchRuns();
+  const projectId = currentGeoProject();
+  for (const saved of listResearchRuns(projectId)) {
+    if (saved.status !== 'running' || !saved.execution) continue;
+    const claimed = claimResearchRun(projectId, saved.id);
+    if (claimed) await executeResearchRun(claimed, true);
   }
 }
 
@@ -67,90 +95,162 @@ export async function collectResearch(input: Record<string, unknown>, schedule?:
   if (budgetLimit !== null && questions.length * collectionReservation(provider) > budgetLimit + 1e-9) throw new GeoError('当前费用上限不足以执行所选问题，未发送请求。');
   const now = new Date().toISOString();
   const collection = getCollectionConfig(provider);
-  let record: ResearchRunRecord = {
+  const record: ResearchRunRecord = {
     id, projectId, batchId: batch.id, provider, language,
     questions: questions.map(q => ({ questionId: q.id, query: q.query })),
     status: 'running', phase: 'searching', startedAt: now, updatedAt: now, spent: 0, budgetEnabled, budgetEnforcement, budgetLimit, ...(budget ? { budget } : {}), confirmedSpentCny: 0, reservedCny: 0, completedCount: 0, ownerPid: process.pid,
     ...(schedule ? { scheduleId: schedule.scheduleId } : {}),
     entryType: provider === 'deepseek' ? 'api_search' : 'api_answer',
+    collection, protocolKey: buildSearchProtocolKey(questions, collection), execution: newResearchExecution(),
+    questionProgress: Object.fromEntries(questions.map(question => [question.id, { status: 'pending', reservedCny: 0, confirmedCny: 0 }])),
   };
   saveResearchRun(projectId, record);
-  // This is an observation job, not a user-facing improvement task.
+  return executeResearchRun(record, false, schedule);
+}
+
+async function executeResearchRun(initial: ResearchRunRecord, recovering: boolean,
+  schedule?: { scheduleId: string; shouldContinue: () => boolean }) {
+  let record = initial;
+  const { id, projectId, language, budgetLimit, budgetEnforcement } = record;
+  const provider = collectionProvider(record.provider);
+  const batch = getResearchBatch(projectId, record.batchId);
+  if (!batch || !record.execution || !record.collection || !record.questionProgress) throw new GeoError('缺少安全续跑所需的搜索条件。');
+  const token = record.execution.token;
+  const questions: WorkflowQuestion[] = record.questions.map(saved => {
+    const question = batch.questions.find(question => question.id === saved.questionId)!;
+    return { id: saved.questionId, query: saved.query, language, category: question.category ?? (saved.questionId === 'C01' || saved.questionId === 'R01' ? 'brand' : 'problem'),
+      target: 'project', assetIds: [], exploratory: false, intent: saved.query, expectedResult: question.valueReason };
+  });
   const task: CollectionTask = {
-    id, projectId, title: '问题搜索', goal: '', status: 'investigating', createdAt: now, updatedAt: now,
+    id, projectId, title: '问题搜索', goal: '', status: 'investigating', createdAt: record.startedAt, updatedAt: record.updatedAt,
     blocks: [], events: [], proposal: null, implementation: null, source: 'evidence', runs: [],
-    monitor: { enabled: false, mode: 'live', timeOfDay: '', days: 1, remaining: 1, nextRunAt: null, budgetLimit, spent: 0, queryIds: ids, lastRunAt: null },
-    workflow: { version: 1, collection, questionPlanId: batch.id, questionPlanRevision: 1, frozenAt: now, questions, protocolKey: buildSearchProtocolKey(questions, collection), stage: 'search', proposalRevision: 0, appliedStrategyIds: [] },
+    monitor: { enabled: false, mode: 'live', timeOfDay: '', days: 1, remaining: 1, nextRunAt: null, budgetLimit,
+      spent: record.spent, queryIds: questions.map(question => question.id), lastRunAt: null },
+    workflow: { version: 1, collection: record.collection, questionPlanId: batch.id, questionPlanRevision: 1,
+      frozenAt: record.startedAt, questions, protocolKey: record.protocolKey!, stage: 'search', proposalRevision: 0, appliedStrategyIds: [] },
   };
-  const persist = () => {
-    record.updatedAt = new Date().toISOString();
-    record = saveResearchRun(projectId, record);
+  let leaseLost = false;
+  const assertActive: ResearchOwnershipCheck = connection => {
+    if (leaseLost) throw new ResearchLeaseLostError();
+    const saved = assertResearchRunOwner(projectId, id, token, connection);
+    if (saved.stopRequestedAt) record.stopRequestedAt = saved.stopRequestedAt;
+  };
+  const update = (change: (run: ResearchRunRecord) => void) => {
+    record = updateOwnedResearchRun(projectId, id, token, change);
+    task.monitor.spent = record.spent;
   };
   const shouldStop = () => {
-    const saved = getResearchRun(projectId, id);
-    if (saved?.stopRequestedAt) record.stopRequestedAt = saved.stopRequestedAt;
-    return Boolean(record.stopRequestedAt || (schedule && !schedule.shouldContinue()));
+    assertActive();
+    return Boolean(record.stopRequestedAt || (schedule ? !schedule.shouldContinue()
+      : record.scheduleId && !isResearchScheduleEnabled(projectId, record.scheduleId)));
+  };
+  const heartbeat = setInterval(() => {
+    try { heartbeatResearchRun(projectId, id, token); }
+    catch { leaseLost = true; }
+  }, 10_000);
+  heartbeat.unref?.();
+  const commitObservation = async (result: GeoQuestion, allowAnalysis: boolean) => {
+    assertActive();
+    if (result.answer && !result.answer.model && record.collection?.model) result.answer.model = record.collection.model;
+    const observation = observationFromResult(result, id, provider);
+    record = completeResearchQuestion(projectId, id, token, result, observation);
+    task.monitor.spent = record.spent;
+    if (budgetEnforcement === 'strict') update(run => {
+      run.analysisStatus = 'pending_budget';
+      run.analysisNote = '费用上限已开启；额外模型分析尚无可确认的费用上界，结果已保存，分析待处理。';
+    });
+    if (allowAnalysis && budgetEnforcement !== 'strict' && !shouldStop()) {
+      update(run => { run.phase = 'analyzing'; run.questionProgress![result.id].analysis = 'started'; });
+      if (!shouldStop()) await analyzeResearchObservation(batch, result.id, observation, result.answer, {
+        persist: audit => saveAnswerAudit(audit, assertActive),
+      });
+      update(run => { run.questionProgress![result.id].analysis = 'complete'; });
+    }
+    if (result.answer && !shouldStop()) {
+      const { auditCompetitorCandidateCitations } = await import('./competitor-candidates');
+      assertActive();
+      await auditCompetitorCandidateCitations(batch.id, { assertActive, observations: [{ questionId: result.id, observation, answer: result.answer }] });
+    }
   };
   try {
-    const run = await collectLive(id, id, questions.map(frozenQuestion), now, 'baseline', {
-      getTask: () => shouldStop() ? { ...task, status: 'paused' } : task,
-      onQuestionStart: question => {
-        record.currentQuestionId = question.id;
-        record.phase = 'searching';
-        persist();
-      },
-      chargeTask: (_, cost) => {
-        if (cost > 0 && shouldStop()) throw new GeoError('已请求停止，后续问题未发送。');
-        const spent = Math.round((record.spent + cost) * 1000) / 1000;
-        if (spent < 0 || (budgetLimit !== null && spent > budgetLimit + 1e-9)) throw new Error('已达到本批费用上限。');
-        record.spent = spent;
-        record.reservedCny = Math.max(0, Math.round((spent - (record.confirmedSpentCny || 0)) * 1000) / 1000);
-        persist(); task.monitor.spent = spent;
-      },
-      onObservation: async result => {
-        const observation = observationFromResult(result, id, provider);
-        appendResearchObservation(projectId, batch.id, result.id, observation);
-        if (provider === 'deepseek' && result.resultCount > 0) record.confirmedSpentCny = Math.round(((record.confirmedSpentCny || 0) + 0.005) * 1000) / 1000;
-        record.reservedCny = Math.max(0, Math.round((record.spent - (record.confirmedSpentCny || 0)) * 1000) / 1000);
-        if (budgetEnforcement === 'strict') {
-          // Search is fixed-price; analysis calls have no known upper bound.
-          // Preserve the observation without silently starting extra paid work.
-          record.analysisStatus = 'pending_budget';
-          record.analysisNote = '费用上限已开启；额外模型分析尚无可确认的费用上界，结果已保存，分析待处理。';
-        }
-        record.completedCount = (record.completedCount || 0) + 1; persist();
-        if (budgetEnforcement !== 'strict' && !shouldStop()) {
-          record.phase = 'analyzing'; persist();
-          if (!shouldStop()) await analyzeResearchObservation(batch, result.id, observation, result.answer);
-        }
-        if (result.answer && !shouldStop()) {
-          // Existing competitor identities can be checked against native citations
-          // immediately; this local check does not wait for another model ranking.
-          const { auditCompetitorCandidateCitations } = await import('./competitor-candidates');
-          await auditCompetitorCandidateCitations(batch.id, {
-            observations: [{ questionId: result.id, observation, answer: result.answer }],
-          });
-        }
-      },
+    if (recovering) update(run => {
+      for (const question of Object.values(run.questionProgress!)) if (question.analysis === 'started') question.analysis = 'uncertain';
+      if (run.finalAnalysis === 'started') run.finalAnalysis = 'uncertain';
+      if (budgetEnforcement !== 'strict') run.analysisNote = '中断后的搜索结果继续保留；恢复过程中未自动重试付费分析。';
     });
-    record = { ...record, completedCount: run.completedCount, error: run.error, evidencePath: `data/geo-evidence/${id}/run.json`, currentQuestionId: undefined, phase: 'finalizing' };
-    persist();
-    if (record.completedCount && budgetEnforcement !== 'strict' && !shouldStop()) {
-      // Keep the run active until all work finishes, so progress and the project
-      // lock still describe the actual work. A stop skips analyses not yet begun.
+    const run = await collectLive(id, id, questions.map(frozenQuestion), record.startedAt, 'baseline', {
+      assertActive,
+      getTask: () => shouldStop() ? { ...task, status: 'paused' } : task,
+      chargeTask: () => { throw new Error('恢复采集须使用逐题原子费用预留。'); },
+      onQuestionStart: question => update(run => { run.currentQuestionId = question.id; run.phase = 'searching'; }),
+      beforeRequest: (question, reserve) => {
+        if (shouldStop()) throw new GeoError('已请求停止，后续问题未发送。');
+        requireCollectionKey(provider);
+        record = beginResearchQuestion(projectId, id, token, question.id, reserve);
+        task.monitor.spent = record.spent;
+      },
+      recoverQuestion: async question => {
+        assertActive();
+        const progress = record.questionProgress![question.id];
+        if (progress.status === 'pending') return undefined;
+        if (progress.status === 'complete') return { result: progress.result };
+        if (progress.status !== 'sent') return { error: progress.error || '请求结果未确认，未自动重试。' };
+        const directory = path.join(dataDirectory(), 'geo-evidence', id);
+        let response;
+        let result: GeoQuestion | undefined;
+        try {
+          response = readCollectionResponse(directory, question, record.protocolKey);
+          if (response) result = questionFromCollectionResponse(task, id, question, response);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '保存的返回无法核对。';
+          record = failResearchQuestion(projectId, id, token, question.id, message,
+            provider === 'deepseek' && Boolean(response && (response.httpStatus < 200 || response.httpStatus >= 300)));
+          task.monitor.spent = record.spent;
+          return { error: message };
+        }
+        if (result) {
+          // A complete return can be committed without another provider call.
+          await commitObservation(result, false);
+          return { result };
+        }
+        const error = '请求可能已执行，返回未完整保存；费用预留保留，未自动重试。';
+        record = failResearchQuestion(projectId, id, token, question.id, error, false);
+        task.monitor.spent = record.spent;
+        return { error };
+      },
+      onQuestionFailure: (question, message, refundable) => {
+        record = failResearchQuestion(projectId, id, token, question.id, message, refundable);
+        task.monitor.spent = record.spent;
+      },
+      onObservation: result => commitObservation(result, !recovering),
+    });
+    update(saved => { saved.error = run.error; saved.evidencePath = `data/geo-evidence/${id}/run.json`;
+      saved.currentQuestionId = undefined; saved.phase = 'finalizing'; });
+    if (!recovering && record.completedCount && budgetEnforcement !== 'strict' && !shouldStop()) {
       try {
         const { analyzeCompetitorCandidates } = await import('./competitor-analysis');
-        if (!shouldStop()) await analyzeCompetitorCandidates(batch.id);
-      } catch { /* Original observations and collection status remain intact. */ }
+        if (!shouldStop()) {
+          update(saved => { saved.finalAnalysis = 'started'; });
+          await analyzeCompetitorCandidates(batch.id, { assertActive });
+          update(saved => { saved.finalAnalysis = 'complete'; });
+        }
+      } catch (error) { if (error instanceof ResearchLeaseLostError) throw error; }
     }
-    shouldStop();
-    record = { ...record, status: record.stopRequestedAt ? 'interrupted' : run.status, completedAt: new Date().toISOString(), currentQuestionId: undefined, phase: undefined,
-      ...(record.stopRequestedAt ? { error: '已停止；已完成的搜索结果和费用记录已保留。' } : {}) };
-    persist();
+    const stopped = shouldStop();
+    update(saved => { saved.status = stopped ? 'interrupted' : run.status; saved.completedAt = new Date().toISOString();
+      saved.currentQuestionId = undefined; saved.phase = undefined;
+      if (stopped) saved.error = '已停止；已完成的搜索结果和费用记录已保留。'; });
   } catch (error) {
-    shouldStop();
-    record = { ...record, status: record.stopRequestedAt ? 'interrupted' : record.completedCount ? 'partial' : 'failed', currentQuestionId: undefined, phase: undefined, completedAt: new Date().toISOString(), error: record.stopRequestedAt ? '已停止；已完成的搜索结果和费用记录已保留。' : error instanceof Error ? error.message : '搜索未完成；已保存记录与费用保留。' };
-    persist();
-  }
+    if (!(error instanceof ResearchLeaseLostError)) {
+      try {
+        const stopped = shouldStop();
+        update(saved => { saved.status = stopped ? 'interrupted' : saved.completedCount ? 'partial' : 'failed';
+          saved.currentQuestionId = undefined; saved.phase = undefined; saved.completedAt = new Date().toISOString();
+          saved.error = stopped ? '已停止；已完成的搜索结果和费用记录已保留。'
+            : error instanceof Error ? error.message : '搜索未完成；已保存记录与费用保留。'; });
+      } catch (failure) { if (!(failure instanceof ResearchLeaseLostError)) throw failure; }
+    }
+    record = getResearchRun(projectId, id) ?? record;
+  } finally { clearInterval(heartbeat); }
   return { run: record, batch: attachOverviewData(getResearchBatch(projectId, batch.id)) };
 }

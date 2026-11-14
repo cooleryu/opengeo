@@ -1,6 +1,6 @@
 import { geoRuntime, listTasks, newEvent, taskIsBusy, updateTask } from './store';
 import { startMonitor } from './monitor';
-import { GEO_PROJECT_IDS, withGeoProject } from './projects';
+import { listGeoProjectIds, withGeoProject } from './projects';
 import { tickResearchSchedules } from './research-tracking';
 
 export async function tickGeoScheduler(): Promise<void> {
@@ -9,7 +9,7 @@ export async function tickGeoScheduler(): Promise<void> {
   try {
     const now = Date.now();
     await tickResearchSchedules();
-    for (const projectId of GEO_PROJECT_IDS) await withGeoProject(projectId, async () => {
+    for (const projectId of listGeoProjectIds()) await withGeoProject(projectId, async () => {
       for (const task of listTasks()) {
         if (task.status !== 'monitoring' || !task.monitor.enabled || !task.monitor.nextRunAt || task.monitor.remaining <= 0 || new Date(task.monitor.nextRunAt).getTime() > now || taskIsBusy(task.id)) continue;
         try { startMonitor(task.id, task.monitor.mode, true); }
@@ -25,11 +25,12 @@ export async function tickGeoScheduler(): Promise<void> {
 }
 
 export function startGeoScheduler(): void {
-  if (geoRuntime.timer && geoRuntime.schedulerVersion === 3) return;
+  if (geoRuntime.timer && geoRuntime.schedulerVersion === 4) return;
   if (geoRuntime.timer) clearInterval(geoRuntime.timer);
   // Initializing storage also recovers a task interrupted by a previous process.
-  for (const projectId of GEO_PROJECT_IDS) withGeoProject(projectId, () => listTasks());
-  geoRuntime.schedulerVersion = 3;
+  for (const projectId of listGeoProjectIds()) withGeoProject(projectId, () => listTasks());
+  // The first tick also resumes expired research leases without a browser visit.
+  geoRuntime.schedulerVersion = 4;
   geoRuntime.schedulerRunning = true;
   geoRuntime.timer = setInterval(() => { void tickGeoScheduler().catch(error => console.error('[OpenGEO scheduler]', error instanceof Error ? error.message : error)); }, 30000);
   geoRuntime.timer.unref?.();

@@ -78,7 +78,7 @@ export function saveManualQuestion(plan: GeoQuestionPlan, seed: GeoSeed, input: 
     },
   };
   return validateQuestionPlan({
-    ...plan, status: 'draft',
+    ...plan, status: 'draft', coverageReview: undefined,
     candidates: [...plan.candidates.map(item => item.id === previous?.id ? { ...item, selected: false, supersededByCandidateId: candidate.id } : item), candidate],
   }, seed);
 }
@@ -88,7 +88,7 @@ export function reviewManualQuestion(plan: GeoQuestionPlan, seed: GeoSeed, input
   const values = reviewInputSchema.parse(input);
   const candidate = editableCandidate(plan, values.candidateId);
   return validateQuestionPlan({
-    ...plan, status: 'draft', candidates: plan.candidates.map(item => item.id !== candidate.id ? item : {
+    ...plan, status: 'draft', coverageReview: undefined, candidates: plan.candidates.map(item => item.id !== candidate.id ? item : {
       ...item, selected: values.decision === 'exclude' ? false : item.selected,
       review: { decision: values.decision, reason: values.reason, concerns: [...item.review.concerns], source: 'manual', status: 'reviewed', reviewedAt },
     }),

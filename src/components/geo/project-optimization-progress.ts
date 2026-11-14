@@ -1,5 +1,58 @@
 import type { ProjectOptimization } from '@/lib/geo/project-optimization-types';
 import type { GeoTask } from '@/lib/geo/types';
+import { buildQualityEvolution } from './quality-evolution-data';
+
+/** Overview reads the whole task, so a reviewed plan cannot masquerade as implementation. */
+export function getProjectTaskProgress(task: GeoTask) {
+  const plan = task.projectOptimization!;
+  const state = getProjectOptimizationProgress(plan);
+  const delivery = plan.delivery;
+  const result = { ...state, stage: 0, roundLabel: '', title: '' };
+  if (plan.phase === 'closed') return result;
+  if (task.status === 'failed') return { ...result, running: false, ready: false,
+    label: '这次优化中断了', message: '已保存此前的进展，可以查看原因后继续。', actionLabel: '查看进展' };
+  if (task.implementation?.kind === 'user_confirmed') {
+    const outcome = task.workflow?.outcome;
+    const labels = { improved: '复测观察到改善', unchanged: '本次复测未见改善', worse: '本次复测表现下降', inconclusive: '效果暂时无法判断' };
+    return { ...result, stage: 3, running: false, ready: false,
+      label: outcome ? labels[outcome.classification] : '改动已登记，等待复测',
+      message: outcome ? outcome.summary : '按原问题、原平台和原条件复测后，再判断是否有改善。',
+      title: task.proposal?.title ?? '', actionLabel: outcome ? '查看复测结果' : '查看实施与复测' };
+  }
+  if (task.implementation?.kind === 'rehearsal') return { ...result, stage: 2, ready: false, running: false,
+    label: '演练已完成，等待实际实施', message: '演练不计作发布，也不计作效果改善。', actionLabel: '查看修改稿' };
+  if (task.status === 'awaiting_implementation') return { ...result, stage: 2, ready: false, running: false,
+    label: '修改稿已确认，等待实施', title: task.proposal?.title ?? '',
+    message: '确认已保存；实际改动或发布完成后，才开始比较效果。', actionLabel: '查看待实施改动' };
+  if (!delivery) {
+    if (state.ready && plan.draftsReviewedAt && plan.draftsReviewedAt === plan.review?.reviewedAt) return {
+      ...result, stage: 2, ready: true, running: false, label: '稿件已准备好，待你确认',
+      message: `${plan.actions.length} 项实际稿件已通过独立审核，确认后再修改原文件或发布。`,
+      actionLabel: '查看稿件',
+    };
+    if (state.ready) return { ...result, stage: 1, ready: false, label: '优先改动已选定',
+      message: '下一步准备具体修改稿，并单独核查修改内容。', actionLabel: '查看优先改动' };
+    // Keep process reports out of the overview, but retain them in task details.
+    return { ...result, message: state.running ? '正在比较当前问题的回答和已有内容，找出最值得先做的一项改动。'
+      : '本轮还没有可以实施的修改稿，已保存原因和候选内容。' };
+  }
+  const selected = plan.actions.find(action => action.id === delivery.actionId);
+  const detail = { ...result, stage: 1, title: selected?.title ?? '', ready: false };
+  if (task.status === 'investigating') {
+    const labels = { reading: '正在读取要改的原文', comparing: '正在核实改动依据', drafting: '正在准备修改稿',
+      reviewing: '正在检查修改稿', revising: '正在完善修改稿', ready: '正在保存修改稿', blocked: '正在继续处理' };
+    return { ...detail, running: true, label: labels[delivery.phase], message: delivery.message, actionLabel: '查看进展' };
+  }
+  const evolution = buildQualityEvolution(task);
+  const frame = evolution.frames.find(item => item.id === evolution.retainedFrameId);
+  const approved = frame?.review.passed && frame.review.source === 'model' && frame.score !== null
+    && !!task.workflow?.savedResearch && frame.review.geoAcceptanceRequired === true && !!frame.review.geoAcceptance
+    && (!task.reviewContextUpdatedAt || Date.parse(frame.review.reviewedAt) >= Date.parse(task.reviewContextUpdatedAt));
+  if (approved) return { ...detail, stage: 2, ready: true, running: false, label: '待你确认改动',
+    title: task.proposal?.title ?? detail.title, message: '已通过独立审核。你只需确认这份具体改动。', actionLabel: '查看修改稿' };
+  return { ...detail, running: false, label: '修改稿还未准备好',
+    message: delivery.phase === 'blocked' ? delivery.message : '当前修改稿还需核查，暂不能实施。', actionLabel: '查看进展' };
+}
 
 export function isOpenProjectOptimizationTask(
   task: Pick<GeoTask, 'projectOptimization'>,

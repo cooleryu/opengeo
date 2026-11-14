@@ -118,6 +118,13 @@ function matchesResearchWording(
   candidate: QuestionCandidate,
   research: Pick<ResearchQuestion, 'zh' | 'en'>,
 ) {
+  if (
+    !research.zh &&
+    !candidate.queryEn &&
+    normalizedQuestion(candidate.query) === normalizedQuestion(research.en)
+  ) {
+    return true;
+  }
   return (
     normalizedQuestion(candidate.query) === normalizedQuestion(research.zh) &&
     normalizedQuestion(candidate.queryEn || '') ===
@@ -702,14 +709,14 @@ export default function QuestionManagementPanel({
       revision: plan.revision,
       batchId: researchBatch.id,
       questionId: item.id,
-      query: item.zh,
-      queryEn: item.en,
+      query: item.zh || item.en,
+      queryEn: item.zh ? item.en : '',
     };
     setAuditingId(`research:${item.id}`);
     const ok = await action('save_question', {
       sourceQuestionId: item.id,
-      query: item.zh,
-      queryEn: item.en,
+      query: item.zh || item.en,
+      queryEn: item.zh ? item.en : '',
       category: isBrandQuestion(item) ? 'brand' : 'problem',
       intent:
         item.valueReason.slice(0, 600).trim() || '原问题的使用情境待核查。',
@@ -801,8 +808,8 @@ export default function QuestionManagementPanel({
     setError('');
     setDraft({
       sourceQuestionId: item.id,
-      query: item.zh,
-      queryEn: item.en,
+      query: item.zh || item.en,
+      queryEn: item.zh ? item.en : '',
       category: isBrandQuestion(item) ? 'brand' : 'problem',
       intent: item.valueReason.slice(0, 600),
       rationale: item.evidenceBasis.slice(0, 800),
@@ -877,7 +884,7 @@ export default function QuestionManagementPanel({
           </div>
           {scope === 'backlog' && (
             <button className="qm-secondary" onClick={onLegacy}>
-              AI 拟题与审核
+              生成用户提问
             </button>
           )}
           <button

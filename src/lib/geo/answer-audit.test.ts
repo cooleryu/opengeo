@@ -71,6 +71,10 @@ async function review(result: unknown, collected = answer(), item = observation(
       .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim();
     assert.equal(input.messages[0].content, skill, 'the model receives the actual Skill body');
     assert.equal(JSON.stringify(input.messages).includes('markdown'), false, 'does not send full project assets');
+    const sentAnswer = JSON.parse(String(input.messages[1].content)).answer;
+    assert.deepEqual(sentAnswer.nativeCitations, collected.evidence?.citationSource === 'native' ? collected.citations : [],
+      'unverified sources are never presented to the model as native citations');
+    assert.deepEqual(sentAnswer.evidence, collected.evidence);
     return result;
   } };
   const record = await analyzeResearchObservation(batch(item, projectId), 'q1', item, collected,
@@ -144,6 +148,21 @@ test('unrecognized identity cannot confirm a mention or omit a verbatim named qu
     assert.equal(record.mention, 'unknown');
     assert.equal(record.citation, 'unknown');
   }
+});
+
+test('a named heading followed only by an inability to identify the project remains a non-mention', async () => {
+  const body = '我不知道这是什么项目，无法提供它的用途或使用方法。';
+  const quote = `SampleProject\n${body}`;
+  const result = { ...negative(), identity: 'unrecognized', mentionQuote: quote,
+    mentionEvidence: '标题复述项目名，正文明确不认识该项目，未提供具体身份或能力。' };
+  const collected = answer({ text: quote, citations: [] });
+  const record = await review(result, collected);
+  assert.equal(record.analysisStatus, 'complete');
+  assert.equal(record.mention, 'no');
+  assert.ok(record.mentionEvidence.includes(quote));
+  const missingHeading = await review({ ...result, mentionQuote: body }, collected);
+  assert.equal(missingHeading.analysisStatus, 'failed');
+  assert.equal(missingHeading.mention, 'unknown');
 });
 
 test('a correctly identified project remains mentioned when the answer criticizes or does not recommend it', async () => {
@@ -262,6 +281,42 @@ test('a model-confirmed different homonym need not appear in the predefined excl
   }
 });
 
+test('an excluded homonym quote includes its adjacent brand heading and identity prose verbatim', async () => {
+  const heading = '1. SampleProject (医学影像工具)';
+  const body = '是什么：它是 Acme Vision 的影像分析工具。';
+  const quote = `${heading}\n${body}`;
+  const collected = answer({ text: `${quote}\n能做什么：帮助医生分析医学影像。`, citations: [] });
+  const result = { ...negative(), identity: 'excluded', mentionQuote: quote,
+    mentionEvidence: '相邻标题和正文介绍的是 Acme Vision 的医学影像工具，不是本项目。' };
+  const record = await review(result, collected);
+  assert.equal(record.analysisStatus, 'complete');
+  assert.equal(record.mention, 'no');
+  assert.ok(record.mentionEvidence.includes(quote));
+  for (const mentionQuote of [body, `${heading} ${body}`]) {
+    const rejected = await review({ ...result, mentionQuote }, collected);
+    assert.equal(rejected.analysisStatus, 'failed');
+    assert.equal(rejected.mention, 'unknown');
+  }
+});
+
+test('repeated excluded homonyms are allowed but remaining project identity cues stay unresolved', async () => {
+  const quote = 'SampleProject 是 Acme Vision 开发的医学影像分类工具。';
+  const repeated = `${quote}\nSampleProject 也指 Terra Maps 的地图服务。\nAcme Vision 的 SampleProject 用于分析影像。`;
+  const result = { ...negative(), identity: 'excluded', mentionQuote: quote,
+    mentionEvidence: '全文介绍医学影像工具和地图服务两个同名对象，开发者与用途均不属于本项目。' };
+  const record = await review(result, answer({ text: repeated, citations: [] }));
+  assert.equal(record.analysisStatus, 'complete');
+  assert.equal(record.mention, 'no');
+  assert.ok(record.mentionEvidence.includes(quote));
+
+  for (const remainingCue of ['另有一项记录的所有者是 example。', `另有项目文档见 ${official}。`]) {
+    const unresolved = await review(result, answer({ text: `${repeated}\n${remainingCue}`, citations: [] }));
+    assert.equal(unresolved.analysisStatus, 'failed');
+    assert.equal(unresolved.mention, 'unknown');
+    assert.match(unresolved.mentionEvidence, /本项目所有者或官方链接/);
+  }
+});
+
 test('unknowns require reasons and remain pending; model-declared incomplete answers cannot become negatives', async () => {
   const unknown = { ...negative(), mention: 'unknown', citation: 'unknown', identity: 'ambiguous',
     mentionEvidence: '名称的上下文不足以区分项目与同名对象。', citationEvidence: '引用归属尚有歧义。',
@@ -276,11 +331,80 @@ test('unknowns require reasons and remain pending; model-declared incomplete ans
     limitations: ['模型认为正文截断。'] }, answer({ text: '其他工具', citations: [] }))).analysisStatus, 'failed');
 });
 
+test('complete browser answers retain independent mention verdicts when native citations are partial', async () => {
+  const partialEvidence = { answerComplete: true, citationsComplete: false, citationSource: 'native' as const };
+  for (const engine of ['chatgpt', 'google'] as const) {
+    for (const mention of ['yes', 'no'] as const) {
+      const collected = answer({ text: mention === 'yes' ? text : '可以从其他工具开始调查。',
+        citations: [], evidence: partialEvidence });
+      const record = await review({ ...(mention === 'yes' ? positive() : negative()),
+        citation: 'unknown', officialUrls: [], citationEvidence: '平台原生引用尚未完整展开。',
+        limitations: ['引用清单不完整，无法确认是否引用自有内容。'] },
+      collected, observation({ engine, entryType: 'web_answer' }));
+      assert.equal(record.method, 'model');
+      assert.equal(record.analysisStatus, 'needs_review');
+      assert.equal(record.answerComplete, true);
+      assert.equal(record.mention, mention);
+      assert.equal(record.citation, 'unknown');
+      assert.deepEqual(record.officialUrls, []);
+    }
+  }
+});
+
+test('partial native citations can confirm an observed own URL but cannot confirm absence', async () => {
+  const evidence = { answerComplete: true, citationsComplete: false, citationSource: 'native' as const };
+  const confirmed = await review(positive(), answer({ evidence }), observation({ entryType: 'web_answer' }));
+  assert.equal(confirmed.analysisStatus, 'complete');
+  assert.equal(confirmed.mention, 'yes');
+  assert.equal(confirmed.citation, 'yes');
+  assert.deepEqual(confirmed.officialUrls, [official]);
+
+  const rejected = await review({ ...positive(), citation: 'no', officialUrls: [],
+    citationEvidence: '没有在已采集引用中找到自有内容。' },
+  answer({ citations: [], evidence }), observation({ entryType: 'web_answer' }));
+  assert.equal(rejected.analysisStatus, 'failed');
+  assert.equal(rejected.mention, 'unknown');
+  assert.equal(rejected.citation, 'unknown');
+  assert.match(rejected.citationEvidence, /引用清单不完整/);
+});
+
+test('unknown or absent citation provenance preserves independent mention decisions', async () => {
+  for (const citationSource of ['unknown', 'none'] as const) {
+    for (const mention of ['yes', 'no'] as const) {
+      const record = await review({ ...(mention === 'yes' ? positive() : negative()),
+        citation: 'unknown', officialUrls: [], citationEvidence: '没有确证的平台原生引用来源。',
+        limitations: ['已保存的链接不能确认为平台原生引用。'] }, answer({
+        text: mention === 'yes' ? text : '可以从其他工具开始调查。',
+        evidence: { answerComplete: true, citationsComplete: true, citationSource },
+      }), observation({ entryType: 'web_answer' }));
+      assert.equal(record.method, 'model');
+      assert.equal(record.analysisStatus, 'needs_review');
+      assert.equal(record.answerComplete, true);
+      assert.equal(record.mention, mention);
+      assert.equal(record.citation, 'unknown');
+      assert.deepEqual(record.officialUrls, []);
+    }
+  }
+});
+
+test('unknown or absent citation provenance cannot establish a positive or negative citation verdict', async () => {
+  for (const citationSource of ['unknown', 'none'] as const) {
+    for (const citation of ['yes', 'no'] as const) {
+      const record = await review({ ...positive(), citation, officialUrls: citation === 'yes' ? [official] : [] },
+        answer({ citations: citation === 'yes' ? answer().citations : [],
+          evidence: { answerComplete: true, citationsComplete: true, citationSource } }));
+      assert.equal(record.analysisStatus, 'failed');
+      assert.equal(record.mention, 'unknown');
+      assert.equal(record.citation, 'unknown');
+      assert.match(record.citationEvidence, /原生引用来源/);
+    }
+  }
+});
+
 test('missing, incomplete and oversized evidence skips the model; web search is not applicable', async () => {
   let calls = 0;
   const model: GeoStructuredModel = { generateObject: async () => { calls += 1; return positive(); } };
   for (const collected of [undefined, answer({ text: '' }), answer({ evidence: undefined }),
-    answer({ evidence: { answerComplete: true, citationsComplete: false, citationSource: 'native' } }),
     answer({ evidence: { answerComplete: false, citationsComplete: true, citationSource: 'native' } }),
     answer({ text: '汉'.repeat(11_000) }),
     answer({ citations: [{ url: 'javascript:alert(1)', title: 'invalid' }] }),
@@ -323,6 +447,13 @@ test('unavailable configuration and model failures save safe unknowns once; pers
   await assert.rejects(analyzeResearchObservation(batch(item), 'q1', item, answer(), {
     model: { generateObject: async () => positive() }, persist: () => { throw persistenceError; },
   }), (error) => error === persistenceError);
+  let persisted = false;
+  await assert.rejects(analyzeResearchObservation(batch(item), 'q1', item, answer(), {
+    model: { generateObject: async () => positive() },
+    onValidatedResult: () => { throw persistenceError; },
+    persist: () => { persisted = true; },
+  }), (error) => error === persistenceError);
+  assert.equal(persisted, false, 'a trace write error must not become a saved model failure');
 });
 
 test('enabled ChatGPT automatic audits use Terra Max and never fall back to the retained DeepSeek connection', async () => {
@@ -418,4 +549,48 @@ test('published owned assets are accepted exactly and project scope does not lea
   assert.equal(result.mention, 'yes');
   assert.equal(result.citation, 'yes');
   assert.equal(result.language, 'en');
+});
+
+test('observed source hints help exclude homonym repositories while remaining separate from nativeCitations', async () => {
+  const item = observation({ language: 'en', query: 'What is sample-project?' });
+  const homonymText = 'SampleProject (or sample-project) is a local-first visibility tool.';
+  let sentProjectOwner = '';
+  let sentHints: unknown;
+  let sentNativeCitations: unknown;
+  const saved: AnswerAuditRecord[] = [];
+  const model: GeoStructuredModel = {
+    generateObject: async (input) => {
+      const payload = JSON.parse(String(input.messages[1].content));
+      sentProjectOwner = payload.project.owner;
+      sentHints = payload.answer.observedSourceHints;
+      sentNativeCitations = payload.answer.nativeCitations;
+      return {
+        ...negative(),
+        identity: 'excluded',
+        citation: 'unknown',
+        mentionQuote: homonymText,
+        mentionEvidence: '回答链接指向另一个作者的同名仓库，不是本项目。',
+        citationEvidence: '本次采集未包含可确证的平台原生引用清单，是否附上自有内容暂待核实。',
+        limitations: ['尚无平台原生引用清单。'],
+      };
+    },
+  };
+  const collected = answer({
+    text: homonymText,
+    citations: [],
+    sources: [{ title: 'OtherAuthor/sample-project', url: 'https://github.com/OtherAuthor/sample-project' }],
+    evidence: { answerComplete: true, citationsComplete: false, citationSource: 'unknown' },
+  });
+  const record = await analyzeResearchObservation(batch(item), 'q1', item, collected, {
+    model,
+    persist: (audit) => saved.push(audit),
+  });
+  assert.equal(sentProjectOwner, 'example');
+  assert.deepEqual(sentNativeCitations, []);
+  assert.deepEqual(sentHints, [
+    { title: 'OtherAuthor/sample-project', url: 'https://github.com/OtherAuthor/sample-project' },
+  ]);
+  assert.equal(record.mention, 'no');
+  assert.equal(record.citation, 'unknown');
+  assert.deepEqual(saved, [record]);
 });

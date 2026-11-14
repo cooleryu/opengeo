@@ -1,65 +1,117 @@
 <div align="center">
-<h1>OpenGEO</h1>
-<p>有人在 ChatGPT、DeepSeek 这类 AI 搜索里问起你的品牌、产品或开源仓库。回答里没提到你，或者提错了——你不知道它引用了谁，也不知道该改哪里。</p>
-<p>OpenGEO 把这些真实问题问一遍，保存完整回答和引用，标出谁被提到、谁的内容被引用，再把差距变成一条可执行的改进。</p>
-<p>开源、本地运行。每条结论都能回到原始回答核对，不是一个黑箱分数。</p>
-<p><a href="#看清回答和引用">功能</a> · <a href="#支持的平台">平台</a> · <a href="#开始使用">开始使用</a> · <a href="README.en.md">English</a></p>
+
+<p align="center"><img src="docs/images/opengeo-logo.png" width="80" height="80" alt="OpenGEO" /></p>
+
+# OpenGEO
+
+### See how AI search answers for your product — then turn the gaps into better content.
+
+**ChatGPT recommends a competitor and never mentions you. DeepSeek gets your features wrong. The answer cites three roundup posts and never links your site.**<br>
+Run the questions your customers actually type, keep the full answers and every page they cite,<br>
+find the gaps, draft the rewrite, and re-run the same questions after you ship.
+
+OpenGEO is an open-source, local-first AI search visibility workbench: it captures real ChatGPT and Google AI Overview answers from your own browser,<br>
+shows who got named and whose pages got cited, then turns each gap into one draft you can publish.
+
+**[Is OpenGEO for you](#is-opengeo-for-you)** · **[Quick Start](#quick-start)** · **[How it works](#how-it-works)** · **[Features](#features)** · **[Documentation](#documentation)** · **[Privacy & Cost](#privacy--cost)** · **[简体中文](README.zh-CN.md)**
+
 </div>
 
-![OpenGEO 概览：品牌提及、自有内容引用和各平台结果](docs/images/overview.png)
+## Is OpenGEO for you?
 
-*概览界面 · 演示数据*
+OpenGEO is built for indie SaaS teams, docs owners, and open-source maintainers who need citation-level evidence — which page the model picked, what the answer actually said, and what to change next — rather than one more visibility score to watch. Someone in your category is asking AI for a recommendation right now, and the answer is being assembled from pages that may not be yours. If you can't see which pages those are, you can't compete for them.
 
-品牌提及和自有内容引用分别统计，未测、未知与真实零值分别呈现。每项结果都可以回到具体回答核对依据。
+- **Every conclusion links back to the original answer.** Who was mentioned, which page was cited — the saved answer text and the source URL sit in the same view. If it isn't in the captured answer, it doesn't count as a mention.
+- **It writes the draft, not just the advice.** Each gap comes with several complementary drafts and a before/after comparison, so there is something to publish when the round ends.
+- **Adopt one draft at a time.** Review each one and adopt only what fits. Nothing is published automatically, and anything you skip leaves your live pages untouched.
+- **Your data, questions, and keys stay on your machine.** Project details, saved answers, and API keys never leave your computer, and you choose which model provider to use.
 
-## 看清回答和引用
+### How it differs from other GEO tools
 
-管理中英问题，搜索后直接查看完整回答、引用网页和历史记录。选一个主要竞品，按同题、同语言、同平台对照。
+| What you're comparing | Where it stops | What OpenGEO adds |
+| --- | --- | --- |
+| Hosted visibility dashboards (Otterly.AI, Profound, Peec AI) | A monthly subscription and a visibility score with a trend line | The same question set, but every finding opens the saved answer and the exact pages it cited |
+| Self-hosted API trackers (Elmo, Gego, Limelit Open, GEO/AEO Tracker) | They call provider APIs, so you get the API's answer rather than the page a logged-in user sees, and the output is mostly a mention or citation list | It captures the real ChatGPT and Google AI Overview result inside your own browser session, keeps the full answer text, and stores every cited URL |
+| Page auditors and linters (robots.txt, llms.txt, schema checks) | They report what's missing on your own pages | It reads the pages AI already cites for that question, compares their structure with yours, and then drafts the version that fills the gap |
 
-![OpenGEO 回答详情：实际问法、完整回答与引用网页](docs/images/question-answer.png)
+**Probably not a fit if** you only want hundreds of keywords scanned on a schedule with a weekly report waiting for you — no API key to connect, no answers to save by hand. A paid hosted monitoring service is less effort there. If what you need is to see whose pages AI actually cites, keep that evidence on your own disk, and walk away with a draft, OpenGEO is the right tool.
 
-*回答详情 · 演示数据*
+## Quick Start
 
-## 把发现的缺口变成改进任务
+**1 · Launch the workbench.** Send the repository URL `https://github.com/cooleryu/opengeo` to the AI coding assistant you already use — Claude Code, Cursor, Codex, and Antigravity all work — and ask it to follow the repo's instructions, start the app locally, and open it for you; it handles the setup steps along the way. Prefer to do it yourself, or want to know what each screen is for first? Read [Quick Start](docs/getting-started.md).
 
-从单题证据生成方案，经独立审核后登记实施，再按保存的条件跟测。由你决定是否实施、是否启用跟测。
+**2 · Create a project and a question list.** First launch opens the new-project screen: pick a project type, paste your public homepage, add a couple of notes. Once OpenGEO understands the product, it proposes the question categories customers usually ask, and you can add your own in English or Chinese.
 
-![OpenGEO 改进与追踪：单题方案、审核、实施与跟测](docs/images/improvement-tracking.png)
+**3 · Capture a round, pick drafts, re-test.** After the first round, see which questions leave you out. Review each draft and adopt only the ones that fit. Once a draft is live, register it in the workbench (or push repo docs straight from the studio) and re-run the same question later — both records sit on one timeline, so the change is visible.
 
-*改进与追踪 · 演示数据*
+## How it works
 
-## 支持的平台
+One loop: questions go in, evidence comes out, drafts come out, and the same questions get checked again. Everything produced along the way is stored locally, and you can reopen any of it later.
 
-| 平台 | 当前支持 |
-| --- | --- |
-| DeepSeek 搜索 API | 采集网页搜索结果 |
-| 千问 API / 豆包 API | 采集联网回答及供应商返回的引用 |
-| ChatGPT / Google 网页 | 展示已保存记录，暂未接入自动采集 |
-
-API 联网回答与消费端 App 的回答可能不同。搜索与分析需要连接相应服务，可能产生费用。
-
-## 开始使用
-
-准备 **Node.js 24** 和 npm：
-
-```sh
-git clone https://github.com/cooleryu/opengeo.git
-cd opengeo
-npm install
-cp .env.example .env.local
-npm run dev
+```mermaid
+flowchart LR
+    A["Write the questions customers actually ask"] --> B["Ask each platform and keep the full answer plus cited pages"]
+    B --> C["Mark the questions that miss you or skip your site"]
+    C --> D["Tear down the pages AI cited, then draft your version"]
+    D --> E["You publish, then re-run the same question"]
+    E --> C
 ```
 
-打开 [localhost:4327](http://127.0.0.1:4327)。凭据留空也可浏览两个空示例项目；截图中的演示数据不随安装提供。
+![OpenGEO overview screen showing AI answer mentions, official website citations, platform breakdown, and monitored questions](docs/images/overview-en.png)
 
-接下来：[添加项目资料与连接服务](docs/getting-started.md#中文)。
+*Overview screen — brand mentions and website citations tracked separately, with diagnosis summary and per-question audit rows*
 
-当前为开发版，支持单题改进；项目整体优化仍在开发。应用不自动发布内容，审核通过不代表流量或转化已经改善。
+## Features
 
-[接口文档](docs/API/OPENGEO-CONTRACTS.md) · [Agent 说明](skills/README.md) · [问题与建议](https://github.com/cooleryu/opengeo/issues/new)
+### Question monitoring with the source evidence attached
 
----
+English and Chinese questions live in one list. Pick your platforms, run a round, and the answer detail shows the question as phrased, the full answer text, and every page it cited, with your domain flagged in that list. Set a primary competitor and compare the same question, same language, same platform line by line.
 
-基于 [Vane](https://github.com/ItzCrazyKns/Vane) 构建，保留上游 [MIT 许可证及版权](LICENSE)。方案审核与跟测设计参考了 [GEOFlow](https://github.com/yaojingang/GEOFlow) 的源码研究，相关实现独立完成。
+| On the answer detail screen | What it settles |
+| --- | --- |
+| The question exactly as asked | The same wording every round, so a change means something |
+| The full saved answer | You can check a claim yourself instead of trusting a score |
+| Every cited page with its URL | Which outside pages are winning that question today |
+| Your domain vs. your competitor's, same question | Which gap is yours to fix and which one belongs to the category |
 
-由 [cooleryu](https://github.com/cooleryu) 维护。
+![OpenGEO question detail showing the prompt, full captured answer, and extracted competitor candidates](docs/images/question-answer-en.png)
+
+*Question detail — inspect the full answer captured from Google or ChatGPT alongside every competitor named instead of you*
+
+### Winner teardown, drafts with before/after, and per-draft adoption
+
+When a question misses you, OpenGEO first reads the pages AI cited for it — their heading order, how they open, what they cover that you don't — then writes several complementary drafts instead of three versions of the same paragraph. Each draft puts your current text and the proposed text side by side and passes a fixed three-point review before it reaches you. You adopt what you like, publish it yourself, register it as live, and re-test the original question later. Nothing is published without your confirmation.
+
+![OpenGEO optimization studio showing winner structure breakdown, markdown draft view, and per-draft adoption](docs/images/improvement-tracking-en.png)
+
+*Optimization & Tracking — read each draft in full, compare before/after edits, view companion translations when enabled, and adopt one piece at a time*
+
+### Supported platforms
+
+| Platform | How OpenGEO gets the answer | What you can verify |
+| --- | --- | --- |
+| ChatGPT, Google AI Overviews | Runs your question list inside your own logged-in browser session at a slow, human-like pace; you can also save an answer by hand from a private window | The answer a real logged-in user sees, plus every cited page and URL. If Google throws a human-verification check mid-batch, you clear it yourself and the run continues |
+| DeepSeek, Qwen, Doubao | Add your own API key; OpenGEO asks online and stores the raw response | The full answer text plus whatever citations the provider returns |
+
+API answers can differ from what you see in the mobile app, and Google AI Overviews don't appear for every query. OpenGEO judges on the copy you actually captured, so a round reflects what was really served that day instead of a normalized average.
+
+## Documentation
+
+| Document | Contents |
+| --- | --- |
+| [Quick Start](docs/getting-started.md) | Setup, first project, first round of questions, first re-test |
+| [API Contracts](docs/API/OPENGEO-CONTRACTS.md) | Data contracts and endpoints per screen — start here if you want to build on top of OpenGEO |
+| [Agent Prompts](skills/README.md) | How the built-in agent proposes questions, diagnoses gaps, and writes drafts |
+| [简体中文](README.zh-CN.md) | Chinese version of this page |
+
+## Privacy & Cost
+
+Project details, saved answers, and the API keys you enter live only on your own machine; this repository uploads none of them to any server. Reading existing records and comparing past answers costs nothing. Costs only appear when you actively send a live query, generate drafts, or run a re-test — the workbench then calls the model and search providers you configured, and their normal usage rates apply based on which provider you chose and how many questions are in the round.
+
+## Feedback & Maintenance
+
+Hit a bug, want another platform supported, or have an opinion about a screen? Open an issue at [Issues & Suggestions](https://github.com/cooleryu/opengeo/issues/new) — a saved answer or a screenshot makes it far easier to reproduce.
+
+Maintained by [cooleryu](https://github.com/cooleryu).
+
+OpenGEO is maintained at github.com/cooleryu/opengeo and is not affiliated with Pupok462/open-geo, opengeo.work, the OpenGEO browser extension, or OSGeo OpenGeo Suite.

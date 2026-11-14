@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { legacyAnswerAuditSource, loadLegacyAnswerAudit } from './project-data';
+import { syncAuditToRelational } from './db/migrate';
 import type { AnswerAuditRecord } from './overview-metrics';
 import { projectDataDirectory, resolveGeoProject, withGeoProject } from './projects';
 import { isResearchEngine } from './research-engines';
@@ -192,18 +193,20 @@ function inDatabase<T>(batch: ResearchBatch, operation: (db: Database.Database) 
 }
 
 /** Append a review revision. No observation, answer file or earlier review is changed. */
-export function saveAnswerAudit(record: AnswerAuditRecord): void {
+export function saveAnswerAudit(record: AnswerAuditRecord, assertActive?: (connection: Database.Database) => void): void {
   const normalized = normalizeAudit(record);
   const batch = getResearchBatch(normalized.projectId, normalized.batchId);
   if (!batch || !matchesObservation(batch, normalized)) {
     throw new ResearchStoreError('回答审核必须精确关联当前项目中唯一的既有观测。');
   }
   inDatabase(batch, (db) => db.transaction(() => {
+    assertActive?.(db);
     const previous = db.prepare('SELECT MAX(appended_at) AS latest FROM geo_answer_audits WHERE project_id = ? AND batch_id = ?')
       .get(batch.projectId, batch.id) as { latest: string | null };
     // Two revisions in one millisecond still give polling clients a changed version.
     const appendedAt = new Date(Math.max(Date.now(), previous.latest ? Date.parse(previous.latest) + 1 : 0)).toISOString();
     insertAudit(db, normalized, appendedAt);
+    syncAuditToRelational(db, normalized, appendedAt);
   }).immediate());
 }
 

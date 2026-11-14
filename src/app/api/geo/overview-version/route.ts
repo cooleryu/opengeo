@@ -19,10 +19,14 @@ export function GET(request: NextRequest) {
         const db = new Database(file, { readonly: true, fileMustExist: true });
         try {
           db.pragma('busy_timeout = 2000');
-          for (const table of ['geo_research_batches', 'geo_research_observations', 'geo_answer_audits', 'geo_competitor_citation_audits']) {
+          for (const table of ['geo_research_batches', 'geo_research_observations', 'geo_answer_audits', 'geo_competitor_citation_audits', 'opengeo_observations']) {
             const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table);
             version.push(exists ? (db.prepare(`SELECT MAX(seq) AS seq FROM ${table} WHERE project_id=?`).get(projectId) as { seq: number | null }).seq : null);
           }
+          const relAudits = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='opengeo_answer_audits'").get();
+          version.push(relAudits ? (db.prepare('SELECT MAX(id) AS id FROM opengeo_answer_audits WHERE project_id=?').get(projectId) as { id: number | null }).id : null);
+          const relRuns = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='opengeo_optimization_runs'").get();
+          version.push(relRuns ? db.prepare('SELECT id, status, status_message AS statusMessage, updated_at AS updatedAt FROM opengeo_optimization_runs WHERE project_id=? ORDER BY id').all(projectId) : null);
           const runs = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='geo_research_runs'").get();
           version.push(runs ? db.prepare('SELECT MAX(updated_at) AS updatedAt FROM geo_research_runs WHERE project_id=?').get(projectId) : null);
           const tasks = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='geo_tasks'").get();

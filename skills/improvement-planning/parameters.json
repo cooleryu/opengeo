@@ -1,25 +1,16 @@
 {
-  "diagnose": {
-    "temperature": 0.2,
-    "maxTokens": 8000
+  "subscriptionTimeoutMs": 1200000,
+  "strategist": {
+    "temperature": 0.25,
+    "maxTurns": 8
   },
-  "propose": {
-    "temperature": 0.2,
-    "maxTokens": 10000
+  "writer": {
+    "temperature": 0.35,
+    "maxTurns": 8,
+    "maxTokens": 8192
   },
-  "review": {
-    "temperature": 0,
-    "maxTokens": 6500
-  },
-  "repair": {
-    "temperature": 0.2,
-    "maxTokens": 10000
-  },
-  "defaultMaxQualityRounds": 3,
-  "projectOptimization": {
-    "defaultMaxRounds": 2,
-    "focus": { "temperature": 0.2, "maxTokens": 7000 },
-    "deep": { "temperature": 0.2, "maxTokens": 14000 },
-    "review": { "temperature": 0, "maxTokens": 7000 }
+  "reviewer": {
+    "temperature": 0.1,
+    "maxTurns": 3
   }
 }

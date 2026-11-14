@@ -7,7 +7,7 @@ import { afterEach, beforeEach, test } from 'node:test';
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { GET, PUT } from '@/app/api/geo/settings/route';
-import { getGeoConnectionSettings, getGeoModelConnection, loadGeoModel, saveGeoConnectionSettings } from './connection-settings';
+import { getGeoConnectionSettings, getGeoModelConnection, loadGeoModel, saveGeoConnectionSettings, shouldUseChatGPTSubscription } from './connection-settings';
 import { collectionKey, getCollectionConfig } from './providers/config';
 import { buildQwenRequest } from './providers/qwen';
 import { withGeoProject } from './projects';
@@ -135,4 +135,18 @@ test('opening settings preserves Vane compatibility and never rewrites its confi
   assert.equal(getGeoModelConnection().apiKey, 'synthetic-legacy-key');
   assert.equal(getGeoModelConnection().baseURL, 'https://api.deepseek.com/v1');
   assert.equal(fs.readFileSync(configFile, 'utf8'), original);
+});
+
+test('shouldUseChatGPTSubscription yields to configured API model when disconnected and supports DEEPSEEK_API_KEY env', () => {
+  assert.equal(shouldUseChatGPTSubscription({ enabled: false, connected: true }, true), false);
+  assert.equal(shouldUseChatGPTSubscription({ enabled: true, connected: false }, true), false);
+  assert.equal(shouldUseChatGPTSubscription({ enabled: true, connected: false }, false), true);
+  assert.equal(shouldUseChatGPTSubscription({ enabled: true, connected: true }, true), true);
+  assert.equal(shouldUseChatGPTSubscription({ enabled: true }, true), true);
+
+  Object.assign(process.env, { OPENGEO_LLM_MODEL: 'deepseek-flash', OPENGEO_LLM_BASE_URL: 'https://api.deepseek.com', DEEPSEEK_API_KEY: 'synthetic-ds-key' });
+  const conn = getGeoModelConnection();
+  assert.equal(conn.provider, 'deepseek');
+  assert.equal(conn.configured, true);
+  assert.equal(conn.apiKey, 'synthetic-ds-key');
 });

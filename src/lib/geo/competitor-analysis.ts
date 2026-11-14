@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { getGeoModelConnection, loadGeoModel, type GeoStructuredModel } from './connection-settings';
+import { getGeoModelConnection, loadGeoModel, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
 import { singleRequestModel } from './connection-test';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel from './chatgpt-model';
@@ -11,6 +11,7 @@ import type { MetricSummary } from './overview-metrics';
 import type { GeoProject } from './types';
 import { observationTime } from './research-view';
 import { readAgentParameters, readAgentText } from './agent-files';
+import type { ResearchOwnershipCheck } from './research-store';
 
 const statement = z.string().trim().min(1).max(650);
 const evidenceId = z.string().min(1).max(100);
@@ -314,14 +315,16 @@ export function readDisplayedCompetitorAnalysis(prepared: PreparedCompetitorAnal
 }
 /** Public hook shared by explicit requests and completed research collection. */
 export async function analyzeCompetitorCandidates(batchId?: string,
-  options: { force?: boolean; model?: GeoStructuredModel; timeoutMs?: number } = {}) {
+  options: { force?: boolean; model?: GeoStructuredModel; timeoutMs?: number; assertActive?: ResearchOwnershipCheck } = {}) {
   const candidates = await import('./competitor-candidates');
   return candidates.analyzeCompetitorCandidates(batchId, options);
 }
 
 /** Same evidence, including a failed result, is reused until explicit force retry. */
 export async function analyzePreparedCompetitors(prepared: PreparedCompetitorAnalysis,
-  options: { force?: boolean; model?: GeoStructuredModel; timeoutMs?: number } = {}): Promise<StoredCompetitorAnalysis> {
+  options: { force?: boolean; model?: GeoStructuredModel; timeoutMs?: number; assertActive?: ResearchOwnershipCheck } = {}): Promise<StoredCompetitorAnalysis> {
+  options.assertActive?.();
+  const persist = (record: StoredCompetitorAnalysis) => saveCompetitorAnalysis(record, options.assertActive);
   const key = `${prepared.input.project.id}:${prepared.inputKey}`;
   const active = running.get(key);
   if (active) return active;
@@ -336,12 +339,12 @@ export async function analyzePreparedCompetitors(prepared: PreparedCompetitorAna
       evidenceCount: prepared.input.candidates.reduce((count, candidate) => count + candidate.evidence.length, 0) };
     if (!prepared.candidates.length) {
       const empty: StoredCompetitorAnalysis = { ...base, state: { status: 'ready', summary: '现有记录没有足够的具体产品证据可供推荐。', generatedAt: startedAt }, candidates: [] };
-      saveCompetitorAnalysis(empty);
+      persist(empty);
       return empty;
     }
     const parameters = readParameters();
     const saveProgress = (phase: 'preparing' | 'generating' | 'validating' | 'saving', timeoutMs = parameters.subscriptionTimeoutMs) =>
-      saveCompetitorAnalysis({ ...base, ownerPid: process.pid,
+      persist({ ...base, ownerPid: process.pid,
         expiresAt: new Date(Date.parse(startedAt) + timeoutMs + parameters.completionGraceMs).toISOString(),
         state: { status: 'running', summary: '正在依据已保存的搜索记录分析候选。', ...progress, phase }, candidates: [] });
     saveProgress('preparing');
@@ -353,7 +356,7 @@ export async function analyzePreparedCompetitors(prepared: PreparedCompetitorAna
       if (Buffer.byteLength(JSON.stringify({ messages, schema: z.toJSONSchema(competitorResultSchema) }), 'utf8') > parameters.inputMaxBytes) throw new Error('input_limit');
       let model = options.model;
       let modelName: string | undefined;
-      const subscription = !model && getChatGPTStatus().enabled;
+      const subscription = !model && shouldUseChatGPTSubscription(getChatGPTStatus());
       // Respect the saved model/reasoning choice. A full evidence comparison can
       // take longer at high reasoning effort, while remaining one bounded request.
       const timeoutMs = options.timeoutMs ?? (subscription ? parameters.subscriptionTimeoutMs : parameters.apiTimeoutMs);
@@ -375,7 +378,7 @@ export async function analyzePreparedCompetitors(prepared: PreparedCompetitorAna
       analyzed = { ...base, state: { status: 'failed', summary: 'AI 分析未完成，未生成新的推荐排名。', ...progress,
         error: controller.signal.aborted ? '分析超时；保留现有记录，可手动重试。' : '模型连接、输出格式或证据校验未通过；保留现有记录，可手动重试。' }, candidates: [] };
     } finally { if (timer) clearTimeout(timer); }
-    saveCompetitorAnalysis(analyzed);
+    persist(analyzed);
     return analyzed;
   };
   const promise = operation();

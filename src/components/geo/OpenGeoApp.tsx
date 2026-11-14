@@ -21,6 +21,7 @@ import {
   ListChecks,
   Loader2,
   Play,
+  Plus,
   Search,
   Settings2,
   ShieldCheck,
@@ -33,8 +34,11 @@ import type { CompetitorCandidates } from '@/lib/geo/competitor-types';
 import {
   getBatchResearchEngines,
   isResearchEngine,
+  RESEARCH_ENGINES,
   RESEARCH_ENGINE_NAMES,
 } from '@/lib/geo/research-engines';
+import { auditRows, isAiAnswerRow } from '@/lib/geo/overview-metrics';
+import { getResearchRows } from '@/lib/geo/research-view';
 import type { CollectionProvider } from '@/lib/geo/providers/types';
 import type {
   ResearchBatch,
@@ -43,15 +47,17 @@ import type {
 } from '@/lib/geo/research-types';
 import VisibilityPanel from './VisibilityPanel';
 import ContentPanel from './ContentPanel';
-import TaskWorkspace, {
+import {
   getTaskWorkspaceGroups,
   isHistoricalTask,
 } from './TaskWorkspace';
-import ProjectOptimizationEntry from './ProjectOptimizationEntry';
-import { isOpenProjectOptimizationTask } from './project-optimization-progress';
-import type { ProjectOptimizationMode } from '@/lib/geo/project-optimization-types';
+import OptimizationHeroCard from './OptimizationHeroCard';
+import OptimizationStudio from './OptimizationStudio';
+import type { OptimizationRunViewModel } from '@/lib/geo/optimization/types';
 import ImplementationRecordForm from './ImplementationRecordForm';
 import QuestionPlanPanel from './QuestionPlanPanel';
+import { readQuestionGenerationStream } from './question-generation-stream';
+import type { QuestionGenerationProgress } from '@/lib/geo/question-types';
 import QuestionManagementPanel from './QuestionManagementPanel';
 import ResearchPanel, { clearResearchDetailParams } from './ResearchPanel';
 import CompetitorPanel from './CompetitorPanel';
@@ -59,6 +65,15 @@ import TrafficPanel from './TrafficPanel';
 import ConnectionSettingsPanel from './ConnectionSettingsPanel';
 import GeoSelect from './GeoSelect';
 import { normalizeQuestionMonitoringUrl } from './question-monitoring-url';
+import {
+  resolveProjectTargetLanguage,
+  resolveProjectUiLanguage,
+} from '@/lib/geo/i18n';
+import {
+  UiLanguageProvider,
+  useUiLanguage,
+} from './UiLanguageContext';
+import OpenGeoBrandMark from './OpenGeoBrandMark';
 import './opengeo.css';
 import './app-shell.css';
 
@@ -229,7 +244,8 @@ function MarkdownBody({
   );
 }
 
-export default function OpenGeoApp() {
+function OpenGeoAppInner() {
+  const { t, uiLanguage, setUiLanguage } = useUiLanguage();
   const [researchContext, setResearchContext] =
     useState<ResearchTaskContext | null>(null);
   const [competitorReferenceName, setCompetitorReferenceName] = useState('');
@@ -239,7 +255,10 @@ export default function OpenGeoApp() {
   const refreshVersion = useRef(0);
   const refreshRequest = useRef<AbortController | null>(null);
   const actionError = useRef('');
+  const [questionGenerationProgress, setQuestionGenerationProgress] = useState<QuestionGenerationProgress>();
+  const [optViewModel, setOptViewModel] = useState<OptimizationRunViewModel | null>(null);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [detailsNavOpen, setDetailsNavOpen] = useState(false);
   const projectButton = useRef<HTMLButtonElement>(null);
   const [storedData, setData] = useState<GeoState | null>(null),
     [page, setPage] = useState<Page>('overview'),
@@ -355,10 +374,11 @@ export default function OpenGeoApp() {
         setProjectId(requestedProject);
         setError('');
         setToast('');
+        setQuestionGenerationProgress(undefined);
       }
       setPage(pages.includes(requestedPage) ? requestedPage : 'overview');
       setSelectedTask(params.get('task') ?? '');
-      setDialog(null);
+      setDialog(requestedPage === 'question-plan' && params.get('setup') === 'questions' ? 'questions' : null);
       setAsset(null);
       setEvidence(null);
       setProjectMenuOpen(false);
@@ -383,6 +403,27 @@ export default function OpenGeoApp() {
       window.removeEventListener('pageshow', restorePage);
     };
   }, [refresh]);
+  useEffect(() => {
+    const project = storedData?.project;
+    if (!project) return;
+    const urlUi =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('ui')
+        : null;
+    if (urlUi === 'en' || urlUi === 'zh') {
+      if (uiLanguage !== urlUi) {
+        setUiLanguage(urlUi);
+      }
+      return;
+    }
+    const locked = resolveProjectUiLanguage({
+      uiLanguage: project.uiLanguage,
+      summaryOrDescription: project.description,
+    });
+    if (uiLanguage !== locked) {
+      setUiLanguage(locked);
+    }
+  }, [storedData?.project, uiLanguage, setUiLanguage]);
   useEffect(() => {
     if (page !== 'overview' || !projectId) return;
     let active = true;
@@ -466,6 +507,26 @@ export default function OpenGeoApp() {
     };
   }, [page, projectId, refresh]);
   useEffect(() => {
+    if (!projectId) {
+      setOptViewModel(null);
+      return;
+    }
+    const controller = new AbortController();
+    fetch(`/api/geo/optimization?project=${encodeURIComponent(projectId)}`, {
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload: { viewModel?: OptimizationRunViewModel } | null) => {
+        if (!controller.signal.aborted && payload) {
+          setOptViewModel(payload.viewModel ?? null);
+        }
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [projectId]);
+
+  useEffect(() => {
     if (data)
       setGoal(
         `让 ${data.project.name} 在相关问题的搜索结果中被找到，给我一个有依据的改进方案，并持续观察它是否有效。`,
@@ -512,6 +573,12 @@ export default function OpenGeoApp() {
       return () => clearTimeout(id);
     }
   }, [toast]);
+  useEffect(() => {
+    if (!['queued', 'running'].includes(data?.questionGeneration?.status ?? '')) return;
+    const timer = setInterval(() => void refresh(), 2000);
+    return () => clearInterval(timer);
+  }, [data?.questionGeneration?.status, projectId, refresh]);
+  const questionRequest = useRef<{ key: string; id: string } | null>(null);
   const task = data?.tasks.find((t) => t.id === selectedTask);
   const groups = getTaskWorkspaceGroups(data?.tasks ?? []);
   const navigate = (nextPage: Page, taskId = '', batchId?: string) => {
@@ -594,10 +661,11 @@ export default function OpenGeoApp() {
     const actionProject = projectRef.current;
     actionError.current = '';
     setBusy(action);
+    if (action === 'generate_questions') setQuestionGenerationProgress({ stage: 'preparing', message: '正在准备产品资料。' });
     try {
       const res = await fetch('/api/geo', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(action === 'generate_questions' ? { Accept: 'application/x-ndjson' } : {}) },
         body: JSON.stringify({
           action,
           projectId: actionProject,
@@ -605,7 +673,11 @@ export default function OpenGeoApp() {
           ...payload,
         }),
       });
-      const result = await res.json();
+      const result = action === 'generate_questions' && res.headers.get('content-type')?.includes('application/x-ndjson')
+        ? await readQuestionGenerationStream(res, (progress) => {
+            if (projectRef.current === actionProject) setQuestionGenerationProgress(progress);
+          })
+        : await res.json();
       if (!res.ok) throw new Error(result.error ?? '操作未完成，请重试。');
       if (projectRef.current !== actionProject) return null;
       setData(result);
@@ -617,6 +689,7 @@ export default function OpenGeoApp() {
       return null;
     } finally {
       setBusy('');
+      if (action === 'generate_questions') setQuestionGenerationProgress(undefined);
     }
   };
   const openTask = (id?: string) => {
@@ -737,18 +810,6 @@ export default function OpenGeoApp() {
     if (!taskId) return;
     navigate('tasks', taskId);
     await act('plan_from_saved', { taskId, maxQualityRounds: 2 }, '已开始比较已有回答、生成方案并独立审核');
-  };
-  const startProjectOptimization = async (mode: ProjectOptimizationMode) => {
-    if (!data?.latestResearch) throw new Error('请先添加监测问题。');
-    if (busy) throw new Error('另一项操作正在进行，请稍后重试。');
-    const result = await act('start_project_optimization', {
-      mode,
-      batchId: data.latestResearch.id,
-    });
-    if (!result) throw new Error(actionError.current || '暂时无法开始，请重试。');
-    const added = result.tasks.find(isOpenProjectOptimizationTask);
-    if (!added) throw new Error('没有找到本轮项目优化任务，请刷新后查看。');
-    navigate('tasks', added.id);
   };
   const openResearchTask = (
     question: ResearchQuestion,
@@ -984,27 +1045,36 @@ export default function OpenGeoApp() {
     </>
   );
 
+  const optStatus = optViewModel?.run?.status ?? null;
+  const optNavBadge =
+    optStatus === 'awaiting_approval'
+      ? { label: t('status.awaitingApproval'), tone: 'emerald' }
+      : optStatus === 'awaiting_retest'
+        ? { label: t('status.awaitingRetest'), tone: 'amber' }
+        : optStatus &&
+            ['planning', 'drafting', 'reviewing', 'implementing', 'remeasuring'].includes(
+              optStatus,
+            )
+          ? { label: t('status.running'), tone: 'live' }
+          : null;
+
   const navGroups = [
     {
-      id: 'overview',
+      id: 'primary',
       label: null,
-      items: [{ id: 'overview' as Page, label: '概览', icon: LayoutDashboard }],
-    },
-    {
-      id: 'monitoring',
-      label: '监测',
       items: [
-        { id: 'question-plan' as Page, label: '问题监测', icon: Search },
-        { id: 'competitor' as Page, label: '竞品对照', icon: GitCompareArrows },
-        { id: 'traffic' as Page, label: '流量数据', icon: MousePointer2 },
+        { id: 'overview' as Page, label: t('nav.overview'), icon: LayoutDashboard },
+        { id: 'tasks' as Page, label: t('nav.tasks'), icon: ListChecks },
       ],
     },
     {
-      id: 'optimization',
-      label: '优化',
+      id: 'details',
+      label: t('nav.details'),
       items: [
-        { id: 'assets' as Page, label: '内容资产', icon: BookOpen },
-        { id: 'tasks' as Page, label: '改进与追踪', icon: ListChecks },
+        { id: 'question-plan' as Page, label: t('nav.questions'), icon: Search },
+        { id: 'competitor' as Page, label: t('nav.competitor'), icon: GitCompareArrows },
+        { id: 'traffic' as Page, label: t('nav.traffic'), icon: MousePointer2 },
+        { id: 'assets' as Page, label: t('nav.assets'), icon: BookOpen },
       ],
     },
   ];
@@ -1012,15 +1082,32 @@ export default function OpenGeoApp() {
   const sidebarPage =
     page === 'monitor' ? 'tasks' : page;
   const improvementWorkspace = page === 'tasks' || page === 'monitor';
-  const workspaceViews = improvementWorkspace
-    ? [
-        { id: 'tasks' as Page, label: '任务进展' },
-        { id: 'monitor' as Page, label: '效果追踪' },
-      ]
-    : [];
+  const customCanvasPage = page === 'overview' || improvementWorkspace;
+  const overviewMissedCount = useMemo(() => {
+    const b = data?.latestResearch;
+    if (!b) return 0;
+    const activeLang = resolveProjectTargetLanguage(data?.project, b);
+    const engines = getBatchResearchEngines(b);
+    const audited = auditRows(
+      b,
+      engines.flatMap((engine) =>
+        getResearchRows(b, { language: activeLang, kind: 'all', engine, result: 'all' }),
+      ),
+      b.answerAudits ?? [],
+    );
+    return b.questions.filter((q) => {
+      const m = audited.filter((r) => r.question.id === q.id && r.observation);
+      if (!m.length) return false;
+      return m.every((r) =>
+        isAiAnswerRow(r)
+          ? r.audit?.mention === 'no'
+          : r.observation?.status === 'not_observed',
+      );
+    }).length;
+  }, [data?.latestResearch, data?.project]);
   return (
     <div
-      className={`og-app og-redesigned og-research-workspace ${page !== 'overview' ? 'og-b-workspace' : ''}`}
+      className={`og-app og-redesigned og-research-workspace ${!customCanvasPage ? 'og-b-workspace' : ''}`}
     >
       <aside className="og-sidebar">
         <a
@@ -1028,7 +1115,7 @@ export default function OpenGeoApp() {
           href={`/?view=overview&project=${encodeURIComponent(projectId)}`}
           aria-label="OpenGEO 首页"
         >
-          <span>O</span>OpenGEO
+          <OpenGeoBrandMark size={22} />OpenGEO
         </a>
         <div className="og-project-picker">
           <button
@@ -1044,7 +1131,7 @@ export default function OpenGeoApp() {
               {data?.project.name.slice(0, 1).toUpperCase() || '·'}
             </span>
             <span className="og-project-label">
-              <small>当前项目</small>
+              <small>{t('nav.currentProject')}</small>
               <strong>{data?.project.name ?? '正在读取…'}</strong>
             </span>
             <ChevronDown size={15} />
@@ -1062,8 +1149,8 @@ export default function OpenGeoApp() {
                   return;
                 event.preventDefault();
                 const choices = Array.from(
-                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                    '[role="menuitemradio"]',
+                  event.currentTarget.querySelectorAll<HTMLElement>(
+                    '[role="menuitemradio"], [role="menuitem"]',
                   ),
                 );
                 const index = choices.indexOf(
@@ -1095,40 +1182,68 @@ export default function OpenGeoApp() {
                   {project.id === projectId && <Check size={16} />}
                 </button>
               ))}
+              <a href="/new" role="menuitem" className="og-project-create-link"><Plus size={17} /><strong>{t('nav.newProject')}</strong></a>
             </div>
           )}
         </div>
         <nav aria-label="主导航">
-          {navGroups.map((group) => (
-            <div
-              key={group.id}
-              className={`og-nav-group og-nav-${group.id}`}
-              role={group.label ? 'group' : undefined}
-              aria-labelledby={
-                group.label ? `og-nav-${group.id}-label` : undefined
-              }
-            >
-              {group.label && (
-                <h2 className="og-nav-label" id={`og-nav-${group.id}-label`}>
-                  {group.label}
-                </h2>
-              )}
-              {group.items.map((item) => (
-                <button
-                  key={item.id}
-                  className={sidebarPage === item.id ? 'active' : ''}
-                  aria-current={sidebarPage === item.id ? 'page' : undefined}
-                  onClick={() => navigate(item.id)}
-                >
-                  <item.icon size={18} />
-                  <span>{item.label}</span>
-                  {item.id === 'tasks' && groups.tasks.length > 0 && (
-                    <small>{groups.tasks.length}</small>
-                  )}
-                </button>
-              ))}
-            </div>
-          ))}
+          {navGroups.map((group) => {
+            const isDetails = group.id === 'details';
+            const isDetailActive = group.items.some(
+              (item) => sidebarPage === item.id,
+            );
+            const showItems = !isDetails || detailsNavOpen || isDetailActive;
+            return (
+              <div
+                key={group.id}
+                className={`og-nav-group og-nav-${group.id}`}
+                role={group.label ? 'group' : undefined}
+                aria-labelledby={
+                  group.label && !isDetails ? `og-nav-${group.id}-label` : undefined
+                }
+              >
+                {group.label &&
+                  (isDetails ? (
+                    <button
+                      type="button"
+                      className="og-nav-toggle"
+                      aria-expanded={showItems}
+                      onClick={() => setDetailsNavOpen((v) => !v)}
+                    >
+                      <span>{group.label}</span>
+                      <ChevronDown
+                        size={13}
+                        className={showItems ? 'is-open' : ''}
+                      />
+                    </button>
+                  ) : (
+                    <h2
+                      className="og-nav-label"
+                      id={`og-nav-${group.id}-label`}
+                    >
+                      {group.label}
+                    </h2>
+                  ))}
+                {showItems &&
+                  group.items.map((item) => (
+                    <button
+                      key={item.id}
+                      className={sidebarPage === item.id ? 'active' : ''}
+                      aria-current={sidebarPage === item.id ? 'page' : undefined}
+                      onClick={() => navigate(item.id)}
+                    >
+                      <item.icon size={17} />
+                      <span>{item.label}</span>
+                      {item.id === 'tasks' && optNavBadge && (
+                        <small className={`og-nav-pill is-${optNavBadge.tone}`}>
+                          {optNavBadge.label}
+                        </small>
+                      )}
+                    </button>
+                  ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="og-sidebar-bottom">
           <a
@@ -1137,7 +1252,7 @@ export default function OpenGeoApp() {
             target="_blank"
             rel="noreferrer"
           >
-            访问项目 <ArrowUpRight size={14} />
+            {t('nav.visitProject')} <ArrowUpRight size={14} />
           </a>
           <button
             type="button"
@@ -1145,7 +1260,7 @@ export default function OpenGeoApp() {
             aria-current={page === 'settings' ? 'page' : undefined}
             onClick={() => navigate('settings')}
           >
-            设置 <Settings2 size={14} />
+            {t('nav.settings')} <Settings2 size={14} />
           </button>
         </div>
       </aside>
@@ -1165,22 +1280,22 @@ export default function OpenGeoApp() {
         {!data ? (
           <div className="og-loading">
             <Loader2 className="spin" size={24} />
-            <p>正在读取项目…</p>
+            <p>{uiLanguage === 'en' ? 'Loading project…' : '正在读取项目…'}</p>
           </div>
         ) : (
           <>
-            {page !== 'overview' && (
+            {!customCanvasPage && (
               <header className="rw-page-heading">
                 <div className="rw-heading-title">
                   <a
                     className="rw-brand"
                     href={`/?view=overview&project=${projectId}`}
                   >
-                    <span>O</span> OpenGEO
+                    <OpenGeoBrandMark size={25} /> OpenGEO
                   </a>
                   <h1>
                     {page === 'settings'
-                      ? '设置'
+                      ? (uiLanguage === 'en' ? 'Settings' : '设置')
                       : nav.find((item) => item.id === sidebarPage)?.label}
                   </h1>
                 </div>
@@ -1200,7 +1315,7 @@ export default function OpenGeoApp() {
                       target.searchParams.set('project', projectId);
                       target.searchParams.set('search', String(search || ''));
                       target.searchParams.set('questionSearch', String(search || ''));
-                      for (const key of ['language', 'engine'])
+                      for (const key of ['language', 'engine', 'ui'])
                         if (current.has(key))
                           target.searchParams.set(key, current.get(key)!);
                       window.location.assign(target);
@@ -1209,8 +1324,8 @@ export default function OpenGeoApp() {
                     <Search size={15} />
                     <input
                       name="search"
-                      aria-label="搜索项目内问题"
-                      placeholder="搜索项目内问题…"
+                      aria-label={uiLanguage === 'en' ? 'Search prompts' : '搜索项目内问题'}
+                      placeholder={uiLanguage === 'en' ? 'Search prompts…' : '搜索项目内问题…'}
                     />
                   </form>
                 )}
@@ -1222,32 +1337,14 @@ export default function OpenGeoApp() {
                     }
                   >
                     <FileText size={15} />
-                    研究报告
+                    {uiLanguage === 'en' ? 'Research report' : '研究报告'}
                   </button>
                 )}
               </header>
             )}
-            {workspaceViews.length > 0 && (
-              <nav className="og-workspace-views" aria-label="改进与追踪视图">
-                {workspaceViews.map((view) => (
-                  <button
-                    key={view.id}
-                    aria-current={page === view.id ? 'page' : undefined}
-                    onClick={() =>
-                      navigate(
-                        view.id,
-                        improvementWorkspace ? selectedTask : '',
-                      )
-                    }
-                  >
-                    {view.label}
-                  </button>
-                ))}
-              </nav>
-            )}
             <div
               className={
-                page !== 'overview'
+                !customCanvasPage
                   ? 'og-workspace-body'
                   : undefined
               }
@@ -1256,15 +1353,18 @@ export default function OpenGeoApp() {
                 (page === 'overview' || page === 'question-plan') && (
                   <ResearchPanel
                     key={`research-${data.project.id}`}
-                    projectOptimization={<ProjectOptimizationEntry
-                      key={data.project.id}
-                      projectName={data.project.name}
-                      questionCount={data.latestResearch.questions.length}
-                      activeTask={data.tasks.find(isOpenProjectOptimizationTask)}
-                      onStart={startProjectOptimization}
-                      onContinue={openTask}
-                      onQuestions={() => navigate('question-plan')}
-                    />}
+                    hideHeader={page === 'overview'}
+                    projectOptimization={
+                      <OptimizationHeroCard
+                        key={data.project.id}
+                        projectId={data.project.id}
+                        questionCount={data.latestResearch.questions.length}
+                        missedQuestionCount={overviewMissedCount}
+                        onOpenStudio={(runId) => navigate('tasks', runId ?? '')}
+                        onOpenQuestions={() => navigate('question-plan')}
+                        onStatusChange={setOptViewModel}
+                      />
+                    }
                     batch={data.latestResearch}
                     project={data.project}
                     view={page === 'overview' ? 'overview' : 'questions'}
@@ -1277,6 +1377,7 @@ export default function OpenGeoApp() {
                     onEvidence={openEvidence}
                     onQuestions={() => navigate('question-plan')}
                     onOverview={() => navigate('overview')}
+                    onAssets={() => navigate('assets')}
                     onReview={() => navigate('question-plan')}
                     onImprove={openResearchTask}
                     onPlan={startSavedResearchPlan}
@@ -1292,7 +1393,123 @@ export default function OpenGeoApp() {
                     }}
                   />
                 )}
-              {page === 'overview' && !data.latestResearch && (
+              {page === 'overview' && !data.latestResearch && data.questions.length === 0 && (() => {
+                const targetLang = resolveProjectTargetLanguage(data.project, null);
+                const langLabel = t(
+                  targetLang === 'en'
+                    ? 'overview.targetLangEnLabel'
+                    : 'overview.targetLangZhLabel',
+                );
+                const readyCandidates = data.questionPlan.candidates.filter(
+                  (c) => c.selected && c.review.decision !== 'exclude',
+                );
+                const genActive =
+                  data.questionGeneration?.status === 'queued' ||
+                  data.questionGeneration?.status === 'running';
+                return (
+                  <div className="pov-shell">
+                    <div className="pov-empty-card">
+                      <div className="pov-empty-head">
+                        <div>
+                          <h1>{t('overview.firstSetupTitle')}</h1>
+                          <p>
+                            {readyCandidates.length > 0
+                              ? t('overview.firstSetupDesc', { langLabel })
+                              : t('overview.firstSetupNoQuestions')}
+                          </p>
+                        </div>
+                        {readyCandidates.length > 0 && (
+                          <button
+                            type="button"
+                            className="pov-inline-link"
+                            onClick={() => navigate('question-plan')}
+                          >
+                            {t('overview.reviewQuestionsBtn')} <ArrowRight size={14} />
+                          </button>
+                        )}
+                      </div>
+                      {readyCandidates.length > 0 ? (
+                        <>
+                          <ol className="pov-empty-questions">
+                            {readyCandidates.slice(0, 8).map((c) => (
+                              <li key={c.id}>
+                                <span className="pov-q-cat">
+                                  {c.category === 'brand'
+                                    ? t('overview.catBrand')
+                                    : t('overview.catProblem')}
+                                </span>
+                                <span>
+                                  {targetLang === 'en' ? c.queryEn || c.query : c.query || c.queryEn}
+                                </span>
+                              </li>
+                            ))}
+                          </ol>
+                          <div className="pov-empty-actions">
+                            <button
+                              type="button"
+                              className="pov-primary-btn"
+                              disabled={!!busy || genActive}
+                              onClick={() =>
+                                void act(
+                                  'confirm_question_plan',
+                                  {},
+                                  '已确认本批核心问题，可直接开始采集',
+                                )
+                              }
+                            >
+                              {busy === 'confirm_question_plan' ? (
+                                <>
+                                  <Loader2 size={15} className="spin" />
+                                  {t('overview.confirmingQuestionsBtn')}
+                                </>
+                              ) : (
+                                <>
+                                  <Check size={15} />
+                                  {t('overview.confirmQuestionsBtn', {
+                                    count: readyCandidates.length,
+                                  })}
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="pov-empty-actions">
+                          <button
+                            type="button"
+                            className="pov-primary-btn"
+                            disabled={!!busy || genActive}
+                            onClick={() =>
+                              void act(
+                                'generate_questions',
+                                {
+                                  positioning:
+                                    data.questionPlan.positioning ||
+                                    data.project.description,
+                                },
+                                '已生成并审核推荐问题',
+                              )
+                            }
+                          >
+                            {busy === 'generate_questions' || genActive ? (
+                              <>
+                                <Loader2 size={15} className="spin" />
+                                {t('overview.generatingQuestionsBtn')}
+                              </>
+                            ) : (
+                              <>
+                                <Search size={15} />
+                                {t('overview.generateQuestionsBtn')}
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+              {page === 'overview' && !data.latestResearch && data.questions.length > 0 && (
                 <VisibilityPanel
                   data={data}
                   onQuestions={() => navigate('question-plan')}
@@ -1448,33 +1665,41 @@ export default function OpenGeoApp() {
                 />
               )}
               {page === 'question-plan' && dialog === 'questions' && (
-                <Modal title="审阅下一批题单" onClose={() => setDialog(null)}>
+                <Modal title="用户会怎么问" onClose={() => setDialog(null)}>
                   <div className="og-question-editor">
-                    <p className="og-editor-note">
-                      这是下一批的候选草稿；已搜索题单和历史记录保持只读。
-                    </p>
                     <QuestionPlanPanel
                       plan={data.questionPlan}
                       assets={data.assets}
-                      modelConfigured={data.settings.modelConfigured}
+                      modelConfigured={data.settings.questionModelConfigured ?? data.settings.modelConfigured}
                       busy={!!busy}
+                      generationProgress={questionGenerationProgress}
+                      generationJob={data.questionGeneration}
                       onAsset={setAsset}
+                      onConfigureModel={() => navigate('settings')}
                       onAuditCandidate={async (candidateId) => {
-                        await act('audit_question', {
+                        const result = await act('audit_question', {
                           candidateId, planId: data.questionPlan.id,
                           revision: data.questionPlan.revision,
-                        }, 'AI 复评已保存，请查看需求价值与承接情况');
+                        }, '已重新评估这个问题');
+                        if (!result) throw new Error(actionError.current || '评估未完成，请重试。');
                       }}
                       onGenerate={async (positioning) => {
-                        await act(
-                          'generate_questions',
+                        const key = `${projectId}:${data.questionPlan.id}:${data.questionPlan.revision}:${positioning}`;
+                        if (questionRequest.current?.key !== key) {
+                          questionRequest.current = { key, id: crypto.randomUUID() };
+                        }
+                        const result = await act(
+                          'start_question_generation',
                           {
                             positioning,
                             planId: data.questionPlan.id,
                             revision: data.questionPlan.revision,
+                            requestId: questionRequest.current.id,
                           },
-                          '拟题和审核完成，请审阅候选问题',
+                          '正在后台准备问题',
                         );
+                        if (!result) throw new Error(actionError.current || '生成未完成，请重试。');
+                        questionRequest.current = null;
                       }}
                       onToggle={async (candidateId, selected) => {
                         await act(
@@ -1485,7 +1710,7 @@ export default function OpenGeoApp() {
                             planId: data.questionPlan.id,
                             revision: data.questionPlan.revision,
                           },
-                          '题单选择已保存',
+                          '已保存所选问题',
                         );
                       }}
                       onConfirm={async () => {
@@ -1495,7 +1720,7 @@ export default function OpenGeoApp() {
                             planId: data.questionPlan.id,
                             revision: data.questionPlan.revision,
                           },
-                          '题单已确认，尚未发起搜索',
+                          '已确认要监测的问题',
                         );
                       }}
                       onContinue={() => {
@@ -1510,27 +1735,17 @@ export default function OpenGeoApp() {
                 </Modal>
               )}
               {(page === 'tasks' || page === 'monitor') && (
-                <TaskWorkspace
-                  data={data}
-                  view={page}
-                  selectedTaskId={selectedTask}
-                  busy={busy}
-                  onSelect={(id) => navigate(page, id)}
-                  onBack={() => navigate(page)}
-                  onCreate={() => {
-                    setResearchContext(null);
-                    setLegacyQuestionPlan(false);
-                    setDialog('create');
-                  }}
-                  onQuestions={() => navigate('question-plan')}
-                  onAct={act}
-                  onImplementation={openImplementation}
-                  onMonitor={openMonitor}
-                  onLive={() => {
-                    setCostConsent(false);
-                    setDialog('live');
-                  }}
-                  onEvidence={openEvidence}
+                <OptimizationStudio
+                  key={`studio-${data.project.id}`}
+                  projectId={data.project.id}
+                  projectName={data.project.name}
+                  repositoryUrl={data.project.repositoryUrl}
+                  selectedRunId={selectedTask || undefined}
+                  batch={data.latestResearch}
+                  onBackOverview={() => navigate('overview')}
+                  onOpenQuestions={() => navigate('question-plan')}
+                  onSelectRun={(runId) => navigate('tasks', runId)}
+                  onStatusChange={setOptViewModel}
                 />
               )}
             </div>
@@ -2080,5 +2295,13 @@ export default function OpenGeoApp() {
         </Modal>
       )}
     </div>
+  );
+}
+
+export default function OpenGeoApp() {
+  return (
+    <UiLanguageProvider>
+      <OpenGeoAppInner />
+    </UiLanguageProvider>
   );
 }

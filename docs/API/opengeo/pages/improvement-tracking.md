@@ -25,6 +25,10 @@
 
 ## 新建与诊断
 
+2026-11-11：概览的 `start_project_optimization`（`mode:focus|deep,batchId`）与任务页使用同一条 `GeoTask`。重点优化全局比较后最多选择 3 项优先行动，不凑数；深度最多 8 项，两者审核标准相同。通过整体审核后进入具体改稿交接；当前改稿器支持单项行动、单份已有正文，多项或多文件方案完整保留为交接待完成，不能仅取第一项交付。`projectOptimization.delivery` 保存 `actionId,phase,message,updatedAt,materialReadAt?`；读取、诊断、起草、审核和修订期间 `task.status=investigating`，完成后 `proposal_ready`。概览须检查与当前修改稿匹配的完整审核，才显示“待你确认改动”；不能仅凭整体方案通过显示就绪。`implementation` 保持空、跟测保持关闭。用户确认沿用下方 `accept_plan`，不自动实施。
+
+旧的已通过整体方案可以用 `prepare_project_change`（`taskId`）继续准备修改稿；需要有效模型配置且任务未确认、未实施。只读取选定目标的公开原文，不重新搜索问题，不改历史回答。多项行动、新建内容、多文件行动或不完整原文会阻止当前改稿器交付，保存具体原因；该能力缺口不限制方案生成与审核的范围。
+
 | action / 页面操作 | 请求必选字段（另加公共字段） | 可选字段 / 默认 | 成功后的数据及执行边界 |
 |---|---|---|---|
 | `create_task` 新建任务 | `goal`:非空字符串 ≤2,000 字 | `collectionProvider`: `deepseek`（默认）/`doubao`/`qwen`；`researchContext`；`legacyQuestionPlan:boolean` | 新任务 `queued`，`proposal:null,implementation:null,runs:[]`；默认每日 09:00、7 天、预算 0.5、未启用、replay。仅本地登记；不调用模型或搜索。 |

@@ -1,13 +1,18 @@
-import './test-fixtures';
+import { initialResearch } from './test-fixtures';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
-import { claimTask, createProjectOptimizationTask, finishProjectOptimization, geoRuntime, getGeoState, getTask, handleGeoAction, listTasks, releaseTask, retryProjectOptimizationTask, saveTask, taskIsBusy } from './store';
+import { claimTask, createProjectOptimizationTask, finishProjectDelivery, finishProjectOptimization, geoRuntime, getGeoState, getTask, handleGeoAction, listTasks, releaseTask, retryProjectOptimizationTask, saveTask, taskIsBusy } from './store';
 import type { ProjectOptimization } from './project-optimization-types';
-import { reviewEditedProposal } from './planner';
+import { buildTaskDiagnosisContext, reviewEditedProposal } from './planner';
 import { getSeed } from './seed';
+import { localDiagnosis } from './diagnosis';
+import { buildQualityReview } from './quality';
+import { selectProjectDelivery } from './project-optimization-delivery';
+import { getProjectTaskProgress } from '../../components/geo/project-optimization-progress';
+import type { GeoProposal } from './types';
 
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'opengeo-project-optimization-'));
 const previous = { DATA_DIR: process.env.DATA_DIR, OPENGEO_LLM_MODEL: process.env.OPENGEO_LLM_MODEL,
@@ -112,7 +117,7 @@ test('candidate and each assessment reach SQLite before later calls; retry keeps
   const { candidate, assessment } = prepareOfflineCandidate(task.id);
   const snapshot = structuredClone(getTask(task.id).projectOptimization!.snapshot);
   let calls = 0;
-  await finishProjectOptimization(task.id, { loadModel: async () => ({ generateObject: async () => {
+  await finishProjectOptimization(task.id, { prepareMaterials: async plan => ({ assets: plan.snapshot.assets, limitations: [] }), loadModel: async () => ({ generateObject: async () => {
     const saved = getTask(task.id).projectOptimization!;
     if (calls++ === 0) { assert.equal(saved.phase, 'planning'); return candidate; }
     assert.equal(saved.phase, 'reviewing');
@@ -142,7 +147,7 @@ test('candidate and each assessment reach SQLite before later calls; retry keeps
   const replies = [candidate, failedReview, revised, assessment];
   const persisted: ProjectOptimization[] = [];
   calls = 0;
-  await finishProjectOptimization(task.id, { onProgress: () => { persisted.push(getTask(task.id).projectOptimization!); },
+  await finishProjectOptimization(task.id, { prepareMaterials: async plan => ({ assets: plan.snapshot.assets, limitations: [] }), onProgress: () => { persisted.push(getTask(task.id).projectOptimization!); },
     loadModel: async () => ({ generateObject: async () => {
       const saved = getTask(task.id).projectOptimization!;
       if (calls === 2) {
@@ -194,4 +199,100 @@ test('project parameters remain compatible with the original single-task preview
   const result = await reviewEditedProposal(task, seed, seed.proposal);
   assert.equal(result.maxRounds, 3);
   assert.equal(result.rounds[0].review.passed, false);
+});
+
+test('one approved action automatically becomes an exact reviewed draft on the same task, without implementation', async () => {
+  const seed = getSeed();
+  const batch = getGeoState().latestResearch!;
+  const created = createProjectOptimizationTask({ mode: 'focus', batchId: batch.id });
+  const task = getTask(created.task.id);
+  const plan = task.projectOptimization!;
+  const question = initialResearch[0].questions.find(item => item.id === 'C02')!;
+  const observation = question.observations.find(item => item.engine === 'chatgpt' && item.language === 'zh')!;
+  const evidence = plan.snapshot.evidence.find(item => item.questionId === question.id && item.engine === 'chatgpt' && item.language === 'zh')!;
+  const asset = seed.assets.find(item => item.id === 'guide-zh-CN')!;
+  plan.phase = 'awaiting_review';
+  plan.actions = [{ id: 'one-action', title: '补充原文中的操作步骤', priority: 1, questionIds: [question.id], assetIds: [asset.id],
+    observed: '原回答说明了记录输入。', hypothesis: '具体步骤可能帮助读者。', change: '在现有步骤末尾增加复核方法。',
+    rationale: '先完善已有内容。', evidence: [{ evidenceId: evidence.id, quote: 'record the input' }],
+    verification: '保留原问题和条件，实施后分别复测提及与引用。', limitations: ['实际效果待复测。'], status: 'ready' }];
+  plan.review = { passed: true, reviewedAt: new Date().toISOString(), issues: [], actions: [{ actionId: 'one-action',
+    scores: { evidence: 90, relevance: 90, actionability: 90, verifiability: 90 }, preservesGoal: 'pass', evidenceGrounded: 'pass', passed: true, issues: [] }] };
+  task.status = 'proposal_ready'; saveTask(task);
+  const snapshot = structuredClone(plan.snapshot);
+  const selection = selectProjectDelivery(plan);
+  assert.equal(selection.context.snapshot!.observations.length, 1);
+  assert.deepEqual(selection.context.snapshot!.observations[0], observation);
+  selection.context.snapshot!.question.zh = 'not the original';
+  assert.deepEqual(plan.snapshot, snapshot);
+  const multi = structuredClone(plan); multi.actions[0].assetIds.push('guide-en');
+  assert.throws(() => selectProjectDelivery(multi), /同时修改多份/);
+  const multipleActions = structuredClone(task);
+  multipleActions.projectOptimization!.actions.push({ ...structuredClone(plan.actions[0]), id: 'companion-action', priority: 2 });
+  multipleActions.projectOptimization!.review!.actions.push({ ...structuredClone(plan.review.actions[0]), actionId: 'companion-action' });
+  saveTask(multipleActions);
+  await finishProjectDelivery(task.id, {
+    readMaterial: async () => { assert.fail('multi-action delivery must not silently start only the first action'); },
+  });
+  const pendingDelivery = getTask(task.id);
+  assert.deepEqual(pendingDelivery.projectOptimization!.actions, multipleActions.projectOptimization!.actions);
+  assert.equal(pendingDelivery.projectOptimization!.delivery!.phase, 'blocked');
+  assert.equal(getProjectTaskProgress(pendingDelivery).ready, false);
+  assert.equal(pendingDelivery.implementation, null);
+  saveTask(task);
+  const missing = structuredClone(plan); missing.snapshot.evidence = [];
+  assert.throws(() => selectProjectDelivery(missing), /原问题/);
+  assert.equal(getProjectTaskProgress(task).ready, false, 'a high-level plan is not a ready draft');
+  let draftCalls = 0;
+  const taskCount = listTasks().length;
+  await finishProjectDelivery(task.id, {
+    readMaterial: async selected => {
+      assert.equal(getTask(task.id).projectOptimization!.delivery!.phase, 'reading');
+      assert.equal(selected.id, asset.id);
+      return { asset: { ...selected, markdown: selected.markdown + '\n\nFresh original material.', markdownIsExcerpt: false }, readAt: '2026-11-11T00:00:00Z' };
+    },
+    buildPlan: async (current, currentSeed, _strategies, progress) => {
+      draftCalls++;
+      assert.equal(current.id, task.id);
+      assert.equal(current.workflow!.baseline, undefined);
+      assert.equal(current.workflow!.savedResearch!.query, question.zh);
+      assert.equal(current.workflow!.savedResearch!.conditions, observation.conditions);
+      assert.equal(current.workflow!.savedResearch!.recordedAt, observation.recordedAt);
+      assert.match(current.researchContext!.snapshot!.targetAsset!.markdown, /Fresh original material/);
+      progress!({ phase: 'reviewing', message: '正在检查修改稿' });
+      assert.equal(getProjectTaskProgress(getTask(task.id)).label, '正在检查修改稿');
+      const context = buildTaskDiagnosisContext(current, currentSeed);
+      const proposal: GeoProposal = { ...seed.proposal, id: `${task.id}-proposal`, title: '新增复核方法', status: 'reviewed',
+        targetAssetId: asset.id, targetUrl: asset.publicUrl!, before: 'Fresh original material.', after: 'Fresh original material.\nCheck the saved input.',
+        changes: ['增加复核步骤'], successCriteria: ['同题、同语言、同入口复测品牌正确提及和自有引用；实施与效果分开，未知时不承诺改善。'],
+        evidencePaths: [observation.evidencePath] };
+      const check = { met: true, criterionQuote: proposal.successCriteria[0], reason: 'Explicit synthetic test criterion.' };
+      const review = buildQualityReview(proposal, { scores: { evidence: 90, relevance: 90, actionability: 90, verifiability: 90 },
+        issues: [], summary: 'Synthetic independent review.', geoAcceptanceRequired: true,
+        geoAcceptance: { implementation: check, ownBrandMention: check, ownTargetCitation: check, comparableConditions: check, unknownBaseline: check } });
+      return { proposal, blocks: [], source: 'model', diagnosis: localDiagnosis(context), appliedStrategyIds: [],
+        quality: { maxRounds: 2, targetScore: 80, minimumDimensionScore: 70, stopReason: 'target_reached', bestRound: 1, rounds: [{ round: 1, candidate: structuredClone(proposal), review }] } };
+    },
+  });
+  const ready = getTask(task.id);
+  assert.equal(draftCalls, 1);
+  assert.equal(listTasks().length, taskCount);
+  assert.deepEqual(ready.projectOptimization!.snapshot, snapshot);
+  assert.equal(ready.projectOptimization!.delivery!.phase, 'ready');
+  assert.equal(ready.implementation, null);
+  assert.equal(ready.monitor.enabled, false);
+  assert.equal(getProjectTaskProgress(ready).label, '待你确认改动');
+  assert.equal(getProjectTaskProgress(ready).ready, true);
+  const changed = structuredClone(ready); changed.proposal!.after += '\nUnreviewed change.';
+  assert.equal(getProjectTaskProgress(changed).ready, false);
+  const oldReview = structuredClone(ready); delete oldReview.workflow!.quality!.rounds[0].review.geoAcceptance;
+  assert.equal(getProjectTaskProgress(oldReview).ready, false);
+  const approved = await handleGeoAction({ action: 'accept_plan', taskId: ready.id, proposalRevision: ready.workflow!.proposalRevision });
+  const awaiting = approved.tasks.find(item => item.id === ready.id)!;
+  assert.equal(awaiting.implementation, null);
+  assert.equal(getProjectTaskProgress(awaiting).label, '修改稿已确认，等待实施');
+  const implemented = structuredClone(awaiting);
+  implemented.implementation = { kind: 'user_confirmed', at: new Date().toISOString(), note: 'Synthetic implementation', url: asset.publicUrl! };
+  assert.equal(getProjectTaskProgress(implemented).label, '改动已登记，等待复测');
+  assert.equal(getProjectTaskProgress(implemented).ready, false);
 });

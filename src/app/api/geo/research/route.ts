@@ -20,7 +20,9 @@ export async function GET(request: NextRequest) {
     recoverStoppedResearchRuns();
     const state = getGeoState();
     const batchId = request.nextUrl.searchParams.get('batch');
-    const batch = batchId ? attachOverviewData(getResearchBatch(currentGeoProject(), batchId)) : state.latestResearch;
+    const batch = batchId && batchId !== state.latestResearch?.id
+      ? attachOverviewData(getResearchBatch(currentGeoProject(), batchId))
+      : state.latestResearch;
     if (batchId && !batch) throw new GeoError('没有找到当前项目的研究批次。', 404);
     const questionId = request.nextUrl.searchParams.get('question');
     const detail = questionId ? buildQuestionDetail(batch, currentGeoProject(), questionId, filters) : null;

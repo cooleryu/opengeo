@@ -236,6 +236,33 @@ test('Google deduplicates URLs and counts only saved web positions; API keeps na
   assert.equal(attachedOfficial.questions[0].observations[0].status, 'found');
 });
 
+test('Google AI Overview counts its native citations without ordinary web positions', () => {
+  const source = batch([
+    observation({
+      engine: 'google',
+      entryType: 'web_answer',
+      overviewStatus: 'generated',
+      answerPath: 'google-overview.md',
+      sources: [
+        { title: '官网引用', url: 'https://official.example/', kind: 'official' },
+        { title: '其他引用', url: 'https://other.example/', kind: 'other' },
+      ],
+    }),
+  ]);
+  const overview = buildQuestionDetail(source, source.projectId, 'C01', {
+    ...filters,
+    engine: 'google',
+  })!.platforms[0];
+  assert.equal(overview.entryType, 'web_answer');
+  assert.equal(overview.entryLabel, 'AI 概览');
+  assert.equal(overview.answerPath, 'google-overview.md');
+  assert.equal(overview.status, 'found');
+  assert.deepEqual(
+    [overview.officialCount, overview.otherCount, overview.totalSources, overview.otherSourcesCount],
+    [1, 1, 2, 0],
+  );
+});
+
 test('latest/history preserve original record keys and reject malformed query parameters', () => {
   const source = batch([
     observation({ recordedAt: '2026-10-27T08:00:00Z', status: 'not_observed' }),
@@ -288,4 +315,68 @@ test('latest/history preserve original record keys and reject malformed query pa
       parseQuestionDetailFilters(new URLSearchParams(invalid)),
     );
   }
+});
+
+test('AI answer platforms surface audited mention verdicts when batch answerAudits are loaded', () => {
+  const source: ResearchBatch = {
+    ...batch([
+      observation({
+        engine: 'chatgpt',
+        entryType: 'web_answer',
+        status: 'not_observed',
+        answerPath: 'chatgpt-q8.md',
+        sources: [{ title: 'Other Repo', url: 'https://other.example', kind: 'other' }],
+      }),
+      observation({
+        engine: 'google',
+        entryType: 'web_answer',
+        status: 'not_observed',
+        answerPath: 'google-q8.md',
+        sources: [{ title: 'Google Source', url: 'https://third.example', kind: 'other' }],
+      }),
+    ]),
+    answerAudits: [
+      {
+        projectId: 'sample-project',
+        batchId: 'test-batch',
+        questionId: 'C01',
+        engine: 'chatgpt',
+        language: 'zh',
+        recordedAt: '2026-10-24T08:00:00Z',
+        mention: 'no',
+        citation: 'unknown',
+        mentionEvidence: '同名他项目。',
+        citationEvidence: '原生引用待核实。',
+        officialUrls: [],
+        evidencePath: 'chatgpt-q8.md',
+        answerComplete: true,
+      },
+      {
+        projectId: 'sample-project',
+        batchId: 'test-batch',
+        questionId: 'C01',
+        engine: 'google',
+        language: 'zh',
+        recordedAt: '2026-10-24T08:00:00Z',
+        mention: 'yes',
+        citation: 'unknown',
+        mentionEvidence: '明确提及本项目。',
+        citationEvidence: '原生引用待核实。',
+        officialUrls: [],
+        evidencePath: 'google-q8.md',
+        answerComplete: true,
+      },
+    ],
+  };
+  const detail = buildQuestionDetail(source, 'sample-project', 'C01', filters)!;
+  const chatgpt = detail.platforms.find((p) => p.engine === 'chatgpt')!;
+  const google = detail.platforms.find((p) => p.engine === 'google')!;
+  const qwen = detail.platforms.find((p) => p.engine === 'qwen')!;
+  assert.equal(chatgpt.mention, 'no');
+  assert.equal(chatgpt.officialCount, 0);
+  assert.equal(chatgpt.totalSources, 1);
+  assert.equal(google.mention, 'yes');
+  assert.equal(google.officialCount, 0);
+  assert.equal(google.totalSources, 1);
+  assert.equal(qwen.mention, undefined);
 });

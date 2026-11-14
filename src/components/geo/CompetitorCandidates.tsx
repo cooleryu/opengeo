@@ -31,6 +31,7 @@ import GeoSelect from './GeoSelect';
 import CompetitorExperience from './CompetitorExperience';
 import CompetitorPerformance from './CompetitorPerformance';
 import './competitor-candidates.css';
+import { useUiLanguage } from './UiLanguageContext';
 
 type Props = {
   projectId: string;
@@ -82,6 +83,8 @@ export default function CompetitorCandidates({
   presentation,
   onOpen,
 }: Props) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const filterEngine = engine === 'all' ? undefined : engine;
   const candidateContext = questionId || 'project';
   const analysisContext = `${projectId}:${batchId || ''}:${dataRevision || ''}:${language || 'zh'}:${engine || 'all'}`;
@@ -664,14 +667,16 @@ export default function CompetitorCandidates({
         <>
           <div className="cc-heading">
             <h2>
-              {questionId ? '本题发现的竞品' : '竞品候选'}
+              {questionId
+                ? (isEn ? 'Competitors found' : '本题发现的竞品')
+                : (isEn ? 'Competitor candidates' : '竞品候选')}
               {data && <span>{candidates.length}</span>}
             </h2>
             {compact && (
               <a
                 href={`/?${new URLSearchParams({ view: 'competitor', project: projectId, ...(batchId ? { batch: batchId } : {}) })}`}
               >
-                全部候选
+                {isEn ? 'All candidates' : '全部候选'}
                 <ArrowRight size={13} />
               </a>
             )}
@@ -687,7 +692,7 @@ export default function CompetitorCandidates({
                   setReadAttempt((value) => value + 1);
                 }}
               >
-                重新读取
+                {isEn ? 'Reload' : '重新读取'}
               </button>
             </div>
           )}
@@ -697,13 +702,19 @@ export default function CompetitorCandidates({
             </p>
           )}
           {!data && !error && (
-            <p className="cc-empty">正在读取已有搜索中的候选…</p>
+            <p className="cc-empty">
+              {isEn ? 'Loading candidates from answers…' : '正在读取已有搜索中的候选…'}
+            </p>
           )}
           {data && !candidates.length && (
             <p className="cc-empty">
               {questionId
-                ? '这道题的已有结果中还没有可展示的竞品候选。'
-                : '已有搜索结果中还没有可展示的竞品候选。'}
+                ? (isEn
+                    ? 'No competitor candidates found for this prompt yet.'
+                    : '这道题的已有结果中还没有可展示的竞品候选。')
+                : (isEn
+                    ? 'No competitor candidates found in search results yet.'
+                    : '已有搜索结果中还没有可展示的竞品候选。')}
             </p>
           )}
           <div className="cc-list">

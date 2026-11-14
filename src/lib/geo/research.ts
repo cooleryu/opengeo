@@ -3,6 +3,7 @@ import type { ResearchBatch } from './research-types';
 import { readLocalProjectFile } from './project-data';
 export { appendResearchObservation, getResearchBatch, getResearchRun, listResearchRuns, saveResearchRun, listResearchBatches } from './research-store';
 export type { ResearchRunRecord } from './research-store';
+export { claimResearchRun, heartbeatResearchRun } from './research-store';
 
 export function getLatestResearch(projectId: string): ResearchBatch | null {
   return readLatestResearch(projectId);

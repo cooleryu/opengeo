@@ -3,8 +3,9 @@ import { test } from 'node:test';
 import type { GenerateObjectInput } from '@/lib/models/types';
 import type { GeoSeed } from './types';
 import type { ResearchBatch, ResearchQuestion } from './research-types';
-import { freezeProjectOptimization, buildProjectOptimization, validateProjectOptimizationMode } from './project-optimization';
+import { freezeProjectOptimization, buildProjectOptimization, recoverUnreadProjectEvidence, validateProjectOptimizationMode } from './project-optimization';
 import type { ProjectOptimization } from './project-optimization-types';
+import { prepareOptimizationMaterials } from './project-optimization-delivery';
 
 const question = (id: string): ResearchQuestion => ({ id, zh: `${id} 中文原题`, en: `${id} original question`,
   decision: 'search_now', valueReason: '真实目标', evidenceBasis: '用户给定', answerability: '部分满足',
@@ -25,10 +26,10 @@ const draft = () => ({ summary: '合并两题共同的比较步骤缺口。', li
   verification: '先人工核对步骤；实施后使用两道原题、原语言和原入口条件复测，分别记录提及与自有引用；没有可比后测不判定有效。', limitations: ['尚无效果证明。'] }] });
 const review = () => ({ issues: [], actions: [{ actionId: 'A1', scores: { evidence: 90, relevance: 90, actionability: 90, verifiability: 90 },
   preservesGoal: 'pass', evidenceGrounded: 'pass', issues: [] as string[] }] });
-const run = async (candidate = draft(), assessment = review()) => {
+const run = async (candidate = draft(), assessment = review(), plan = freeze()) => {
   const calls: GenerateObjectInput[] = [];
   const phases: string[] = [];
-  const result = await buildProjectOptimization({ ...freeze(), maxRounds: 1 }, { loadModel: async () => ({ generateObject: async (input: GenerateObjectInput) => {
+  const result = await buildProjectOptimization({ ...plan, maxRounds: 1 }, { loadModel: async () => ({ generateObject: async (input: GenerateObjectInput) => {
     calls.push(input); return calls.length % 2 === 1 ? candidate : assessment;
   } }), onProgress: plan => { phases.push(plan.phase); } });
   return { result, calls, phases };
@@ -59,6 +60,19 @@ test('missing or unsupported raw records remain explicit limitations and never b
   assert.ok(result.limitations.some(item => item.includes('Q1')));
 });
 
+test('retry can recover unread original files only before any model judgment, preserving all measurement conditions', async () => {
+  const plan = await buildProjectOptimization(freezeProjectOptimization(batch, seed, 'focus', batch.id, () => null));
+  const before = structuredClone(plan);
+  assert.equal(recoverUnreadProjectEvidence(plan, raw), true);
+  assert.equal(plan.snapshot.evidence.length, 2);
+  assert.deepEqual(plan.snapshot.questions, before.snapshot.questions);
+  assert.deepEqual(plan.snapshot.assets, before.snapshot.assets);
+  assert.equal(plan.frozenAt, before.frozenAt);
+  assert.equal(recoverUnreadProjectEvidence(plan, raw), false);
+  before.actions = draft().actions.map(action => ({ ...action, status: 'blocked' as const }));
+  assert.equal(recoverUnreadProjectEvidence(before, raw), false);
+});
+
 test('one grouped action serves multiple original questions and gets a separate independent review', async () => {
   const { result, calls, phases } = await run();
   assert.equal(calls.length, 2);
@@ -82,6 +96,74 @@ test('unknown hard checks, low dimension scores and omitted action reviews canno
   assert.equal((await run(draft(), low)).result.actions[0].status, 'blocked');
   const missing = review(); missing.actions = [];
   assert.equal((await run(draft(), missing)).result.review!.passed, false);
+});
+
+test('focused optimization retains up to three reviewed actions, including companion English changes', async () => {
+  const plan = freeze();
+  plan.snapshot.assets.push({ ...plan.snapshot.assets[0], id: 'asset-en', language: 'en',
+    title: 'English guide', markdown: 'Record the inputs and conditions.' });
+  const candidate = draft();
+  candidate.actions = ['同步中英文导读', '增加条件记录表', '补充复测示例'].map((title, index) => ({
+    ...draft().actions[0], id: `A${index + 1}`, priority: index + 1, title, change: `${title}：${draft().actions[0].change}`,
+    assetIds: index === 0 ? ['asset-1', 'asset-en'] : ['asset-1'],
+  }));
+  const assessment = review();
+  assessment.actions = candidate.actions.map(action => ({ ...review().actions[0], actionId: action.id }));
+  const { result, calls } = await run(candidate, assessment, plan);
+  assert.equal(result.review!.passed, true);
+  assert.equal(result.phase, 'awaiting_review');
+  assert.deepEqual(result.actions.map(action => action.id), ['A1', 'A2', 'A3']);
+  assert.deepEqual(result.actions[0].assetIds, ['asset-1', 'asset-en']);
+  assert.ok(result.actions.every(action => action.status === 'ready'));
+  assert.ok(calls.every(call => JSON.parse(call.messages[1].content as string).context.maximumActions === 3));
+
+  const incompleteReview = structuredClone(assessment); incompleteReview.actions.pop();
+  assert.equal((await run(candidate, incompleteReview, plan)).result.review!.passed, false);
+
+  candidate.actions.push({ ...draft().actions[0], id: 'A4', priority: 4 });
+  assessment.actions.push({ ...review().actions[0], actionId: 'A4' });
+  const excessive = (await run(candidate, assessment, plan)).result;
+  assert.equal(excessive.review!.passed, false);
+  assert.equal(excessive.actions.length, 4, 'over-limit plans are preserved for revision, not silently truncated');
+  assert.ok(excessive.review!.issues.some(issue => issue.includes('最多交付 3 项')));
+});
+
+test('owned content can support an action without becoming an extra modification target, but fabricated quotes still fail', async () => {
+  const candidate = draft();
+  candidate.actions[0].evidence.push({ evidenceId: 'asset-1', quote: '应记录输入和条件。' });
+  assert.equal((await run(candidate)).result.review!.passed, true);
+  candidate.actions[0].evidence.at(-1)!.quote = '原文没有这句话';
+  assert.equal((await run(candidate)).result.review!.passed, false);
+});
+
+test('supplementation reads bounded direct public documents and preserves frozen answers and original materials', async () => {
+  const plan = freeze();
+  plan.snapshot.project.repositoryUrl = 'https://github.com/example/project';
+  plan.snapshot.assets[0].publicUrl = 'https://github.com/example/project/blob/main/README.md';
+  const frozen = structuredClone(plan.snapshot);
+  const urls: string[] = [];
+  const result = await prepareOptimizationMaterials(plan, async asset => {
+    urls.push(asset.publicUrl!);
+    return { readAt: '2026-11-11', asset: { ...asset, markdownIsExcerpt: false,
+      markdown: asset.id === 'asset-1' ? '[开始](docs/start.md#中文) [外部](https://example.org/other.md) [资料](docs/info.md) [更多](docs/extra.md)' : '完整使用步骤' } };
+  });
+  assert.equal(urls.length, 3);
+  assert.ok(urls.every(url => url.startsWith('https://github.com/example/project/blob/main/')));
+  assert.equal(result.assets.length, 3);
+  assert.deepEqual(plan.snapshot, frozen);
+});
+
+test('a selected action receives complete saved answers within the fixed context budget', async () => {
+  const plan = freeze();
+  plan.snapshot.evidence[0].text = '原回答'.repeat(700);
+  plan.actions = [{ ...draft().actions[0], questionIds: ['Q1'], status: 'blocked' }];
+  const calls: GenerateObjectInput[] = [];
+  await buildProjectOptimization({ ...plan, maxRounds: 1 }, { loadModel: async () => ({ generateObject: async input => {
+    calls.push(input); return calls.length === 1 ? draft() : review();
+  } }) });
+  const context = JSON.parse(calls[0].messages[1].content as string).context;
+  assert.equal(context.evidence[0].text, plan.snapshot.evidence[0].text);
+  assert.ok(context.evidence.reduce((sum: number, item: { text: string }) => sum + Buffer.byteLength(item.text), 0) <= 56 * 1024);
 });
 
 test('high model scores cannot approve invented quotes, question IDs, asset IDs or duplicate actions', async () => {

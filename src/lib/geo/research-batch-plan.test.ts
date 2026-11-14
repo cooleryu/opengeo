@@ -127,3 +127,27 @@ test('new batches are idempotent and historical batch reads retain their own app
   assert.deepEqual(getResearchBatch(seed.project.id, batch.id), batch);
   assert.deepEqual(getLatestResearch(seed.project.id), next);
 });
+
+test('pure-English model candidate maps into question.en with empty zh on batch confirmation', () => {
+  const plan = readyPlan();
+  plan.candidates.push({
+    ...structuredClone(plan.candidates[0]),
+    id: 'model-en-1',
+    origin: 'model',
+    originalQuestionId: undefined,
+    query: 'How do I check if ChatGPT recommends my open-source project?',
+    queryEn: undefined,
+    selected: true,
+    review: {
+      decision: 'include',
+      source: 'model',
+      status: 'reviewed',
+      reason: 'Direct English discovery intent.',
+      concerns: [],
+    },
+  });
+  const batch = researchBatchFromPlan(plan, seed);
+  const created = batch.questions.find(question => question.id === 'model-en-1')!;
+  assert.equal(created.en, 'How do I check if ChatGPT recommends my open-source project?');
+  assert.equal(created.zh, '');
+});

@@ -228,7 +228,193 @@ class OpenAILLM extends BaseLLM<OpenAIConfig> {
         );
       }
       try {
-        return input.schema.parse(JSON.parse(choice.message.content)) as T;
+        const rawParsed = JSON.parse(choice.message.content) as Record<string, unknown>;
+        if (Array.isArray(rawParsed?.reviews)) {
+          for (const item of rawParsed.reviews) {
+            if (!item || typeof item !== 'object') continue;
+            const assessment = (item as Record<string, unknown>).assessment as
+              | Record<string, unknown>
+              | undefined;
+            const cs = assessment?.currentSupport as Record<string, unknown> | undefined;
+            if (
+              assessment &&
+              cs &&
+              Array.isArray(assessment.evidence) &&
+              Array.isArray(cs.evidence)
+            ) {
+              const seen = new Set(
+                assessment.evidence.map(
+                  (e: { assetId?: unknown; quote?: unknown }) =>
+                    `${String(e?.assetId ?? '')}\0${String(e?.quote ?? '')}`,
+                ),
+              );
+              for (const entry of cs.evidence) {
+                const key = `${String((entry as { assetId?: unknown })?.assetId ?? '')}\0${String((entry as { quote?: unknown })?.quote ?? '')}`;
+                if (!seen.has(key)) {
+                  seen.add(key);
+                  assessment.evidence.push(entry);
+                }
+              }
+              delete cs.evidence;
+            }
+          }
+        }
+        if (Array.isArray(rawParsed?.selectedIds) && Array.isArray(rawParsed?.coverage)) {
+          let userCtx: Record<string, unknown> | undefined;
+          try {
+            const lastUser = [...input.messages]
+              .reverse()
+              .find((m) => m.role === 'user');
+            if (lastUser && typeof lastUser.content === 'string') {
+              userCtx = JSON.parse(lastUser.content) as Record<string, unknown>;
+            }
+          } catch {
+            /* Ignore malformed or non-JSON user prompt */
+          }
+          const validCandidateIds = new Set<string>();
+          const eligibleSelectedIds = new Set<string>();
+          if (Array.isArray(userCtx?.candidates)) {
+            for (const c of userCtx.candidates) {
+              if (!c || typeof c !== 'object') continue;
+              const rec = c as Record<string, unknown>;
+              if (typeof rec.id !== 'string') continue;
+              validCandidateIds.add(rec.id);
+              const rev = rec.review as Record<string, unknown> | undefined;
+              if (
+                rev?.decision === 'include' &&
+                rev?.status === 'reviewed' &&
+                Boolean(rev?.assessment)
+              ) {
+                eligibleSelectedIds.add(rec.id);
+              }
+            }
+          }
+          const existingNeedIds = new Set<string>();
+          if (Array.isArray(userCtx?.needs)) {
+            for (const n of userCtx.needs) {
+              if (n && typeof n === 'object' && typeof (n as Record<string, unknown>).id === 'string') {
+                existingNeedIds.add((n as Record<string, unknown>).id as string);
+              }
+            }
+          }
+          const validMaterialIds = new Set<string>();
+          if (Array.isArray(userCtx?.materials)) {
+            for (const m of userCtx.materials) {
+              if (m && typeof m === 'object' && typeof (m as Record<string, unknown>).id === 'string') {
+                validMaterialIds.add((m as Record<string, unknown>).id as string);
+              }
+            }
+          }
+
+          const selectedIds = [
+            ...new Set(
+              rawParsed.selectedIds.filter(
+                (id): id is string =>
+                  typeof id === 'string' &&
+                  (eligibleSelectedIds.size === 0 || eligibleSelectedIds.has(id)),
+              ),
+            ),
+          ];
+          const selectedSet = new Set(selectedIds);
+          const replacedDuplicate = new Map<string, string>();
+
+          if (Array.isArray(rawParsed.duplicates)) {
+            const seenDupKeys = new Set<string>();
+            const cleanedDuplicates: Array<Record<string, unknown>> = [];
+            for (const group of rawParsed.duplicates) {
+              if (!group || typeof group !== 'object') continue;
+              const rec = group as Record<string, unknown>;
+              if (!Array.isArray(rec.candidateIds)) continue;
+              const candidateIds = [
+                ...new Set(
+                  rec.candidateIds.filter(
+                    (id): id is string =>
+                      typeof id === 'string' &&
+                      (validCandidateIds.size === 0 || validCandidateIds.has(id)),
+                  ),
+                ),
+              ];
+              if (candidateIds.length < 2) continue;
+              const key = [...candidateIds].sort().join('\u0000');
+              if (seenDupKeys.has(key)) continue;
+              seenDupKeys.add(key);
+              const inSel = candidateIds.filter((id) => selectedSet.has(id));
+              if (inSel.length > 1) {
+                const kept = inSel[0];
+                for (const extra of inSel.slice(1)) {
+                  selectedSet.delete(extra);
+                  replacedDuplicate.set(extra, kept);
+                }
+              }
+              cleanedDuplicates.push({ ...rec, candidateIds });
+            }
+            rawParsed.duplicates = cleanedDuplicates;
+          }
+          rawParsed.selectedIds = selectedIds.filter((id) => selectedSet.has(id));
+
+          const resolveId = (id: string) => {
+            let cur = id;
+            const visited = new Set<string>();
+            while (replacedDuplicate.has(cur) && !visited.has(cur)) {
+              visited.add(cur);
+              cur = replacedDuplicate.get(cur)!;
+            }
+            return cur;
+          };
+
+          for (const item of rawParsed.coverage) {
+            if (!item || typeof item !== 'object') continue;
+            const cov = item as Record<string, unknown>;
+            if (!Array.isArray(cov.candidateIds)) continue;
+            const uniqueIds = [
+              ...new Set(
+                cov.candidateIds
+                  .filter((id): id is string => typeof id === 'string')
+                  .map(resolveId),
+              ),
+            ];
+            if (cov.status === 'missing' || cov.status === 'deferred') {
+              cov.candidateIds = [];
+            } else if (cov.status === 'covered') {
+              const inSelected = uniqueIds.filter((id) => selectedSet.has(id));
+              cov.candidateIds = inSelected.length > 0 ? inSelected : uniqueIds;
+            } else {
+              cov.candidateIds = uniqueIds;
+            }
+          }
+
+          if (Array.isArray(rawParsed.missingAdditionalNeeds)) {
+            const seenNeedIds = new Set<string>();
+            const cleanedNeeds: Array<Record<string, unknown>> = [];
+            for (const need of rawParsed.missingAdditionalNeeds) {
+              if (!need || typeof need !== 'object') continue;
+              const rec = need as Record<string, unknown>;
+              if (
+                typeof rec.id !== 'string' ||
+                seenNeedIds.has(rec.id) ||
+                existingNeedIds.has(rec.id) ||
+                rec.importance !== 'high'
+              ) {
+                continue;
+              }
+              seenNeedIds.add(rec.id);
+              const assetIds = Array.isArray(rec.assetIds)
+                ? [
+                    ...new Set(
+                      rec.assetIds.filter(
+                        (id): id is string =>
+                          typeof id === 'string' &&
+                          (validMaterialIds.size === 0 || validMaterialIds.has(id)),
+                      ),
+                    ),
+                  ]
+                : [];
+              cleanedNeeds.push({ ...rec, assetIds });
+            }
+            rawParsed.missingAdditionalNeeds = cleanedNeeds;
+          }
+        }
+        return input.schema.parse(rawParsed) as T;
       } catch (err) {
         throw new Error(`Error parsing response from DeepSeek: ${err}`);
       }

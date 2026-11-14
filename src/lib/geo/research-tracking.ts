@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { GEO_PROJECT_IDS, projectDataDirectory, resolveGeoProject, withGeoProject } from './projects';
+import { listGeoProjectIds, projectDataDirectory, resolveGeoProject, withGeoProject } from './projects';
 import { normalizeResearchBudget } from './research-budget';
 import { getLatestResearch, getResearchRun } from './research';
 import type { ResearchRunRecord } from './research-store';
@@ -186,7 +186,9 @@ function reconcileClaim(projectId: string, planId: string, now: Date, cancelledB
   const snapshot = inDatabase(projectId, (db, id) => readSchedule(db, id, planId));
   if (!snapshot.activeRunId) return;
   const run = getResearchRun(projectId, snapshot.activeRunId);
-  const live = run?.status === 'running' && ownerIsAlive(run.ownerPid ?? snapshot.ownerPid);
+  // Lease-backed runs remain linked until recovery settles them. Expiry permits
+  // takeover; it is not evidence that all pending questions have failed.
+  const live = run?.status === 'running' && Boolean(run.execution || ownerIsAlive(run.ownerPid ?? snapshot.ownerPid));
   const pendingWithoutRun = !run && ownerIsAlive(snapshot.ownerPid) && !cancelledBeforeStart;
   if (pendingWithoutRun) return;
   inDatabase(projectId, (db, id) => db.transaction(() => {
@@ -285,8 +287,8 @@ function failClaim(projectId: string, planId: string, message: string, now: Date
 export async function tickResearchSchedules(options: { now?: Date; collect?: Collector } = {}): Promise<void> {
   const now = options.now ?? new Date();
   const collection = options.collect ? null : await import('./research-collection');
-  for (const projectId of GEO_PROJECT_IDS) await withGeoProject(projectId, async () => {
-    collection?.recoverStoppedResearchRuns();
+  for (const projectId of listGeoProjectIds()) await withGeoProject(projectId, async () => {
+    await collection?.recoverResearchRuns();
     for (const plan of listResearchSchedules(projectId)) {
       if (plan.activeRunId) reconcileClaim(projectId, plan.id, now);
     }

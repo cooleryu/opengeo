@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ProjectOptimization } from '@/lib/geo/project-optimization-types';
+import type { GeoTask } from '@/lib/geo/types';
 import {
   getProjectOptimizationProgress,
+  getProjectTaskProgress,
   isOpenProjectOptimizationTask,
 } from './project-optimization-progress';
 
@@ -11,6 +13,27 @@ const review = (passed: boolean) => ({
   reviewedAt: '2026-11-02T00:00:00Z',
   issues: [],
   actions: [],
+});
+
+test('overview exposes saved drafts without claiming implementation or reusing an old review', () => {
+  const assessment = review(true);
+  const task = {
+    status: 'proposal_ready',
+    projectOptimization: {
+      phase: 'awaiting_review', review: assessment, actions: [{}, {}, {}],
+      draftsReviewedAt: assessment.reviewedAt,
+    },
+  } as unknown as GeoTask;
+  const ready = getProjectTaskProgress(task);
+  assert.equal(ready.ready, true);
+  assert.equal(ready.actionLabel, '查看稿件');
+  assert.match(ready.message, /3 项.*确认后/);
+  task.projectOptimization!.draftsReviewedAt = 'older';
+  assert.equal(getProjectTaskProgress(task).ready, false);
+  assert.equal(getProjectTaskProgress(task).actionLabel, '查看优先改动');
+  task.projectOptimization!.draftsReviewedAt = assessment.reviewedAt;
+  task.projectOptimization!.review!.passed = false;
+  assert.equal(getProjectTaskProgress(task).ready, false);
 });
 
 test('unfinished review never becomes a ready proposal in the shared UI state', () => {

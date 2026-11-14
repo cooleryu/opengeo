@@ -62,6 +62,16 @@ export interface ProjectOptimizationRound {
   review: ProjectOptimizationReview | null;
 }
 export interface ProjectOptimization {
+  /** Matches the review of complete drafts, rather than an earlier proposal. */
+  draftsReviewedAt?: string;
+  preparedMaterials?: { assets: GeoAsset[]; limitations: string[] };
+  delivery?: {
+    actionId: string;
+    phase: 'reading' | 'comparing' | 'drafting' | 'reviewing' | 'revising' | 'ready' | 'blocked';
+    message: string;
+    updatedAt: string;
+    materialReadAt?: string;
+  };
   mode: ProjectOptimizationMode;
   batchId: string;
   questionIds: string[];

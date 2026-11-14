@@ -3,6 +3,7 @@ import fs from 'fs';
 import { Config, ConfigModelProvider, UIConfigSections } from './types';
 import { hashObj } from '../utils/hash';
 import { getModelProvidersUIConfigSection } from '../models/providers';
+import { mergeProviderConfig } from './public-config';
 
 class ConfigManager {
   configPath: string = path.join(
@@ -309,7 +310,8 @@ class ConfigManager {
     if (!provider) throw new Error('Provider not found');
 
     provider.name = name;
-    provider.config = config;
+    provider.config = mergeProviderConfig(provider.config, config,
+      this.uiConfigSections.modelProviders.find(section => section.key === provider.type)?.fields ?? []);
 
     this.saveConfig();
 

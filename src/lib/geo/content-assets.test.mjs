@@ -155,7 +155,7 @@ test('page matching uses exact or explicit equivalent URLs, never a shared host 
   );
   assert.equal(
     result.items.find((item) => item.url.includes('/owner/two/')).ownership,
-    'unknown',
+    'external',
   );
   assert.equal(
     result.items.find((item) => item.kind === 'self_submission').ownership,
@@ -165,7 +165,7 @@ test('page matching uses exact or explicit equivalent URLs, never a shared host 
     result.items.find(
       (item) => item.url === 'https://example.com/project-two/article',
     ).ownership,
-    'unknown',
+    'external',
   );
   assert.equal(
     result.items.find((item) => item.kind === 'mirror').ownership,

@@ -27,6 +27,11 @@ function percent(value: number) {
   return `${Number(value.toFixed(1))}%`;
 }
 
+function directAnswerRate(metric?: MetricSummary): number | null {
+  if (!metric || metric.rate === null || metric.completed <= 0) return null;
+  return (metric.yes / metric.completed) * 100;
+}
+
 function MentionValue({
   name,
   metric,
@@ -34,8 +39,9 @@ function MentionValue({
   name: string;
   metric?: MetricSummary;
 }) {
-  if (!metric || metric.rate === null) return null;
-  const value = percent(metric.rate);
+  const rate = directAnswerRate(metric);
+  if (!metric || rate === null) return null;
+  const value = percent(rate);
   return (
     <div className="oc-mention-value">
       <dt>{name}</dt>
@@ -52,7 +58,9 @@ function MentionValue({
 }
 
 function gapReason(own: MetricSummary, target: MetricSummary) {
-  const gap = target.rate! - own.rate!;
+  const ownRate = directAnswerRate(own) ?? own.rate!;
+  const targetRate = directAnswerRate(target) ?? target.rate!;
+  const gap = targetRate - ownRate;
   return gap === 0
     ? '在这组问题中，你们的提及率相同。'
     : `在这组问题中，你的提及率${gap > 0 ? '落后' : '领先'} ${Number(Math.abs(gap).toFixed(1))} 个百分点。`;

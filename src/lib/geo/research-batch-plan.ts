@@ -19,7 +19,14 @@ export function researchBatchFromPlan(plan: GeoQuestionPlan, seed: GeoSeed): Res
     const existing = candidate.origin === 'existing'
       ? seed.questions.find(question => question.id === candidate.originalQuestionId) : undefined;
     if (candidate.origin === 'existing' && (!existing || existing.query !== candidate.query)) throw new ResearchStoreError('历史题目的来源或原文不一致。');
-    const englishOriginal = existing?.language.startsWith('en');
+    const isEnglishCandidate =
+      !candidate.queryEn &&
+      !/[\p{Script=Han}]/u.test(candidate.query) &&
+      /[A-Za-z]{3,}/.test(candidate.query);
+    const englishOriginal = Boolean(
+      existing?.language.startsWith('en') ||
+        (candidate.origin !== 'existing' && isEnglishCandidate),
+    );
     return {
       id: existing?.id || candidate.id, candidateId: candidate.id, questionPlanRevision: plan.revision, category: candidate.category,
       zh: englishOriginal ? '' : candidate.query,

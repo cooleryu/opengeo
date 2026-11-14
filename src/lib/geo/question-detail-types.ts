@@ -1,4 +1,4 @@
-import type { ResearchEngine, ResearchSource } from './research-types';
+import type { ResearchEngine, ResearchObservation, ResearchSource } from './research-types';
 
 export interface QuestionDetailFilters {
   language: 'zh' | 'en';
@@ -11,15 +11,18 @@ export interface QuestionDetailPlatform {
   observationIndex: number | null;
   engine: ResearchEngine;
   label: string;
+  entryType?: ResearchObservation['entryType'];
   entryLabel: string;
   recordedAt: string | null;
-  /** Google status follows the ordinary web-result counts, excluding attached citations. */
+  /** Google web-search status follows ordinary result counts; AI answers use their saved status. */
   status: 'found' | 'not_observed' | 'unmeasured';
-  /** Google counts only normal web results with a saved positive position. */
+  /** Audited AI brand mention verdict when the row is an AI answer and batch audits are loaded. */
+  mention?: 'yes' | 'no' | 'unknown';
+  /** Google web searches count only normal results with a saved positive position. */
   officialCount: number | null;
   otherCount: number | null;
   totalSources: number | null;
-  /** Google sources without a positive position, kept outside web-result counts. */
+  /** Google web-search sources without a positive position, outside web-result counts. */
   otherSourcesCount: number | null;
   sources: ResearchSource[];
   summary: string;

@@ -13,6 +13,11 @@ export interface CollectionRuntime {
   onQuestionStart?: (question: GeoQuestion) => void;
   /** Persist and validate the result before advancing to the next question. */
   onObservation?: (question: GeoQuestion) => void | Promise<void>;
+  /** Durable research jobs reserve and fence dispatch in one transaction. */
+  beforeRequest?: (question: GeoQuestion, reservation: number) => void;
+  recoverQuestion?: (question: GeoQuestion) => Promise<{ result?: GeoQuestion; error?: string } | undefined>;
+  onQuestionFailure?: (question: GeoQuestion, message: string, refundable: boolean) => void;
+  assertActive?: () => void;
 }
 
 export const defaultCollectionRuntime: CollectionRuntime = { getTask, chargeTask };

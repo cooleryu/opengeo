@@ -3,6 +3,7 @@ import {
   RESEARCH_ENGINES,
   RESEARCH_ENGINE_NAMES,
 } from './research-engines';
+import { auditRows, isAiAnswerRow } from './overview-metrics';
 import { getResearchRows } from './research-view';
 import type { ResearchRow } from './research-view';
 import type { ResearchBatch, ResearchSource } from './research-types';
@@ -63,6 +64,7 @@ function uniqueSources(sources: ResearchSource[]): ResearchSource[] {
 function platformFromRow(
   row: ResearchRow,
   language: 'zh' | 'en',
+  mention?: 'yes' | 'no' | 'unknown',
 ): QuestionDetailPlatform {
   const observation = row.observation;
   const entryType =
@@ -81,8 +83,9 @@ function platformFromRow(
     api_search: 'API 搜索',
   };
   const sources = uniqueSources(observation?.sources ?? []);
+  const googleWebSearch = row.engine === 'google' && entryType === 'web_search';
   const counted =
-    row.engine === 'google' ? sources.filter(hasSavedPosition) : sources;
+    googleWebSearch ? sources.filter(hasSavedPosition) : sources;
   const officialCount = counted.filter(
     (source) => source.kind === 'official',
   ).length;
@@ -92,7 +95,7 @@ function platformFromRow(
     observation?.status === 'found' || observation?.status === 'not_observed';
   const status = !measured
     ? 'unmeasured'
-    : row.engine === 'google'
+    : googleWebSearch
       ? officialCount > 0
         ? 'found'
         : 'not_observed'
@@ -104,11 +107,14 @@ function platformFromRow(
       : null,
     engine: row.engine,
     label: RESEARCH_ENGINE_NAMES[row.engine],
-    entryLabel: entryLabels[entryType],
+    entryType,
+    entryLabel: row.engine === 'google' && entryType === 'web_answer'
+      ? 'AI 概览' : entryLabels[entryType],
     recordedAt: observation
       ? observation.collectedAt || observation.recordedAt || null
       : null,
     status,
+    ...(mention !== undefined ? { mention } : {}),
     officialCount: measured ? officialCount : null,
     otherCount: measured ? counted.length - officialCount : null,
     totalSources: measured ? counted.length : null,
@@ -151,7 +157,19 @@ export function buildQuestionDetail(
         result: 'all',
       },
       { includeHistory: filters.includeHistory },
-    ).map((row) => platformFromRow(row, filters.language)),
+    ).map((row) => {
+      let mention: 'yes' | 'no' | 'unknown' | undefined;
+      if (
+        batch.answerAudits !== undefined &&
+        isAiAnswerRow(row) &&
+        (row.observation?.status === 'found' ||
+          row.observation?.status === 'not_observed')
+      ) {
+        const audit = auditRows(selectedBatch, [row], batch.answerAudits)[0]?.audit;
+        mention = audit?.mention ?? 'unknown';
+      }
+      return platformFromRow(row, filters.language, mention);
+    }),
   );
   return {
     version: 1,
