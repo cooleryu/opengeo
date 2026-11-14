@@ -1,138 +1,157 @@
-# Quick Start Guide
+# Getting Started: Run OpenGEO Locally and Capture Your First ChatGPT + Google AI Overview Answers
 
-> **Language**: English · [简体中文](getting-started.zh-CN.md)
+[简体中文](getting-started.zh-CN.md)
 
-When you ask a business-related question in AI search products like ChatGPT, DeepSeek, or Doubao, the answer often lists a few products or a few web pages. You may not know whether your product is included, or whether the answer cites your official site or a competitor’s comparison article. Checking manually is also easy to skew by login state, memory, and personalization.
+Ask ChatGPT or Google AI Overviews which tools track brand visibility in AI answers, and you get a tidy list — Otterly, Peec AI, Profound, Ahrefs, Semrush — with their pages cited underneath. Your own repository is not in that answer, and nothing in your docs tells those assistants what you actually do.
 
-OpenGEO makes this repeatable: save the questions your customers actually ask as a list, ask them one by one, and keep the full answers and the links shown under those answers exactly as they appeared. Then mark who was mentioned and whose content was cited, and generate a publishable draft for the question that most needs improvement. It runs on your own computer. Project files, answer records, and API keys stay in local directories and do not pass through our servers.
+That gap keeps working against you. Buyers who used to scroll a results page now ask an assistant and act on the first three names it returns, and the pages those models have already read are the pages that get quoted. Running the questions yourself, keeping the real answers, and fixing the pages that lose is how you get into that set.
 
-## The big picture
+This guide takes you from a fresh install to a first recorded round. By the end you will have a project built from your public links, real ChatGPT and Google AI Overview answers stored with their citation links, a read of the winner pages behind the questions that miss you, and a retest of the original question once a draft goes live.
 
-Learn four terms first, and you’ll know what you’re looking at during every step.
+## How it works
 
-| Concept | What it is | How you use it |
+OpenGEO is a local workbench for one loop: ask the questions your customers ask AI search, keep the full answer and the pages it cited, find the questions where you are missing, and get a draft written for each gap. It runs on your own machine — the project profile, saved answers, and the keys you enter stay in local files and never leave your computer.
+
+Four things to recognise before you click anything:
+
+| Concept | What it is | Why you need it |
 | --- | --- | --- |
-| Your project profile | Your public website or repository homepage, plus a short description: who it serves, what problem it solves, and what makes it stronger than alternatives | Helps the workbench understand your product; question generation and draft writing both depend on this |
-| Customer questions | How potential buyers search in AI for similar products, compare competitors, or search your brand name directly | Reuse one list so results are comparable before and after changes |
-| Answer evidence | The full answer text saved after each question, plus the reference pages shown under it | Check conclusions against the original text instead of relying on memory |
-| Suggested drafts and retesting | Publishable content written for a specific weakness; you choose whether to use it and then ask the same question again | Each change maps to an observable difference |
+| Your project profile | Your public homepage or repository page, plus a few sentences on who you serve and how you differ | The workbench reads it to understand your product; question generation and draft writing both depend on it |
+| Customer questions | The phrases a buyer would type into an AI to find something like yours, compare alternatives, or look you up by name | One fixed list is what makes before-and-after answers comparable |
+| Answer evidence | The full answer text saved after each question, plus the reference pages shown under it | You check conclusions against the original text instead of your memory |
+| Winner breakdown, matching drafts, retest | A read of the externally cited pages that beat you, the draft written against them, and the same question asked again after you publish | Each change maps to something you can actually observe |
 
-The loop has three steps: **create a project → collect and compare answers → adopt a suitable draft, publish it, and retest with the original question**.
+The loop in three moves: **create a project → collect and compare answers → break down the winners, adopt a draft, retest with the original question.**
 
-A full round usually takes 30–60 minutes. You do not need to start with dozens of questions.
+```mermaid
+flowchart LR
+    A["List the questions customers actually ask"] --> B["Collect answers with their citation links"]
+    B --> C["Spot questions that miss you or cite someone else"]
+    C --> D["Read the cited winner pages and get matching drafts"]
+    D --> E["Adopt one draft and publish it yourself"]
+    E --> F["Ask the same question again on the same platform"]
+```
 
-## 1 · Start the workbench and create a project
+A first round takes 30 to 60 minutes, and you do not need dozens of questions to start.
 
-The easiest way to start: send the repository URL to the AI coding assistant you already use—Claude Code, Cursor, or Codex all work—and say, “Follow the instructions in this repo to install it locally and open the UI.” The repository URL is:
+## 1 · Launch the workbench and create a project
 
-`https://github.com/cooleryu/opengeo`
+The quickest way to get the UI open is to hand the repository to the AI coding assistant you already use — Claude Code, Cursor, Codex and Antigravity all work. Paste `https://github.com/cooleryu/opengeo` and say: "follow the repo instructions, run it on my machine, and open the UI for me." It installs the dependencies, starts the local service, and gives you an address to open in your browser.
 
-It will read the instructions, install dependencies, start the service, and give you a local address. Open that address in your browser to reach the workbench. Answer its questions as they come; you do not need to know the command line.
+From there you stay in the browser. The first screen is the new-project form, and it asks for three things:
+
+1. **Display language: English or Chinese.** Set it at the top of the form. Every analysis report, draft and UI label follows that choice afterwards, so pick the language you want to read results in.
+2. **Project type: open-source project, or software or website.** This only changes how the generated questions are worded and angled — nothing else. You can change it later.
+3. **A public link and a few sentences of positioning.** Your homepage, repository page or product site all work. Then describe who uses it, what problem it solves, and what makes it stronger than the alternatives. Those sentences drive everything downstream, so two minutes here pays for itself.
+
+Click **Start analysis**. It reads the public pages it can reach and shows you what it understood, then derives up to 8 core questions from a buyer's point of view: a direct brand search, a category recommendation, a specific scenario need, and a competitor comparison. Read them, cut what does not fit, and add a phrase customers have actually said to you. You never start from a blank page.
+
+Pages behind a login cannot be read. The project stays in your list, so retry with a publicly reachable URL.
+
+When the project is created you land on **Overview**, which answers two things only: do these answers mention you, and do the cited links include your domain. Mentions and citations are counted separately — being named in the prose and being cited as a source are different wins, and the workbench keeps them apart.
 
 <details><summary>Prefer to start from a terminal? (developer option)</summary>
 
-See the “Getting Started” section in [the README](../README.md) for the full setup. You’ll need Node.js 24 and npm. After the steps are complete, open `http://127.0.0.1:4327` in your browser. Copy the environment variable template during that step; leave any missing keys blank for now and add them in the UI later.
+Full setup steps live in the Quick Start section of [the README](../README.md). You need Node.js 24; the service then runs locally on port 4327. Leave any missing API keys blank during setup and add them in the UI later.
 
 </details>
 
-The first screen is the new-project page. It has three steps:
-
-1. **Choose a type**: open-source project / e-commerce store / company or product / creator. The type only affects the wording of generated questions. You can change it later.
-2. **Add a public URL**: your website, repository homepage, or store page all work. Then add a few sentences about positioning—who uses it, what problem it solves, and what makes it stronger than similar products. These sentences directly affect how the workbench understands you, so it’s worth writing a little more.
-3. **Click “Start analysis”**: it reads the public pages, shows you what it understood, and automatically derives and selects up to 8 core questions from a potential buyer’s perspective. If the understanding is off, or you want to add the exact phrases customers often use, edit them directly. You don’t have to invent questions from a blank page.
-
-Some pages require login. Projects it cannot read are kept; retry with a publicly accessible URL.
-
-When the project is created, you land on the **Overview** page. This page answers two things only: whether AI answers mention you, and whether the reference links under those answers include your site.
-
-![Overview: brand mentions and website citations are counted separately, and every item links back to the original answer](images/overview.png)
-
-*The screenshot shows a demo project. Your new project starts from zero.*
-
 ## 2 · Connect services and collect real answers
 
-Open **Settings** and enter API keys for models or search services you already have accounts for. There’s no pressure to configure everything. One working provider is enough for the first round.
+Open **Settings** and fill in what you already have. Two separate things live there: the model service that reads your product, audits saved answers and writes drafts; and the platforms you collect answers from. One working provider is enough for the first round.
 
-| Platform | How to get answers | What you’ll see |
+| What you want to collect | How OpenGEO gets it | What you can check afterwards |
 | --- | --- | --- |
-| DeepSeek / Qwen / Doubao | Enter the API key and ask questions from the question list with one click | The full answer text and the source links returned by the platform |
-| ChatGPT / Google AI answers | Avoid risky interception workarounds; ask in an incognito window yourself, then paste the answer text and reference pages into the matching question | Recorded in the same project as API results, with mentions and citations counted together |
+| ChatGPT answers | Capture from your own browser session, one question at a time at a human pace; or ask in a private window and paste the answer text plus the links shown under it | The full answer, every link it listed, and whether your domain is among them |
+| Google AI Overviews | Same two paths, recorded against the same question list | Whether the overview names you, and which sites the source panel points to |
+| DeepSeek / Qwen / Doubao (optional) | Add the provider key, then run questions from the list with one click | The full answer plus the cited pages the provider returns |
 
-Both kinds of results go into the same project, and the numbers on the Overview page are combined. When pasting, include the full answer text and links, not just one sentence—later checks for “did it cite me?” depend on that original text and those links.
-
-**Optional: choose one main competitor for comparison.** Looking at the same set of questions on the same platform side by side immediately separates two different situations: no one in the category was mentioned for this question, or a specific competitor page was cited while yours was not. The first case means you need more content. The second means you should examine the angle they wrote from.
-
-![Answer detail: the original question, full answer, and reference pages together for item-by-item review](images/question-answer.png)
-
-*Screenshot contains demo data.*
-
-After one round, new answers appear directly in the Overview. For the first pass, run the core questions prepared automatically when you created the project (up to 8 questions) on one or two commonly used platforms to see the direction. Don’t try to cover everything at once.
-
-## 3 · Review drafts and retest with the original questions
-
-When the Overview shows a clear weakness—for example, “none of the category-recommendation questions mentioned us, and the answers cited three competitor comparison articles”—open **Improvements & Tracking**. The top of the page lists a few complementary proposals: one adds a factual page to your official site, and another writes third-party-style comparison content. You can pick just one. Each expands to compare the **new draft** with the **original text**.
-
-The drafts don’t force you to publish everything at once. If a draft looks right, click **Adopt this draft**. If you don’t want to act yet, click **Not adopting for now** and come back in a couple of weeks.
-
-After the content goes live, return to the same question, use the same platform and the same entry point, and ask again. The two answers sit side by side, so you don’t have to guess what changed.
+Browser capture works inside your own logged-in session, so the answer you save is the answer a real person gets — not a server-side approximation. When a platform shows a verification prompt, capture stops and hands control back to you instead of trying to slip past it; nothing in the workbench works around those checks. If you would rather not run capture at all, ask the question in a private window and paste the full answer and its links into the matching record. Both paths land in the same project library.
 
 ```mermaid
 flowchart TD
-    A["Write down questions customers actually ask"] --> B["Ask each question and save answers and citations"]
-    B --> C["Mark who was mentioned and who was cited"]
-    C --> D["Pick one competitor and compare on the same questions"]
-    D --> E["Choose a weak question and generate a draft"]
-    E --> F["You adopt one draft and publish it"]
-    F --> G["Ask the same question on the same platform again"]
-    G --> C
+    A["ChatGPT or Google AI Overviews in your browser"] --> B["Capture question by question at a human pace"]
+    B --> C["Verification prompt: pause and hand control back"]
+    A --> D["Or ask in a private window and paste answer plus links"]
+    E["DeepSeek / Qwen / Doubao with an API key"] --> F["One-click online question"]
+    C --> G["Same project library: full text plus citation links"]
+    D --> G
+    F --> G
+    G --> H["Overview counts mentions and citations separately"]
 ```
 
-![Improvements & Tracking: per-question proposals, implementation records, and retesting with the original question](images/improvement-tracking.png)
+When you paste, paste the whole answer and every link, not the one sentence you liked. Every later judgement about "did it cite me?" is checked against that saved text and that link list.
 
-*Screenshot contains demo data.*
+**Optional: pick one main competitor to compare.** Same question set, same platform, side by side. That immediately separates two very different situations — nobody in your category got mentioned for this question at all, or a specific competitor page was cited while yours was ignored. The first means you need content that answers the question; the second means you should study the angle they wrote from.
+
+For the first pass, run the questions the workbench already prepared (up to 8) on one or two platforms you actually care about. That is enough to see the direction: which questions name you, which cite a competitor comparison page, which return no link to your site at all.
+
+## 3 · Break down the winners, review each draft, and retest with the original question
+
+Open **Improvements & Tracking** for a question where you are missing — a category recommendation that lists three competitors, or an answer that quotes someone else's comparison post. OpenGEO first probes the pages the AI actually cited for that question and reads their skeleton: the headings they use, what they answer in the first two sentences, which dimensions they compare. A summary of those reference winners sits at the top of the page, so you know what you are up against before you read a single draft.
+
+It then writes one to three complementary drafts for that question — typically a README front page, a getting-started guide, and a public comparison or hands-on article — rather than restating the same point three ways. Each draft opens as **new draft against original text**, and each passes an independent review before it reaches you, so you are editing something publishable instead of a pile of suggestions.
+
+Nothing gets pushed out in bulk. If a draft fits, click **Adopt this draft**. If you want to wait, click **Not adopting for now** and come back later. Publishing itself stays with you: the workbench never writes to your repository or your live site.
+
+Once the content is live, ask the original question again — same platform, same entry point, same wording — and open both records on one timeline. You are comparing your own two answers, not guessing across sources.
+
+```mermaid
+flowchart TD
+    A["Pick a question that misses you"] --> B["Read the cited winner pages and their structure"]
+    B --> C["Get one to three complementary drafts"]
+    C --> D["Compare the new draft with the original, side by side"]
+    D --> E["Adopt this draft, or not adopting for now"]
+    E --> F["You publish it yourself"]
+    F --> G["Ask the original question again, same platform and entry point"]
+    G --> H["Both records sit on one timeline"]
+    H --> A
+```
 
 ## Cost and local data
 
-- Reviewing past answers, changing settings, and reading drafts are free.
-- The workbench only sends requests to the corresponding services with your own keys when you actively click product analysis, online questions, draft generation, or retesting. You pay the provider’s official prices in your own account. One question asked once costs one Q&A call; leaving it idle does not keep increasing spend.
-- Keys, login state, and the project database live in local directories on your computer, not on our servers. Be careful not to commit these files to public repositories.
-- Stopping the local service does not lose data; start it again and continue where you left off. When the service is not running, the UI cannot open.
+Four things hold true however you use it.
 
-## FAQ
+- Browsing past answers, adjusting settings and reading drafts costs nothing. No request leaves your machine until you start something.
+- Requests go out only when you trigger them: project analysis, an online question, draft generation, a retest. Those calls hit the accounts you configured and are billed by that provider at their own rates. A question asked once is one call, and an idle workbench does not keep spending.
+- API keys, login state and the project database live in local files on your computer, not on anyone's server. Keep those files out of public commits.
+- Stopping the local service loses nothing. Start it again and continue where you stopped; with the service down, the UI simply will not open.
 
-### Can I try it without any API keys?
+## Frequently asked questions
 
-Yes. ChatGPT and Google answers are collected by asking manually and pasting the answer and evidence, so you can record the first batch of answers and analyze mentions and citations without any keys. Keys are needed for three things: running DeepSeek, Qwen, and Doubao with one click in the UI; letting the model understand your project profile; and automatically generating drafts.
+### Can I collect ChatGPT and Google AI Overview answers without buying a search API?
 
-### The same question gives a different answer through an API than in the mobile app. Did I do something wrong?
+Yes. Those two platforms are recorded from your own browser session, or from a private window where you paste the answer and its links back — no search API involved. What the workbench does need is an analysis model key you already have, since that is what reads your profile, audits saved answers and writes drafts. With no key at all you can still store answers and read them yourself; only the automatic analysis and drafting wait.
 
-This is common. API retrieval switches, result counts, memory, and personalization settings are not the same as those in consumer apps, so the same model can legitimately give different answers through different entry points. The most useful comparison is longitudinal: the same question, the same entry point, asked once before and once after a change. Comparing numbers across entry points easily leads to wrong conclusions.
+### Do I have to invent the monitoring questions myself?
 
-### How does this compare with paid monthly monitoring tools like Peec, Otterly, or Ahrefs?
+No. Creating a project reads your public links, works out what your product is, and derives the question set for you: a direct brand search, a category recommendation, a specific scenario need, and a competitor comparison, narrowed down to at most 8 core questions. Review them, delete the ones that do not sound like your buyers, or add a sentence a customer actually said to you.
 
-They solve two halves of the same problem: online platforms help you watch trends, while a local workbench helps you turn conclusions into publishable content. Choose based on your team’s needs.
+### Why does an API answer look different from what I see on the web or in the mobile app?
 
-| Comparison | Manual asking in AI + spreadsheet | Paid online monitoring platforms (Peec AI / Otterly.AI / Ahrefs Brand Radar / Semrush, etc.) | OpenGEO local workbench |
-| --- | --- | --- | --- |
-| Cost | 0, only your time | Typically tens to hundreds of USD per month, based on number of questions and platforms | Open source and free; you only pay for your own model and search API usage |
-| Who runs it | You, relying on memory | The platform runs on a schedule; your computer can be off | Runs when you start the local service, or on a daily schedule you set |
-| Platform coverage | Ask whichever platform you want | More mature coverage of overseas platforms (ChatGPT, Gemini, Perplexity, etc.) | Doubao, Qwen, and DeepSeek via one-click API questions; ChatGPT and Google stored manually |
-| Output | A pile of spreadsheets; judgment is manual | Dashboards, share of voice, trend charts | Full answer text + citation links + per-question drafts + same-question retesting |
-| Where data lives | Your computer | The platform’s servers | Your computer |
-| Best for | Getting a first rough sense | Teams that need regular weekly or daily reports and broad multi-platform coverage | Teams that want to turn conclusions into concrete content changes and are willing to run a local service |
+This is normal. Retrieval settings, the number of results pulled in, memory and personalisation differ between API endpoints and consumer apps, so the same model can legitimately answer differently through different doors. Compare one entry point before and after a change; comparing an API answer against a mobile-app answer gives you a difference that has nothing to do with your content.
 
-One caveat up front: Doubao, Qwen, and DeepSeek in China are not substitutes for overseas platforms. Their user groups differ, and the web sources they retrieve differ too. Conclusions drawn only from overseas platforms often do not hold for China-focused scenarios. Put your question list where your customers are. The two kinds of tools can also work together: online platforms for trends, the workbench for first-hand answers and drafts.
+### How should I choose between OpenGEO, paid monthly SaaS, and other open-source monitors?
 
-### Do I need to think of monitoring questions myself?
+They overlap on watching, and diverge on what happens after you see the number. Pick by team size, budget, and whether you need a dashboard to report or a draft to ship.
 
-No. When you create a project, the workbench reads your public links, understands your product, and automatically derives four types of questions: direct brand-name searches, category recommendations, specific scenario needs, and competitor comparisons. It then selects up to 8 of the most representative core questions. You only need to review and confirm them, or add a couple of exact phrases customers often use. You do not need to prepare a long list yourself.
+| | Asking AI by hand plus a spreadsheet | Paid monthly SaaS (Otterly.AI, Peec AI, Profound) | Monitoring-only open source (Elmo, Gego, Limelit Open) | OpenGEO local workbench |
+| --- | --- | --- | --- | --- |
+| Cost | Free, costs your time | Monthly subscription, usually scaled by questions and engines | Free software, you host and maintain it | Open source and free; you pay only your own model and search usage |
+| Who runs collection | You, by hand, whenever you remember | The vendor, on a schedule, while your laptop is closed | Your server or CLI | Your machine, whenever you start the service |
+| What gets captured | Whatever you bothered to paste | ChatGPT, Google AI Overviews, AI Mode, Gemini, Claude, Perplexity, Copilot and more, where supported | Scheduled prompts across several engines, with citations and mentions captured | ChatGPT and Google AI Overviews from your own browser; DeepSeek, Qwen and Doubao through their APIs |
+| What you get out | A pile of rows and your own judgement | Dashboards, share of voice, trend lines, weekly reports | Mention and citation counts in a hosted dashboard | Full answer text with citation links, a winner breakdown, a draft per gap, and a same-question retest |
+| Where the data lives | Your laptop | The vendor's servers | Your own infrastructure | Your own laptop |
+| Best fit | A first rough gut check | Teams that need scheduled reports and wide engine coverage | Teams that want raw tracking data on infrastructure they control | Teams that want to know which page to fix next week and get the draft written along the way |
 
-### The same question gives a different result the next day. Did I do something wrong?
+The two sides also work together fine: a paid platform for scheduled trend reporting, this workbench for first-hand answers, the cited pages behind them, and the draft you actually ship.
 
-No. AI search itself fluctuates. Retrieved pages, ranking, and model versions can change daily, so a single answer only represents that moment. What matters more than a single result is the trend: whether the same question on the same entry point shows a stable pattern across several rounds. Drawing a conclusion from one ask makes it easy to be misled by an outlier.
+### After I ship the doc or publish the article, how long should I wait before retesting?
 
-### I published the draft, but AI answers still don’t mention me. Was it a waste?
+Longer than feels natural. Search engines and model crawlers need time to pick up and re-read a page, so a retest a few minutes after publishing usually returns the old answer and tells you nothing. Give it days rather than minutes. If several rounds still show no change, open the citation list for that question before rewriting anything: you may have edited a page the model never cites, while the answer was quoting a third-party review or a comparison post the whole time.
 
-Don’t rush, and don’t judge from a single check. Search engine indexing and model crawling take time. Retesting a few minutes after publishing usually shows the old result. Waiting a few days to two weeks before asking the original question again is more reasonable. If several rounds show no change, the change probably did not cover the page that was actually cited—for example, the answer cited a third-party review site while you changed your official site. You can see this directly in the workbench’s citation list. Treat it as a clue for the next round, not a failure record.
+### Will OpenGEO publish anything for me?
 
-If you get stuck, open an issue in the repository: `https://github.com/cooleryu/opengeo/issues/new`. For setup details, see [the README](../README.md).
+No. Drafts stay drafts until you copy them into your repository, your docs or your blog. It writes nothing to your live content and posts nothing anywhere, which also means the publish step is where your judgement enters — read the draft, keep what is true about your product, and cut the rest.
+
+Stuck on a step? Open an issue with the saved answer or a screenshot and it gets much easier to pin down: `https://github.com/cooleryu/opengeo/issues/new`.
