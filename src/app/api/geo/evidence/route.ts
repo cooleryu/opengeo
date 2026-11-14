@@ -38,6 +38,7 @@ async function readProjectEvidence(request: NextRequest) {
     ...state.observations.map(o=>o.sourcePath),
     ...state.questions.map(q=>q.evidencePath),
     ...state.visibility.questions.flatMap(q=>q.results.flatMap(r=>r.evidencePath ? [r.evidencePath] : [])),
+    ...visibilityEvidencePaths(seed.project.id),
   ]);
   if (!allowed.has(file)) return NextResponse.json({error:'这份材料不在当前项目的证据中。'},{status:404});
   const { root, target } = evidenceLocation(file);
@@ -53,9 +54,10 @@ async function readProjectEvidence(request: NextRequest) {
         observation.entryType === 'web_search' || observation.entryType === 'api_search' ||
         (!observation.entryType && (observation.engine === 'google' || observation.engine === 'deepseek'))
       ));
-      const standalone = file.endsWith('.answer.md') && observations.some(observation =>
-        observation.entryType === 'api_answer' && observation.answerPath === file,
-      );
+      const standalone = observations.some(observation => observation.answerPath === file && (
+        (observation.entryType === 'api_answer' && file.endsWith('.answer.md')) ||
+        (observation.entryType === 'web_answer' && /^data\/geo-evidence\/browser-[a-zA-Z0-9_-]+\/answer\.md$/.test(file))
+      ));
       const answer = isSearchEvidence ? null : extractAnswerContent(content, { standalone });
       return NextResponse.json({ path: file, content: answer, format: 'markdown', status: answer === null ? 'unavailable' : 'available' }, { headers: { 'Cache-Control': 'no-store' } });
     }

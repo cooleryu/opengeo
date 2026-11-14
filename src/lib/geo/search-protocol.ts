@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { GeoQuestion, GeoSeed } from './types';
+import { resolveAssetOwnership } from './asset-ownership';
 import type { WorkflowQuestion } from './workflow-types';
 import type { CollectionConfig } from './providers/types';
 
@@ -45,7 +46,8 @@ export function matchesQuestionTarget(value: string, question: WorkflowQuestion 
   if (!question || question.target === 'project') return matchesProjectURL(value, seed);
   const candidate = normalizedURL(value);
   if (!candidate) return false;
-  return seed.assets.some(asset => question.assetIds.includes(asset.id) && asset.publicUrl && (() => {
+  return seed.assets.some(asset => resolveAssetOwnership(asset, seed).ownership === 'owned' &&
+    question.assetIds.includes(asset.id) && asset.publicUrl && (() => {
     const target = normalizedURL(asset.publicUrl!);
     return target !== null && target.host === candidate.host && target.pathname === candidate.pathname;
   })());

@@ -366,11 +366,7 @@ function ItemDetail({
       <div className="ka-detail-intro">
         <div className="ka-tags">
           <span>
-            {item.ownership === 'owned'
-              ? '我方材料'
-              : item.ownership === 'unknown'
-                ? '归属待核实'
-                : '外部来源'}
+            {item.ownership === 'owned' ? '我方材料' : '外部参考'}
           </span>
           {item.kinds.map((kind) => (
             <span key={kind}>{kindNames[kind]}</span>
@@ -724,7 +720,7 @@ function AssetWorkspace({
       const params = new URLSearchParams(window.location.search);
       if (
         params.get('view') !== 'assets' ||
-        (params.get('project') || 'example-project') !== data.project.id
+        (params.get('project') || data.project.id) !== data.project.id
       )
         return;
       setLanguage(params.get('language') === 'en' ? 'en' : 'zh');
@@ -838,7 +834,7 @@ function AssetWorkspace({
     const url = new URL(window.location.href);
     if (
       url.searchParams.get('view') !== 'assets' ||
-      (url.searchParams.get('project') || 'example-project') !== data.project.id
+      (url.searchParams.get('project') || data.project.id) !== data.project.id
     )
       return;
     const values: Record<string, string | null> = {
@@ -932,9 +928,6 @@ function AssetWorkspace({
   );
   const ownedInScope = sourcesInScope.filter(
     (item) => item.ownership === 'owned',
-  );
-  const hasUnknownOwnership = externalInScope.some(
-    (item) => item.ownership === 'unknown',
   );
   const maxAnswers = Math.max(
     1,
@@ -1079,11 +1072,7 @@ function AssetWorkspace({
               <span>{languageName(item.language)}</span>
             ) : (
               <span>
-                {item.ownership === 'unknown'
-                  ? '归属待核实'
-                  : item.ownership === 'owned'
-                    ? '正文待收录'
-                    : kindNames[item.kind]}
+                {item.ownership === 'owned' ? '正文待收录' : kindNames[item.kind]}
               </span>
             )}
             <span>{domain(item.url)}</span>
@@ -1265,7 +1254,7 @@ function AssetWorkspace({
               <dd>{measured[sourceEngine] ? ownedInScope.length : '未测'}</dd>
             </div>
             <div>
-              <dt>{hasUnknownOwnership ? '外部及待核实页面' : '外部页面'}</dt>
+              <dt>外部参考页面</dt>
               <dd>
                 {measured[sourceEngine] ? externalInScope.length : '未测'}
               </dd>
@@ -1282,7 +1271,7 @@ function AssetWorkspace({
               onSelect={(item) => openItem(item, 'references', sourceEngine)}
             />
             <SourceBars
-              title={hasUnknownOwnership ? '外部与待核实网站' : '外部网站'}
+              title="外部参考网站"
               items={external}
               language={language}
               engine={sourceEngine}

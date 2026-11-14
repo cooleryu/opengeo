@@ -36,7 +36,7 @@ npm install
 npm run dev
 ```
 
-Open [localhost:4327](http://127.0.0.1:4327). For a fresh checkout, you can copy `.env.example` to `.env.local` before starting; preserve any existing environment files. Follow [Getting started](docs/getting-started.md) to configure the services needed for your work. Model calls, searches, and connection tests can incur provider charges.
+Open [localhost:4327](http://127.0.0.1:4327). For a fresh checkout, you can copy `.env.example` to `.env.local` before starting; preserve any existing environment files. Follow [Getting started](docs/getting-started.md) to create a project and configure the services needed for your work. Model calls, searches, and connection tests can incur provider charges.
 
 Keep credentials, local project materials, and databases out of Git. Preserve `data/` and any custom data directories when updating; see [Updating OpenGEO](docs/installation/UPDATING.md). Docker configuration is also retained, but local development uses `npm run dev`.
 

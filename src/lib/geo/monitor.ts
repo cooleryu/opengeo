@@ -10,6 +10,7 @@ import { buildSearchProtocolKey, DEEPSEEK_SEARCH_ENDPOINT, frozenQuestion, LEGAC
 import { collectionReservation, requireCollectionKey } from './providers/config';
 import { collectAnswerRun } from './answer-monitor';
 import { defaultCollectionRuntime, type CollectionRuntime } from './collection-runtime';
+import { saveCollectionResponse, saveCollectionSummary, writeCollectionRequest } from './collection-response';
 const taskProvider = (task: Pick<GeoTask, 'workflow'>) => task.workflow?.collection?.provider || 'deepseek';
 const taskCost = (task: GeoTask) => collectionReservation(taskProvider(task));
 const QUERY_COST = 0.005;
@@ -200,7 +201,8 @@ export async function collectLive(taskId: string, runId: string, questions: GeoQ
   assertQueries(questions, taskProvider(originalTask));
   if (taskProvider(originalTask) !== 'deepseek') return collectAnswerRun(originalTask, runId, questions, startedAt, phase, context);
   const seed = getSeed();
-  const parameters = originalTask.workflow ? WORKFLOW_SEARCH_PARAMETERS : LEGACY_SEARCH_PARAMETERS;
+  const parameters = context.beforeRequest ? originalTask.workflow!.collection!.parameters : originalTask.workflow ? WORKFLOW_SEARCH_PARAMETERS : LEGACY_SEARCH_PARAMETERS;
+  const endpoint = context.beforeRequest ? originalTask.workflow!.collection!.endpoint : DEEPSEEK_SEARCH_ENDPOINT;
   const stamp = runStamp(originalTask, phase);
   const evidenceDir = path.join(dataDirectory(), 'geo-evidence', runId);
   fs.mkdirSync(evidenceDir, { recursive: true });
@@ -209,6 +211,12 @@ export async function collectLive(taskId: string, runId: string, questions: GeoQ
   let cost = 0;
   let stop = false;
   for (const question of questions) {
+    const recovered = await context.recoverQuestion?.(question);
+    if (recovered) {
+      if (recovered.result) completed.push(recovered.result);
+      if (recovered.error) errors.push(`${question.id}: ${recovered.error}`);
+      continue;
+    }
     const current = context.getTask(taskId);
     if (originalTask.workflow && (current.workflow?.protocolKey !== stamp.protocolKey ||
         (phase === 'baseline' ? current.implementation !== null : current.implementation?.proposalRevision !== stamp.implementationRevision))) {
@@ -217,30 +225,36 @@ export async function collectLive(taskId: string, runId: string, questions: GeoQ
     if (current.status === 'paused') { errors.push('用户暂停后，剩余问题未发送。'); break; }
     if (current.monitor.budgetLimit !== null && current.monitor.budgetLimit - current.monitor.spent + 1e-9 < QUERY_COST) { errors.push('已达费用上限，剩余问题未发送。'); break; }
     context.onQuestionStart?.(question);
-    const at = nowISO();
+    let at = nowISO();
     const safeId = /^[a-zA-Z0-9_-]{1,100}$/.test(question.id) ? question.id : createHash('sha256').update(question.id).digest('hex');
     const rawFile = path.join(evidenceDir, `${safeId}.json`);
     const payload = { query: question.query, ...parameters };
-    fs.writeFileSync(path.join(evidenceDir, `${safeId}.request.json`), JSON.stringify({
-      endpoint: DEEPSEEK_SEARCH_ENDPOINT, payload, at, ...stamp,
+    const request = {
+      endpoint, payload, at, ...stamp,
       target: originalTask.workflow?.questions.find(item => item.id === question.id) || null,
-    }, null, 2), { flag: 'wx' });
+    };
+    if (context.beforeRequest) at = writeCollectionRequest(path.join(evidenceDir, `${safeId}.request.json`), request);
+    else fs.writeFileSync(path.join(evidenceDir, `${safeId}.request.json`), JSON.stringify(request, null, 2), { flag: 'wx' });
     let httpStatus = 0;
     let observation: GeoQuestion | undefined;
     // Persist a reservation before the network call: a timeout or crash is not proof
     // that the provider did not execute or bill it. Refund only a known free result.
-    context.chargeTask(taskId, QUERY_COST);
+    if (context.beforeRequest) context.beforeRequest(question, QUERY_COST);
+    else context.chargeTask(taskId, QUERY_COST);
     cost = roundCost(cost + QUERY_COST);
     try {
-      const response = await fetch(DEEPSEEK_SEARCH_ENDPOINT, {
+      const response = await fetch(endpoint, {
         method: 'POST', headers: { Authorization: `Bearer ${requireCollectionKey('deepseek')}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload), signal: AbortSignal.timeout(60000),
       });
       httpStatus = response.status;
       const raw = await response.text();
-      fs.writeFileSync(rawFile, raw, { flag: 'wx' });
+      context.assertActive?.();
+      if (context.beforeRequest) saveCollectionResponse(evidenceDir, { questionId: question.id, query: question.query, protocolKey: stamp.protocolKey, measuredAt: at, httpStatus, raw });
+      else fs.writeFileSync(rawFile, raw, { flag: 'wx' });
       if (!response.ok) {
-        context.chargeTask(taskId, -QUERY_COST); cost = roundCost(cost - QUERY_COST);
+        if (!context.beforeRequest) context.chargeTask(taskId, -QUERY_COST);
+        cost = roundCost(cost - QUERY_COST);
         stop = [401, 403, 429].includes(response.status); throw new Error(`HTTP ${response.status}`);
       }
       let parsed: { results?: unknown };
@@ -253,7 +267,7 @@ export async function collectLive(taskId: string, runId: string, questions: GeoQ
       }
       if (parsed.results.some(result => !result || typeof result !== 'object' || typeof (result as { url?: unknown }).url !== 'string')) throw new Error('搜索结果条目缺少有效 URL，保留原始返回，不计作零命中');
       const results = parsed.results as { url: string; title?: string }[];
-      if (!results.length) { context.chargeTask(taskId, -QUERY_COST); cost = roundCost(cost - QUERY_COST); }
+      if (!results.length) { if (!context.beforeRequest) context.chargeTask(taskId, -QUERY_COST); cost = roundCost(cost - QUERY_COST); }
       const target = originalTask.workflow?.questions.find(item => item.id === question.id);
       const firstHit = results.findIndex(result => originalTask.workflow ? matchesQuestionTarget(result.url, target, seed) : isCurrentProjectURL(result.url));
       const topSources = results.slice(0, 3).map((result, index) => {
@@ -267,6 +281,8 @@ export async function collectLive(taskId: string, runId: string, questions: GeoQ
       const message = `${error instanceof Error ? error.message : '请求失败'}${httpStatus === 0 ? '；请求结果未知，费用按上限保留，不自动重试' : ''}`;
       if (httpStatus === 0) stop = true;
       errors.push(`${question.id}: ${message}`);
+      context.onQuestionFailure?.(question, message, httpStatus !== 0 && (httpStatus < 200 || httpStatus >= 300));
+      context.assertActive?.();
       fs.writeFileSync(path.join(evidenceDir, `${safeId}.failure.json`), JSON.stringify({ queryId: question.id, query: question.query, at, httpStatus, error: message }, null, 2), { flag: 'wx' });
     }
     // Persistence failures must propagate rather than be treated as provider failures.
@@ -274,6 +290,8 @@ export async function collectLive(taskId: string, runId: string, questions: GeoQ
     if (stop) break;
     await sleep(250);
   }
+  context.assertActive?.();
+  if (context.beforeRequest) cost = context.getTask(taskId).monitor.spent;
   const hitCount = completed.length ? completed.filter(q => q.projectHit).length : null;
   const status = completed.length === questions.length ? 'completed' : completed.length ? 'partial' : 'failed';
   const summary = status === 'completed'
@@ -282,6 +300,7 @@ export async function collectLive(taskId: string, runId: string, questions: GeoQ
       : `本次 DeepSeek 真实观察 ${hitCount}/${questions.length} 题命中。与 2026-10-18 的同题同参数基线比较；单次变化不能证明改进的因果效果，AI 引用仍未测。`
     : `本次仅 ${completed.length}/${questions.length} 题取得有效结果${hitCount === null ? '' : `，这些题中 ${hitCount} 题命中`}；其余问题未测得，不计作零。数据不足，暂不判断整体效果。`;
   const run: GeoRun = { id: runId, at: startedAt, completedAt: nowISO(), measurementAt: startedAt, mode: 'live', status, queryCount: questions.length, completedCount: completed.length, hitCount, resultCount: completed.reduce((sum, q) => sum + q.resultCount, 0), cost, summary, questions: completed, ...stamp, ...(errors.length ? { error: errors.join('；') } : {}) };
-  fs.writeFileSync(path.join(evidenceDir, 'run.json'), JSON.stringify(run, null, 2), { flag: 'wx' });
+  if (context.beforeRequest) saveCollectionSummary(evidenceDir, run);
+  else fs.writeFileSync(path.join(evidenceDir, 'run.json'), JSON.stringify(run, null, 2), { flag: 'wx' });
   return run;
 }

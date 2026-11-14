@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   Check,
@@ -16,8 +16,14 @@ import {
   type GeoQuestionPlan,
   type QuestionCandidate,
   type QuestionCategory,
+  type QuestionGenerationProgress,
+  type QuestionGenerationJob,
 } from '@/lib/geo/question-types';
 import GeoSelect from './GeoSelect';
+import BackgroundPreparationStatus, {
+  QuestionGenerationRequestStatus,
+  useQuestionGenerationStep,
+} from './BackgroundPreparationStatus';
 import QuestionAssessmentDetails, {
   hasQuestionAssessment,
 } from './QuestionAssessmentDetails';
@@ -28,33 +34,48 @@ type Props = {
   assets: GeoAsset[];
   modelConfigured: boolean;
   busy: boolean;
+  generationProgress?: QuestionGenerationProgress;
+  generationJob?: QuestionGenerationJob | null;
   onGenerate: (positioning: string) => Promise<void>;
   onToggle: (candidateId: string, selected: boolean) => Promise<void>;
   onConfirm: () => Promise<void>;
   onAsset: (asset: GeoAsset) => void;
   onContinue?: () => void;
+  onConfigureModel?: () => void;
   onAuditCandidate?: (candidateId: string) => Promise<void>;
 };
 
 const decisionLabels = {
-  include: '建议测',
-  explore: '待探索',
-  exclude: '暂不测',
+  include: '推荐',
+  explore: '可进一步了解',
+  exclude: '暂不推荐',
 };
+
+const generationSteps = ['选题方向', '生成问题', '独立审核', '保存'];
 
 export default function QuestionPlanPanel({
   plan,
   assets,
   modelConfigured,
   busy,
+  generationProgress,
+  generationJob,
   onGenerate,
   onToggle,
   onConfirm,
   onAsset,
   onContinue,
+  onConfigureModel,
   onAuditCandidate,
 }: Props) {
-  const [positioning, setPositioning] = useState(plan.positioning);
+  const preparedPositioning = generationJob?.positioning || plan.positioning;
+  const [positioning, setPositioning] = useState(preparedPositioning);
+  const [editingPositioning, setEditingPositioning] = useState(
+    !preparedPositioning.trim(),
+  );
+  const [generating, setGenerating] = useState(false);
+  const generatingRef = useRef(false);
+  const [generationError, setGenerationError] = useState('');
   const [category, setCategory] = useState<QuestionCategory | 'all'>('all');
   const [showAll, setShowAll] = useState(false);
   const [showExplore, setShowExplore] = useState(false);
@@ -62,20 +83,33 @@ export default function QuestionPlanPanel({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [auditingId, setAuditingId] = useState<string | null>(null);
   const [auditError, setAuditError] = useState('');
+  const hasCandidates = plan.candidates.length > 0;
+  const generationJobActive =
+    generationJob?.status === 'queued' || generationJob?.status === 'running';
+  const generationPending =
+    generating || (busy && !!generationProgress) || generationJobActive;
+  const working = busy || generationPending;
+  const generationStep = useQuestionGenerationStep(
+    generationProgress,
+    generationPending ? 'active-generation' : undefined,
+  );
   const questionContent = plan.candidates
     .map((candidate) => `${candidate.id}:${candidate.query}`)
     .join('\n');
 
   useEffect(() => {
-    setPositioning(plan.positioning);
-  }, [plan.id, plan.positioning]);
+    setPositioning(preparedPositioning);
+    setEditingPositioning(!preparedPositioning.trim());
+    setGenerationError('');
+  }, [plan.id, preparedPositioning]);
 
   useEffect(() => {
     setExpanded({});
     setShowAll(false);
+    setCategory('all');
   }, [plan.id, questionContent]);
 
-  const positioningChanged = positioning.trim() !== plan.positioning.trim();
+  const positioningChanged = positioning.trim() !== preparedPositioning.trim();
   const selected = plan.candidates.filter(
     (candidate) =>
       candidate.selected && candidate.review.decision !== 'exclude',
@@ -107,10 +141,39 @@ export default function QuestionPlanPanel({
     ...representatives,
     ...recommended.filter((item) => !representatives.includes(item)),
   ];
+  const collapsedRecommended = orderedRecommended.filter(
+    (candidate, index) => candidate.selected || index < 5,
+  );
   const visibleRecommended = showAll
     ? orderedRecommended
-    : orderedRecommended.slice(0, 5);
+    : collapsedRecommended;
+  const moreRecommendedCount =
+    orderedRecommended.length - collapsedRecommended.length;
   const assetFor = (id: string) => assets.find((asset) => asset.id === id);
+
+  async function generateQuestions() {
+    if (
+      generatingRef.current ||
+      working ||
+      !modelConfigured ||
+      !positioning.trim()
+    )
+      return;
+    generatingRef.current = true;
+    setGenerationError('');
+    setGenerating(true);
+    try {
+      await onGenerate(positioning.trim());
+      setEditingPositioning(false);
+    } catch (failure) {
+      setGenerationError(
+        failure instanceof Error ? failure.message : '生成未完成，请重试。',
+      );
+    } finally {
+      generatingRef.current = false;
+      setGenerating(false);
+    }
+  }
 
   function downloadPlan() {
     const exportData = {
@@ -132,6 +195,184 @@ export default function QuestionPlanPanel({
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function renderPositioning() {
+    return (
+      <div className="qp-positioning-body">
+        <div className="qp-positioning-heading">
+          <h2>产品定位</h2>
+          {!editingPositioning && (
+            <button
+              type="button"
+              className="og-text-button"
+              disabled={working}
+              onClick={() => setEditingPositioning(true)}
+            >
+              修改
+            </button>
+          )}
+        </div>
+        {editingPositioning ? (
+          <>
+            <label className="qp-sr-only" htmlFor="qp-positioning">
+              产品定位
+            </label>
+            <textarea
+              id="qp-positioning"
+              value={positioning}
+              maxLength={1000}
+              rows={4}
+              disabled={working}
+              placeholder="你的产品为谁提供什么帮助？"
+              onChange={(event) => setPositioning(event.target.value)}
+            />
+            <div className="qp-positioning-edit-actions">
+              <button
+                type="button"
+                className="og-text-button"
+                disabled={working || !positioning.trim()}
+                onClick={() => setEditingPositioning(false)}
+              >
+                完成修改
+              </button>
+              {preparedPositioning.trim() && (
+                <button
+                  type="button"
+                  className="qp-detail-toggle"
+                  disabled={working}
+                  onClick={() => {
+                    setPositioning(preparedPositioning);
+                    setEditingPositioning(false);
+                  }}
+                >
+                  取消修改
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <p className="qp-positioning-text">{positioning}</p>
+        )}
+        {hasCandidates && positioningChanged && (
+          <div className="qp-positioning-change" role="status">
+            <span>定位已修改，请重新生成问题后再确认。</span>
+            <button
+              type="button"
+              disabled={working}
+              onClick={() => setPositioning(preparedPositioning)}
+            >
+              恢复原定位
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderGeneration() {
+    return (
+      <div className="qp-generation">
+        {generationJob &&
+          (!generationPending || generationJobActive) &&
+          (hasCandidates && generationJob.status === 'completed' ? (
+            <details className="og-background-preparation-history">
+              <summary>查看生成过程</summary>
+              <BackgroundPreparationStatus job={generationJob} />
+            </details>
+          ) : (
+            <BackgroundPreparationStatus job={generationJob} />
+          ))}
+        {generationPending && generationJobActive ? null : generationPending ? (
+          <div className="qp-generating" role="status" aria-live="polite">
+            <ol className="qp-generation-steps" aria-label="生成进度">
+              {generationSteps.map((step, index) => (
+                <li
+                  key={step}
+                  className={
+                    index < generationStep
+                      ? 'is-done'
+                      : index === generationStep
+                        ? 'is-active'
+                        : undefined
+                  }
+                  aria-current={index === generationStep ? 'step' : undefined}
+                >
+                  <span className="qp-generation-step-icon" aria-hidden="true">
+                    {index < generationStep ? (
+                      <Check size={16} />
+                    ) : index === generationStep ? (
+                      <Loader2 size={16} className="spin" />
+                    ) : (
+                      index + 1
+                    )}
+                  </span>
+                  <span>{step}</span>
+                  <span className="qp-sr-only">
+                    {index < generationStep
+                      ? '已完成'
+                      : index === generationStep
+                        ? '进行中'
+                        : '等待中'}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <p>{generationProgress?.message || '正在准备产品材料…'}</p>
+            <QuestionGenerationRequestStatus
+              request={generationProgress?.request}
+              active={generationPending}
+            />
+          </div>
+        ) : (
+          <>
+            {!hasCandidates && (
+              <p className="qp-generation-purpose">
+                了解潜在用户可能向 AI 提出哪些与你产品相关的问题。
+              </p>
+            )}
+            {generationError && (
+              <div className="qp-generation-error" role="alert">
+                <strong>生成未完成</strong>
+                <p>{generationError}</p>
+              </div>
+            )}
+            {modelConfigured ? (
+              <button
+                type="button"
+                className={`og-button ${hasCandidates ? 'secondary' : 'primary'} qp-generate-button`}
+                disabled={working || !positioning.trim()}
+                onClick={() => void generateQuestions()}
+              >
+                <Sparkles size={17} />
+                {generationError ||
+                ['failed', 'interrupted', 'superseded'].includes(
+                  generationJob?.status ?? '',
+                )
+                  ? '重试生成用户提问'
+                  : hasCandidates
+                    ? '重新生成用户提问'
+                    : '生成用户提问'}
+              </button>
+            ) : (
+              <div className="qp-model-setup">
+                <p>先在设置中配置分析模型，即可生成用户提问。</p>
+                {onConfigureModel && (
+                  <button
+                    type="button"
+                    className="og-button primary"
+                    disabled={working}
+                    onClick={onConfigureModel}
+                  >
+                    去设置模型 <ArrowUpRight size={16} />
+                  </button>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
   function renderCandidate(candidate: QuestionCandidate) {
     const isExcluded = candidate.review.decision === 'exclude';
     const detailsId = `qp-details-${candidate.id}`;
@@ -150,122 +391,110 @@ export default function QuestionPlanPanel({
         key={candidate.id}
       >
         <div className="qp-question-heading">
-          <div className="qp-question-main">
-            <label className="qp-candidate-title">
-              <input
-                type="checkbox"
-                aria-label={`选择问题：${candidate.query}`}
-                checked={candidate.selected && !isExcluded}
-                disabled={
-                  busy ||
-                  isExcluded ||
-                  (!candidate.selected && selected.length >= 8)
-                }
-                onChange={(event) =>
-                  void onToggle(candidate.id, event.target.checked)
-                }
-              />
-              <h3>{candidate.query}</h3>
-            </label>
-            <p className="qp-intent">{candidate.intent}</p>
-            <div className="qp-question-meta">
-              <span>{QUESTION_CATEGORY_LABELS[candidate.category]}</span>
+          <label className="qp-candidate-title">
+            <input
+              type="checkbox"
+              aria-label={`选择问题：${candidate.query}`}
+              checked={candidate.selected && !isExcluded}
+              disabled={
+                working ||
+                isExcluded ||
+                (!candidate.selected && selected.length >= 8)
+              }
+              onChange={(event) =>
+                void onToggle(candidate.id, event.target.checked)
+              }
+            />
+            <h3>{candidate.query}</h3>
+          </label>
+          <div className="qp-question-meta">
+            <span>{QUESTION_CATEGORY_LABELS[candidate.category]}</span>
+            <span
+              className={`qp-decision qp-decision-${candidate.review.decision}`}
+            >
+              {decisionLabels[candidate.review.decision]}
+            </span>
+            <button
+              type="button"
+              className="qp-detail-toggle"
+              disabled={working}
+              aria-expanded={!!expanded[candidate.id]}
+              aria-controls={detailsId}
+              onClick={() =>
+                setExpanded((current) => ({
+                  ...current,
+                  [candidate.id]: !current[candidate.id],
+                }))
+              }
+            >
+              {expanded[candidate.id]
+                ? '收起依据'
+                : isExcluded
+                  ? '为什么暂不推荐'
+                  : '为什么选它'}
+              <ChevronDown size={14} />
+            </button>
+          </div>
+          {candidate.review.concerns.length > 0 && !isExcluded && (
+            <p className="qp-question-caveat">
+              待核实：{candidate.review.concerns[0]}
+            </p>
+          )}
+        </div>
+        {expanded[candidate.id] && (
+          <div className="qp-question-details" id={detailsId}>
+            <p className="qp-review">{candidate.review.reason}</p>
+            <div className="qp-review-meta">
               <span>
                 {candidate.origin === 'existing'
-                  ? '历史题'
+                  ? '已有问题'
                   : candidate.origin === 'model'
-                    ? 'AI 新增'
-                    : '整理新增'}
+                    ? 'AI 生成'
+                    : '整理补充'}
               </span>
               <span>
                 {hasQuestionAssessment(candidate)
-                  ? 'AI 双判断已完成'
-                  : '未进行 AI 双判断'}
+                  ? '已检查需求价值与承接情况'
+                  : '需求价值与承接情况尚待核实'}
               </span>
               {onAuditCandidate && (
                 <button
                   type="button"
                   className="qp-detail-toggle"
-                  disabled={busy || !!auditingId || !modelConfigured}
+                  disabled={working || !!auditingId || !modelConfigured}
                   title={modelConfigured ? undefined : '请先配置分析模型'}
                   onClick={async () => {
                     setAuditError('');
                     setAuditingId(candidate.id);
-                    setExpanded((current) => ({
-                      ...current,
-                      [candidate.id]: true,
-                    }));
                     try {
                       await onAuditCandidate(candidate.id);
                     } catch (failure) {
                       setAuditError(
                         failure instanceof Error
                           ? failure.message
-                          : 'AI 复评未完成，请重试。',
+                          : '审核未完成，请重试。',
                       );
                     } finally {
                       setAuditingId(null);
                     }
                   }}
                 >
-                  {auditingId === candidate.id ? 'AI 复评中…' : 'AI 复评'}
+                  {auditingId === candidate.id ? (
+                    <>
+                      <Loader2 size={14} className="spin" /> 正在审核…
+                    </>
+                  ) : (
+                    '重新审核'
+                  )}
                 </button>
               )}
-              <button
-                type="button"
-                className="qp-detail-toggle"
-                disabled={busy}
-                aria-expanded={!!expanded[candidate.id]}
-                aria-controls={detailsId}
-                onClick={() =>
-                  setExpanded((current) => ({
-                    ...current,
-                    [candidate.id]: !current[candidate.id],
-                  }))
-                }
-              >
-                {expanded[candidate.id] ? '收起审核依据' : '审核依据'}{' '}
-                <ChevronDown size={14} />
-              </button>
             </div>
-          </div>
-          <aside className="qp-candidate-support">
-            {associated.map((asset) => (
-              <div className="qp-asset-link" key={asset.id}>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onAsset(asset)}
-                >
-                  <FileText size={14} />
-                  {asset.title}
-                </button>
-                {asset.publicUrl && (
-                  <a
-                    href={asset.publicUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={`打开网页：${asset.title}`}
-                  >
-                    <ArrowUpRight size={15} />
-                  </a>
-                )}
-              </div>
-            ))}
-            <p className="qp-review">
-              <span
-                className={`qp-decision qp-decision-${candidate.review.decision}`}
-              >
-                {decisionLabels[candidate.review.decision]}
-              </span>
-              {candidate.review.reason}
-            </p>
-          </aside>
-        </div>
-        {expanded[candidate.id] && (
-          <div className="qp-question-details" id={detailsId}>
             <QuestionAssessmentDetails candidate={candidate} assets={assets} />
             <dl>
+              <div>
+                <dt>用户想了解什么</dt>
+                <dd>{candidate.intent}</dd>
+              </div>
               <div>
                 <dt>与我们的关系</dt>
                 <dd>{candidate.rationale}</dd>
@@ -279,6 +508,33 @@ export default function QuestionPlanPanel({
                 <dd>{candidate.target === 'article' ? '已有文章' : '项目'}</dd>
               </div>
             </dl>
+            {associated.length > 0 && (
+              <div className="qp-supporting-assets">
+                <span className="qp-detail-label">相关材料</span>
+                {associated.map((asset) => (
+                  <div className="qp-asset-link" key={asset.id}>
+                    <button
+                      type="button"
+                      disabled={working}
+                      onClick={() => onAsset(asset)}
+                    >
+                      <FileText size={14} />
+                      {asset.title}
+                    </button>
+                    {asset.publicUrl && (
+                      <a
+                        href={asset.publicUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={`打开网页：${asset.title}`}
+                      >
+                        <ArrowUpRight size={15} />
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             {candidate.evidence.length > 0 && (
               <div className="qp-quotes">
                 <span className="qp-detail-label">材料中的原文</span>
@@ -308,83 +564,40 @@ export default function QuestionPlanPanel({
     );
   }
 
+  if (
+    !hasCandidates ||
+    (generationJob && generationJob.status !== 'completed')
+  ) {
+    return (
+      <div className="qp-panel qp-start" aria-busy={working}>
+        <section
+          className="qp-positioning qp-positioning-primary"
+          aria-label="产品定位"
+        >
+          {renderPositioning()}
+        </section>
+        {renderGeneration()}
+      </div>
+    );
+  }
+
   return (
-    <div className="qp-panel" aria-busy={busy}>
-      <header className="og-page-heading qp-heading">
-        <div>
-          <h1>确认搜索问题</h1>
-          <p>
-            已选 {selected.length} 题 ·{' '}
-            {plan.status === 'ready' ? '题单已确认' : '待确认'}
-          </p>
-        </div>
-      </header>
-
-      <details className="qp-positioning" open={!plan.candidates.length}>
-        <summary>
-          产品定位与重新拟题 <ChevronDown size={15} />
-        </summary>
-        <div className="qp-positioning-body">
-          <label htmlFor="qp-positioning">产品定位</label>
-          <textarea
-            id="qp-positioning"
-            value={positioning}
-            maxLength={1000}
-            rows={3}
-            disabled={busy}
-            onChange={(event) => setPositioning(event.target.value)}
-          />
-
-          {modelConfigured ? (
-            <div className="qp-generate-row">
-              <button
-                type="button"
-                className="og-button secondary"
-                disabled={busy || !positioning.trim()}
-                onClick={() => void onGenerate(positioning.trim())}
-              >
-                {busy ? (
-                  <Loader2 size={15} className="spin" />
-                ) : (
-                  <Sparkles size={15} />
-                )}
-                AI 拟题并审核
-              </button>
-              <span className="qp-help">
-                将调用已配置模型两次，可能产生模型费用。
-              </span>
-            </div>
-          ) : (
-            <p className="qp-help qp-model-note">
-              当前可以选择已整理的问题。启用模型后，可按定位重新拟题并审核。
-            </p>
-          )}
-          {positioningChanged && (
-            <div className="qp-positioning-change" role="status">
-              <span>定位已修改，重新拟题后才能确认这版题单。</span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setPositioning(plan.positioning)}
-              >
-                恢复已保存定位
-              </button>
-            </div>
-          )}
-        </div>
-      </details>
-
-      <section className="qp-questions" aria-label="候选问题">
+    <div className="qp-panel" aria-busy={working}>
+      {generationJob && <BackgroundPreparationStatus job={generationJob} />}
+      <section className="qp-questions" aria-label="用户可能这样问">
         <div className="qp-list-heading">
           <div>
-            <h2>下一轮题单</h2>
-            <p className="qp-help">{plan.candidates.length} 道候选</p>
+            <h2>用户可能这样问</h2>
+            <p className="qp-help">
+              {selected.length
+                ? '推荐问题已勾选，可按需调整，最多 8 个。'
+                : '选择与你产品相关的问题，最多 8 个。'}
+            </p>
           </div>
           <div className="qp-filter">
-            <span>类别</span>
             <GeoSelect<QuestionCategory | 'all'>
               label="按问题类别筛选"
-              disabled={busy}
+              disabled={working}
               value={category}
               onChange={(value) => {
                 setCategory(value);
@@ -402,25 +615,32 @@ export default function QuestionPlanPanel({
             />
           </div>
         </div>
-        {auditError && <p role="alert">{auditError}</p>}
+        {auditError && (
+          <p className="qp-generation-error" role="alert">
+            {auditError}
+          </p>
+        )}
         <div className="qp-list">
           {visibleRecommended.map(renderCandidate)}
           {!recommended.length && (
             <p className="qp-empty">
-              这个类别暂无已选或推荐问题，可查看下方待探索题。
+              {category === 'all'
+                ? '暂时没有推荐的问题，可查看下方其他问题及判断依据。'
+                : '此类别暂无推荐的问题，可切换类别或查看下方其他问题。'}
             </p>
           )}
         </div>
-        {recommended.length > 5 && (
+        {moreRecommendedCount > 0 && (
           <button
             type="button"
             className="qp-show-more"
-            disabled={busy}
+            disabled={working}
+            aria-expanded={showAll}
             onClick={() => setShowAll(!showAll)}
           >
             {showAll
               ? '收起更多问题'
-              : `查看其余 ${recommended.length - 5} 道推荐或已选问题`}
+              : `查看其余 ${moreRecommendedCount} 个推荐问题`}
             <ChevronDown size={14} />
           </button>
         )}
@@ -429,13 +649,13 @@ export default function QuestionPlanPanel({
             <button
               type="button"
               className="qp-group-toggle"
-              disabled={busy}
+              disabled={working}
               aria-expanded={showExplore}
               aria-controls="qp-exploratory"
               onClick={() => setShowExplore(!showExplore)}
             >
               <span>
-                待探索的问题 <small>{exploratory.length}</small>
+                其他可选问题 <small>{exploratory.length}</small>
               </span>
               <ChevronDown size={15} />
             </button>
@@ -451,13 +671,13 @@ export default function QuestionPlanPanel({
             <button
               type="button"
               className="qp-group-toggle"
-              disabled={busy}
+              disabled={working}
               aria-expanded={showExcluded}
               aria-controls="qp-excluded"
               onClick={() => setShowExcluded(!showExcluded)}
             >
               <span>
-                暂不测的问题与原因 <small>{excluded.length}</small>
+                暂不推荐的问题 <small>{excluded.length}</small>
               </span>
               <ChevronDown size={15} />
             </button>
@@ -469,68 +689,65 @@ export default function QuestionPlanPanel({
           </section>
         )}
       </section>
-      {plan.notes.length > 0 && (
-        <details className="qp-plan-notes">
-          <summary>
-            题单说明 <ChevronDown size={14} />
-          </summary>
-          {plan.notes.map((note, index) => (
-            <p key={index}>{note}</p>
-          ))}
-        </details>
+      {(generationPending || generationError) && (
+        <div className="qp-generation-feedback">{renderGeneration()}</div>
       )}
+      <details className="qp-positioning qp-positioning-secondary">
+        <summary>
+          产品定位 <ChevronDown size={15} />
+        </summary>
+        {renderPositioning()}
+        {!generationPending && !generationError && renderGeneration()}
+      </details>
       <footer className="qp-footer">
-        <div>
-          <p className="qp-save-state" role="status">
-            {busy ? (
-              <Loader2 size={15} className="spin" />
-            ) : plan.status === 'ready' ? (
-              <Check size={15} />
-            ) : null}
-            {busy
-              ? '正在处理…'
+        <p className="qp-save-state" role="status">
+          {working ? (
+            <Loader2 size={15} className="spin" />
+          ) : plan.status === 'ready' ? (
+            <Check size={15} />
+          ) : null}
+          {generationPending
+            ? `正在${generationSteps[generationStep]}…`
+            : busy
+              ? '正在保存…'
               : plan.status === 'ready'
-                ? '已保存，尚未采集搜索结果'
+                ? `已确认 ${selected.length} 个问题`
                 : selected.length > 8
-                  ? `已选 ${selected.length} 题，请精简到最多 8 题后确认`
-                  : `已选 ${selected.length} / 8 题，等待确认`}
-          </p>
-          <p className="qp-help">
-            版本 {plan.revision} · {plan.status === 'ready' ? '已确认' : '草稿'}{' '}
-            · 确认题单不会启动搜索，历史题单保留。
-          </p>
-        </div>
+                  ? `已选 ${selected.length} 个，请减少到 8 个以内`
+                  : `已选 ${selected.length} 个问题`}
+        </p>
         <div className="qp-footer-actions">
           <button
             type="button"
             className="og-text-button"
-            disabled={busy || !selected.length || positioningChanged}
+            disabled={working || !selected.length || positioningChanged}
             onClick={downloadPlan}
           >
             <Download size={14} />
-            导出题单
+            导出问题
           </button>
-          <button
-            type="button"
-            className="og-button primary"
-            disabled={
-              busy ||
-              !selected.length ||
-              selected.length > 8 ||
-              positioningChanged ||
-              plan.status === 'ready'
-            }
-            onClick={() => void onConfirm()}
-          >
-            {plan.status === 'ready'
-              ? '题单已确认'
-              : `确认这 ${selected.length} 个问题`}
-          </button>
+          {plan.status !== 'ready' && (
+            <button
+              type="button"
+              className="og-button primary"
+              disabled={
+                working ||
+                !selected.length ||
+                selected.length > 8 ||
+                positioningChanged
+              }
+              onClick={() => void onConfirm()}
+            >
+              {selected.length
+                ? `确认这 ${selected.length} 个问题`
+                : '确认选择'}
+            </button>
+          )}
           {plan.status === 'ready' && onContinue && (
             <button
               type="button"
               className="og-button primary"
-              disabled={busy || positioningChanged}
+              disabled={working || positioningChanged}
               onClick={onContinue}
             >
               选择搜索方式

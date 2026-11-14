@@ -13,7 +13,7 @@ git status --short
 ```
 
 - Confirm that `origin` points to `cooleryu/opengeo` and that you are updating the intended branch. If the working tree has uncommitted changes, stop here and preserve or finish that work before updating. Do not use `reset --hard` or `clean` to make an update proceed.
-- Keep your existing `data/`, `.env`, and `.env.local`. Do not copy the example environment file over an existing configuration. If you use `DATA_DIR` or other custom local paths, retain those paths and their contents too.
+- Keep your existing `data/`, `.env`, and `.env.local`. Do not copy the example environment file over an existing configuration. If you use `DATA_DIR` or `GEO_LOCAL_PROJECTS_DIR`, retain those paths and their contents too.
 - Stop the application before backing up its local data, then keep a copy of that data and your configuration outside the checkout. For Docker, preserve the existing data volume and deployment settings.
 
 ## Update the source

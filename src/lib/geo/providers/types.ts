@@ -15,7 +15,7 @@ export interface AnswerCitation { url: string; title: string; startIndex?: numbe
 export interface CollectedAnswer {
   text: string;
   /** Acquisition evidence, never a model assertion. Missing means unverified. */
-  evidence?: { answerComplete: boolean; citationsComplete: boolean; citationSource: 'native' };
+  evidence?: { answerComplete: boolean; citationsComplete: boolean; citationSource: 'native' | 'unknown' | 'none' };
   citations: AnswerCitation[];
   sources: AnswerSource[];
   searchPerformed: boolean;

@@ -1,6 +1,6 @@
 # OpenGEO 前后端协议总目录
 
-按正式侧栏页面查找。每个页面独立维护请求、返回和前端处理；项目范围、共享状态、错误与原文接口只在共享协议维护。公开版说明更新：2026-10-31。文档描述代码接口及已知边界，不代表本次重新验证了供应商、模型质量、定时运行或真实效果。两个项目均为空示例，不包含个人记录。
+按正式侧栏页面查找。每个页面独立维护请求、返回和前端处理；项目范围、共享状态、错误与原文接口只在共享协议维护。本地接口说明更新：2026-11-11；发布版本需与对应 Git 提交核对。文档描述代码接口及已知边界，不代表本次重新验证了供应商、模型质量、定时运行或真实效果。两个项目均为空示例，不包含个人记录。
 
 ## 按页面查找
 
@@ -20,8 +20,10 @@
 | 路径 | 方法 | 协议 |
 | --- | --- | --- |
 | `/api/geo` | GET、POST | [共享状态与动作](opengeo/shared.md) |
+| `/api/geo/projects` | GET、POST | [新建项目、理解与资料入库](opengeo/pages/content-assets.md#新建项目的资料调查与持久化) |
 | `/api/geo/evidence` | GET | [证据读取](opengeo/shared.md#原回答与证据文件) |
 | `/api/geo/research` | GET、POST | [问题监测](opengeo/pages/question-monitoring.md) |
+| `/api/geo/browser-observations` | GET、POST | [浏览器采集入库与自动分析](opengeo/browser-observations.md) |
 | `/api/geo/research/tracking` | GET、POST | [每日计划](opengeo/pages/question-monitoring.md#每日问题跟踪) |
 | `/api/geo/overview-version` | GET | [概览刷新](opengeo/pages/overview.md) |
 | `/api/geo/overview-order` | GET、POST | [概览布局](opengeo/pages/overview.md) |
@@ -44,13 +46,13 @@
 
 | 环节 | 已有 | 仍缺什么 / 证据 |
 | --- | --- | --- |
-| 理解产品 | 独立调查出题脚本；应用读取两个项目配置文件 | [入口调查、材料刷新未接应用](opengeo/pages/content-assets.md#数据生产与更新审计) |
-| 确认问题 | 模型拟题、独立审核、人工维护、版本保存与批次确认 | [输入仍为配置材料；候选合并与材料更新尚有限制](opengeo/pages/question-monitoring.md#数据生产与更新审计) |
-| 搜索并诊断 | DeepSeek 搜索、Qwen/Doubao 联网回答、原始返回、SQLite 追加、逐条回答审核、服务端提及/引用汇总与概览版本刷新 | [消费端采集、诊断更新](opengeo/pages/question-monitoring.md#数据生产与更新审计)仍未接通；[回答审核](opengeo/pages/overview.md#数据生产与更新审计)缺证据时保留 unknown |
+| 理解产品 | 新建项目读取公开入口、主动补找资料、整理关联并追加 SQLite，随后接现有理解和选题 | [资料入库与读取](opengeo/pages/content-assets.md#新建项目的资料调查与持久化)；既有项目的周期材料刷新未实现 |
+| 确认问题 | 模型拟题、独立审核、人工维护、版本保存与批次确认 | [输入包含已存调查资料；候选合并与材料更新尚有限制](opengeo/pages/question-monitoring.md#数据生产与更新审计) |
+| 搜索并诊断 | DeepSeek 搜索、Qwen/Doubao 联网回答、原始返回、SQLite 追加、逐条回答审核、服务端提及/引用汇总与概览版本刷新；新增浏览器逐题入库接口与采集命令 | [浏览器链路验证与边界](opengeo/browser-observations.md)；应用内浏览器搜索按钮、持续浏览器调度与诊断更新仍未接通；[回答审核](opengeo/pages/overview.md#数据生产与更新审计)缺证据时保留 unknown |
 | 方案与独立审核 | 模型诊断、改稿、独立复审、按条件停止、保存各轮 | [新依据对诊断和续改意见的版本约束不完整](opengeo/pages/improvement-tracking.md#数据生产与更新审计) |
 | 跟测与学习 | 实施登记、同条件复测、经验候选、验证、启用与回退 | [评分偏差分析、可执行观察窗口未接通](opengeo/pages/improvement-tracking.md#数据生产与更新审计) |
 
-仓库调查尚未接入应用；项目整体优化仍在开发，本次不包含。每日计划已有代码，但本次未按真实时间触发验证。后续仍需处理问题诊断、候选合并及其余页面的刷新依赖，再接材料调查/更新、消费端持续采集和评分偏差学习。回答提及/引用审核及概览刷新已有实现，边界见对应文档；旧证据、人工授权步骤和正常图表计算不是缺陷。
+新建项目调查已接入应用；资料与关联的自动保存链路通过隔离验证，真实模型调查质量尚未实测。项目整体优化的状态见对应页面协议。每日计划已有代码，但本次未按真实时间触发验证。后续仍需处理问题诊断、候选合并及其余页面的刷新依赖，既有项目的材料更新、消费端持续采集和评分偏差学习仍需另行完善。回答提及/引用审核及概览刷新已有实现，边界见对应文档；旧证据、人工授权步骤和正常图表计算不是缺陷。
 
 ## 修改时看哪里
 

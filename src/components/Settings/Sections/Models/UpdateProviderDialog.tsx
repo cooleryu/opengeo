@@ -34,7 +34,7 @@ const UpdateProvider = ({
     });
 
     setConfig(config);
-  }, [fields]);
+  }, [fields, modelProvider]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,10 +152,12 @@ const UpdateProvider = ({
                             }
                             className="w-full rounded-lg border border-light-200 dark:border-dark-200 bg-light-primary dark:bg-dark-primary px-4 py-3 pr-10 text-[13px] text-black/80 dark:text-white/80 placeholder:text-black/40 dark:placeholder:text-white/40 focus-visible:outline-none focus-visible:border-light-300 dark:focus-visible:border-dark-300 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                             placeholder={
-                              (field as StringUIConfigField).placeholder
+                              field.type === 'password' && modelProvider.configuredSecrets?.includes(field.key)
+                                ? '留空保留现有密钥'
+                                : (field as StringUIConfigField).placeholder
                             }
-                            type="text"
-                            required={field.required}
+                            type={field.type === 'password' ? 'password' : 'text'}
+                            required={field.required && !(field.type === 'password' && modelProvider.configuredSecrets?.includes(field.key))}
                           />
                         </div>
                       ))}

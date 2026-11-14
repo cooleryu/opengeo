@@ -1,7 +1,9 @@
 import { readLatestResearch } from './research-store';
 import type { ResearchBatch } from './research-types';
+import { readLocalProjectFile } from './project-data';
 export { appendResearchObservation, getResearchBatch, getResearchRun, listResearchRuns, saveResearchRun, listResearchBatches } from './research-store';
 export type { ResearchRunRecord } from './research-store';
+export { claimResearchRun, heartbeatResearchRun } from './research-store';
 
 export function getLatestResearch(projectId: string): ResearchBatch | null {
   return readLatestResearch(projectId);
@@ -9,11 +11,23 @@ export function getLatestResearch(projectId: string): ResearchBatch | null {
 
 export function researchEvidencePaths(batch: ResearchBatch | null): string[] {
   if (!batch) return [];
+  let sharedEvidence: string[] = [];
+  if (!batch.questionPlan) {
+    try {
+      const records = readLocalProjectFile<Record<string, Record<string, string[]>>>('research-evidence.json');
+      sharedEvidence = records[batch.projectId]?.[batch.id] || [];
+      if (!Array.isArray(sharedEvidence) || sharedEvidence.some(file => typeof file !== 'string'))
+        throw new Error('本地研究证据清单格式无效。');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
 
   return Array.from(new Set([
     batch.reportPath,
     batch.sourceAuditPath,
     batch.reviewPath,
+    ...(batch.questionPlan ? [] : sharedEvidence),
     ...[...batch.questions, ...batch.deferredQuestions].flatMap((question) => [
       question.reviewPath,
       ...question.observations.flatMap((observation) => [

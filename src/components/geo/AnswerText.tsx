@@ -3,6 +3,7 @@
 import { createElement, useEffect, useId, useRef, useState } from 'react';
 import Markdown from 'markdown-to-jsx';
 import { ChevronDown, ChevronUp, LocateFixed } from 'lucide-react';
+import { useUiLanguage } from './UiLanguageContext';
 
 function safeLink(href?: string) {
   if (!href) return undefined;
@@ -23,13 +24,20 @@ export default function AnswerText({
   path?: string;
   projectNames?: string[];
 }) {
-  const [content, setContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(!!path);
-  const [error, setError] = useState('');
-  const [expanded, setExpanded] = useState(false);
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
+  const requestKey = path ? `${projectId}:${path}` : '';
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    content: string | null;
+    error: string;
+  }>({ key: '', content: null, error: '' });
+  const isCurrent = Boolean(requestKey) && loaded.key === requestKey;
+  const loading = Boolean(path) && !isCurrent;
+  const content = isCurrent ? loaded.content : null;
+  const error = isCurrent ? loaded.error : '';
   const [long, setLong] = useState(false);
   const [hasProjectMatch, setHasProjectMatch] = useState(false);
-  const [locationRequest, setLocationRequest] = useState(0);
   const body = useRef<HTMLDivElement>(null);
   const section = useRef<HTMLElement>(null);
   const id = useId();
@@ -41,6 +49,14 @@ export default function AnswerText({
       return `${/^[a-z0-9_]/i.test(name) ? '(?<![a-z0-9_])' : ''}${escaped}${/[a-z0-9_]$/i.test(name) ? '(?![a-z0-9_])' : ''}`;
     })
     .join('|');
+  const matchKey = `${requestKey}::${namePattern}`;
+  const [uiState, setUiState] = useState<{
+    key: string;
+    expanded: boolean;
+    locationRequest: number;
+  }>({ key: '', expanded: false, locationRequest: 0 });
+  const expanded = uiState.key === matchKey ? uiState.expanded : false;
+  const locationRequest = uiState.key === matchKey ? uiState.locationRequest : 0;
 
   // Match only rendered text children; Markdown syntax and link targets stay intact.
   const markProjectNames = (node: React.ReactNode): React.ReactNode => {
@@ -66,15 +82,8 @@ export default function AnswerText({
   };
 
   useEffect(() => {
+    if (!path) return;
     const controller = new AbortController();
-    setContent(null);
-    setError('');
-    setExpanded(false);
-    setLong(false);
-    setHasProjectMatch(false);
-    setLocationRequest(0);
-    setLoading(!!path);
-    if (!path) return () => controller.abort();
     const params = new URLSearchParams({
       project: projectId,
       path,
@@ -88,39 +97,38 @@ export default function AnswerText({
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || '回答暂时无法读取。');
         if (!controller.signal.aborted) {
-          setContent(
-            result.status === 'available' && typeof result.content === 'string'
-              ? result.content
-              : null,
-          );
+          setLoaded({
+            key: requestKey,
+            content:
+              result.status === 'available' && typeof result.content === 'string'
+                ? result.content
+                : null,
+            error: '',
+          });
         }
       })
       .catch((reason) => {
-        if (!controller.signal.aborted)
-          setError(
-            reason instanceof Error ? reason.message : '回答暂时无法读取。',
-          );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoaded({
+            key: requestKey,
+            content: null,
+            error: reason instanceof Error ? reason.message : '回答暂时无法读取。',
+          });
+        }
       });
     return () => controller.abort();
-  }, [projectId, path]);
+  }, [projectId, path, requestKey]);
 
   useEffect(() => {
     if (!body.current) return;
-    const update = () => setLong((body.current?.scrollHeight ?? 0) > 420);
+    const update = () => {
+      setLong((body.current?.scrollHeight ?? 0) > 420);
+      setHasProjectMatch(Boolean(body.current?.querySelector('.rw-answer-project-match')));
+    };
     const observer = new ResizeObserver(update);
     observer.observe(body.current);
     update();
     return () => observer.disconnect();
-  }, [content, loading]);
-
-  useEffect(() => {
-    setHasProjectMatch(
-      !!body.current?.querySelector('.rw-answer-project-match'),
-    );
-    setLocationRequest(0);
   }, [content, namePattern, loading]);
 
   useEffect(() => {
@@ -131,34 +139,39 @@ export default function AnswerText({
   }, [locationRequest]);
 
   return (
-    <section className="rw-answer-text" ref={section} aria-label="回答原文">
+    <section className="rw-answer-text" ref={section} aria-label={isEn ? 'Answer body' : '回答原文'}>
       <div className="rw-answer-header">
-        <h3>回答</h3>
-        {!loading && !error && content && hasProjectMatch && (
+        <h3>{isEn ? 'Answer' : '回答'}</h3>
+        {!loading && !error && Boolean(content && namePattern) && hasProjectMatch && (
           <button
             type="button"
             className="rw-answer-locate"
             aria-controls={id}
             onClick={() => {
-              setExpanded(true);
-              setLocationRequest((request) => request + 1);
+              setUiState((prev) => ({
+                key: matchKey,
+                expanded: true,
+                locationRequest: (prev.key === matchKey ? prev.locationRequest : 0) + 1,
+              }));
             }}
           >
             <LocateFixed size={14} aria-hidden="true" />
-            定位项目名称
+            {isEn ? 'Highlight brand' : '定位项目名称'}
           </button>
         )}
       </div>
       {loading ? (
         <p className="rw-answer-placeholder" role="status">
-          正在读取回答…
+          {isEn ? 'Loading answer…' : '正在读取回答…'}
         </p>
       ) : error ? (
         <p className="rw-answer-placeholder" role="alert">
           {error}
         </p>
       ) : !content ? (
-        <p className="rw-answer-placeholder">这条记录尚未保存回答正文。</p>
+        <p className="rw-answer-placeholder">
+          {isEn ? 'No saved answer body for this record yet.' : '这条记录尚未保存回答正文。'}
+        </p>
       ) : (
         <>
           <div
@@ -233,10 +246,14 @@ export default function AnswerText({
               onClick={() => {
                 if (expanded)
                   section.current?.scrollIntoView({ block: 'start' });
-                setExpanded(!expanded);
+                setUiState((prev) => ({
+                  key: matchKey,
+                  expanded: !expanded,
+                  locationRequest: prev.key === matchKey ? prev.locationRequest : 0,
+                }));
               }}
             >
-              {expanded ? '收起全文' : '展开全文'}{' '}
+              {expanded ? (isEn ? 'Show less' : '收起全文') : (isEn ? 'Read full answer' : '展开全文')}{' '}
               {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
             </button>
           )}

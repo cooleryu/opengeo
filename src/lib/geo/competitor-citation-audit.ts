@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { readAgentParameters, readAgentText } from './agent-files';
-import { loadGeoModel, type GeoStructuredModel } from './connection-settings';
+import { loadGeoModel, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
 import { singleRequestModel } from './connection-test';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel, { type ChatGPTInferenceMetadata } from './chatgpt-model';
-import { legacyAnswerAudit as legacyReviews } from './legacy-answer-audit';
+import { loadLegacyAnswerAudit } from './project-data';
 import { readCompetitorEvidence, readCompetitorObservationAnswer } from './competitors';
 import { parseQwenAnswer } from './providers/qwen';
 import { parseDoubaoAnswer } from './providers/doubao';
@@ -14,6 +14,7 @@ import type { ResearchBatch, ResearchObservation } from './research-types';
 import { withGeoProject } from './projects';
 import { getResearchRows } from './research-view';
 import { isAiAnswerRow } from './overview-metrics';
+import type { ResearchOwnershipCheck } from './research-store';
 import {
   citationBelongsToCompetitor, competitorCitationIdentityKey, competitorCitationMatchesObservation,
   competitorOfficialRootsIssue, readCompetitorCitationAuditData, saveCompetitorCitationAudit,
@@ -31,6 +32,8 @@ export interface CompetitorCitationAuditOptions {
   observations?: { questionId: string; observation: ResearchObservation; answer?: CollectedAnswer }[];
   force?: boolean;
   existingRecords?: CompetitorCitationAuditRecord[];
+  /** Optional ownership fence when invoked by a leased research run. */
+  assertActive?: ResearchOwnershipCheck;
 }
 
 const parameterSchema = z.object({
@@ -97,7 +100,7 @@ export function readCollectedCompetitorAnswer(
   }
   if (observation.engine !== 'chatgpt') return { issue: '该入口尚无可核实的平台原生引用捕获规范。' };
   const answerPath = observation.answerPath ?? observation.evidencePath;
-  const reviewed = legacyReviews.records.find((record) => record.projectId === batch.projectId && record.batchId === batch.id &&
+  const reviewed = loadLegacyAnswerAudit().records.find((record) => record.projectId === batch.projectId && record.batchId === batch.id &&
     record.questionId === questionId && record.engine === observation.engine && record.language === observation.language &&
     record.recordedAt === observation.recordedAt && record.evidencePath === answerPath);
   if (!reviewed?.answerComplete) return { issue: '这条历史 ChatGPT 回答缺少对应观测的正文完整性核实记录。' };
@@ -146,10 +149,14 @@ function observationExists(batch: ResearchBatch, questionId: string, observed: R
 export async function auditCompetitorCitations(
   batch: ResearchBatch, candidates: CompetitorCandidate[], options: CompetitorCitationAuditOptions = {},
 ): Promise<CompetitorCitationAuditRecord[]> {
+  options.assertActive?.();
   const parameters = readAgentParameters('competitor-citation-review', parameterSchema);
   if (!candidates.length) return [];
   const read = options.readEvidence ?? ((file) => withGeoProject(batch.projectId, () => readCompetitorEvidence(file)));
-  const persist = options.persist ?? saveCompetitorCitationAudit;
+  const persist = (record: CompetitorCitationAuditRecord) => {
+    if (options.persist) { options.assertActive?.(); options.persist(record); }
+    else saveCompetitorCitationAudit(record, options.assertActive);
+  };
   const previous = options.existingRecords ?? readCompetitorCitationAuditData(batch.projectId, batch.id).records;
   // Review the same latest AI samples shown on the page. Historical searches do not consume this budget.
   const samples: NonNullable<CompetitorCitationAuditOptions['observations']> = options.observations ??
@@ -218,7 +225,7 @@ export async function auditCompetitorCitations(
         } else {
           let model = options.model;
           if (!model) {
-            const subscription = getChatGPTStatus().enabled;
+            const subscription = shouldUseChatGPTSubscription(getChatGPTStatus());
             const timeout = subscription ? parameters.subscriptionTimeoutMs : parameters.apiTimeoutMs;
             model = subscription ? new ChatGPTModel({ signal: controller.signal, timeoutMs: timeout,
               onMetadata: (metadata) => { inference = metadata; } })

@@ -9,6 +9,7 @@ import { collectionReservation, requireCollectionKey } from './providers/config'
 import { buildDoubaoRequest, parseDoubaoAnswer } from './providers/doubao';
 import { buildQwenRequest, parseQwenAnswer } from './providers/qwen';
 import { defaultCollectionRuntime, type CollectionRuntime, type CollectionTask } from './collection-runtime';
+import { saveCollectionResponse, saveCollectionSummary, writeCollectionRequest } from './collection-response';
 
 /** Answer observations use native target citations, never a search-list position. */
 export async function collectAnswerRun(task: CollectionTask, id: string, questions: GeoQuestion[], at: string,
@@ -24,6 +25,12 @@ export async function collectAnswerRun(task: CollectionTask, id: string, questio
   const stamp = { phase, protocolKey: task.workflow!.protocolKey,
     implementationRevision: phase === 'baseline' ? 0 : task.implementation?.proposalRevision };
   for (const question of questions) {
+    const recovered = await context.recoverQuestion?.(question);
+    if (recovered) {
+      if (recovered.result) completed.push(recovered.result);
+      if (recovered.error) errors.push(`${question.id}: ${recovered.error}`);
+      continue;
+    }
     const current = context.getTask(task.id);
     if (current.status === 'paused' || current.workflow?.protocolKey !== stamp.protocolKey ||
       (phase === 'baseline' ? current.implementation !== null : current.implementation?.proposalRevision !== stamp.implementationRevision)) {
@@ -33,17 +40,20 @@ export async function collectAnswerRun(task: CollectionTask, id: string, questio
       errors.push('剩余预算不足以预留下一题费用，已停止。'); break;
     }
     context.onQuestionStart?.(question);
-    const measuredAt = nowISO();
+    let measuredAt = nowISO();
     const safeId = /^[a-zA-Z0-9_-]{1,100}$/.test(question.id) ? question.id : createHash('sha256').update(question.id).digest('hex');
     const evidencePath = `data/geo-evidence/${id}/${safeId}.json`;
     const key = requireCollectionKey(collection.provider);
     const request = collection.provider === 'doubao' ? buildDoubaoRequest(question.query, collection, key)
       : buildQwenRequest(question.query, collection, key);
-    fs.writeFileSync(path.join(directory, `${safeId}.request.json`), JSON.stringify({
+    const savedRequest = {
       at: measuredAt, endpoint: request.url, payload: request.body, collection, ...stamp,
       target: task.workflow!.questions.find(item => item.id === question.id),
-    }, null, 2), { flag: 'wx' });
-    context.chargeTask(task.id, reserve);
+    };
+    if (context.beforeRequest) measuredAt = writeCollectionRequest(path.join(directory, `${safeId}.request.json`), savedRequest);
+    else fs.writeFileSync(path.join(directory, `${safeId}.request.json`), JSON.stringify(savedRequest, null, 2), { flag: 'wx' });
+    if (context.beforeRequest) context.beforeRequest(question, reserve);
+    else context.chargeTask(task.id, reserve);
     cost = Math.round((cost + reserve) * 1000) / 1000;
     let httpStatus = 0;
     let observation: GeoQuestion | undefined;
@@ -52,7 +62,9 @@ export async function collectAnswerRun(task: CollectionTask, id: string, questio
         body: JSON.stringify(request.body), signal: AbortSignal.timeout(90000) });
       httpStatus = response.status;
       const raw = await response.text();
-      fs.writeFileSync(path.join(directory, `${safeId}.json`), raw, { flag: 'wx' });
+      context.assertActive?.();
+      if (context.beforeRequest) saveCollectionResponse(directory, { questionId: question.id, query: question.query, protocolKey: stamp.protocolKey, measuredAt, httpStatus, raw });
+      else fs.writeFileSync(path.join(directory, `${safeId}.json`), raw, { flag: 'wx' });
       if (!response.ok) throw new Error(`HTTP ${httpStatus}；请核对该服务的密钥、模型权限及余额，原始错误已留存。`);
       const answer = collection.provider === 'doubao' ? parseDoubaoAnswer(JSON.parse(raw)) : parseQwenAnswer(JSON.parse(raw));
       if (!answer.searchPerformed) throw new Error('没有取得有效联网搜索证据；回答已原样保存，不能计作联网回答或零引用。');
@@ -68,6 +80,8 @@ export async function collectAnswerRun(task: CollectionTask, id: string, questio
     } catch (error) {
       const message = `${error instanceof Error ? error.message : '联网回答失败'} 费用仅按预留记录，未核对实际账单；不自动重试。`;
       errors.push(`${question.id}: ${message}`);
+      context.onQuestionFailure?.(question, message, false);
+      context.assertActive?.();
       fs.writeFileSync(path.join(directory, `${safeId}.failure.json`), JSON.stringify({ at: measuredAt, httpStatus, error: message }, null, 2), { flag: 'wx' });
       // Stop on an unknown result or account-level problem; never retry a billed call implicitly.
       if (httpStatus === 0 || [401, 402, 403, 429].includes(httpStatus)) break;
@@ -75,6 +89,8 @@ export async function collectAnswerRun(task: CollectionTask, id: string, questio
     // Persistence failures must propagate rather than be treated as provider failures.
     if (observation) await context.onObservation?.(observation);
   }
+  context.assertActive?.();
+  if (context.beforeRequest) cost = context.getTask(task.id).monitor.spent;
   const hitCount = completed.length ? completed.filter(question => question.projectHit).length : null;
   const status = completed.length === questions.length ? 'completed' : completed.length ? 'partial' : 'failed';
   const run: GeoRun = { id, at, completedAt: nowISO(), measurementAt: at, mode: 'live', status,
@@ -83,6 +99,7 @@ export async function collectAnswerRun(task: CollectionTask, id: string, questio
     summary: `${collection.label}取得 ${completed.length}/${questions.length} 道完整联网回答${hitCount === null ? '' : `，其中 ${hitCount} 道通过原生引用指向目标`}。搜索来源与引用分开保存；仅代表此 API 与本次问题，不代表消费者 App。¥${cost.toFixed(2)} 为费用预留，实际以供应商账单为准。`,
     ...(errors.length ? { error: errors.join('；') } : {}),
   };
-  fs.writeFileSync(path.join(directory, 'run.json'), JSON.stringify(run, null, 2), { flag: 'wx' });
+  if (context.beforeRequest) saveCollectionSummary(directory, run);
+  else fs.writeFileSync(path.join(directory, 'run.json'), JSON.stringify(run, null, 2), { flag: 'wx' });
   return run;
 }

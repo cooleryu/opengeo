@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import type { Response as ModelResponse, ResponseCreateParamsStreaming, ResponseInput } from 'openai/resources/responses/responses';
+import type { Response as ModelResponse, ResponseCreateParamsStreaming, ResponseInput, ResponseOutputItemDoneEvent } from 'openai/resources/responses/responses';
 import z from 'zod';
 import type { GenerateObjectInput } from '../models/types';
 import type { GeoStructuredModel } from './connection-settings';
@@ -12,11 +12,21 @@ export type ChatGPTInferenceMetadata = {
   usage?: { inputTokens: number; outputTokens: number; totalTokens: number };
 };
 
+export type ChatGPTRequestActivity = {
+  phase: 'connecting' | 'connected' | 'receiving' | 'completed' | 'failed';
+  elapsedMs: number;
+  eventCount: number;
+  outputCharacters: number;
+  lastEventAt?: string;
+  requestId?: string;
+};
+
 export type ChatGPTRequestOptions = {
   fetch?: typeof fetch;
   signal?: AbortSignal;
   timeoutMs?: number;
   onMetadata?: (metadata: ChatGPTInferenceMetadata) => void;
+  onActivity?: (activity: ChatGPTRequestActivity) => void;
 };
 
 type ChatGPTModelOptions = ChatGPTRequestOptions & {
@@ -50,19 +60,36 @@ function isUsageLimit(code: unknown): boolean {
   return code === 'subscription_sharing_usage_limit_exceeded' || code === 'subscription_sharing_usage_unavailable';
 }
 
-function responseText(response: ModelResponse): string {
-  if (response.status !== 'completed' || response.error || !Array.isArray(response.output)) {
+function responseText(response: ModelResponse, doneMessages: ResponseOutputItemDoneEvent[]): string {
+  // Called only after response.completed. An explicit contradictory status or error
+  // still rejects the response; SDK Response.status itself is optional.
+  if ((response.status !== undefined && response.status !== 'completed') || response.error) {
     throw new ChatGPTModelError('invalid_response');
   }
+  let output = response.output;
+  // Some subscription streams finish with output: [] after emitting complete
+  // output_item.done messages. Only those messages may fill an absent terminal
+  // snapshot: text deltas and text.done alone do not establish item completion.
+  if (output === undefined || (Array.isArray(output) && output.length === 0)) {
+    const indices = doneMessages.map(event => event.output_index);
+    if (indices.some(index => !Number.isSafeInteger(index) || index < 0) || new Set(indices).size !== indices.length) {
+      throw new ChatGPTModelError('invalid_response');
+    }
+    output = [...doneMessages].sort((a, b) => a.output_index - b.output_index).map(event => event.item);
+  }
+  if (!Array.isArray(output)) throw new ChatGPTModelError('invalid_response');
   const parts: string[] = [];
-  for (const item of response.output) {
+  for (const item of output) {
+    if (!item || typeof item !== 'object') throw new ChatGPTModelError('invalid_response');
     if (item.type !== 'message') continue;
     if (item.role !== 'assistant' || item.status !== 'completed' || !Array.isArray(item.content)) {
       throw new ChatGPTModelError('invalid_response');
     }
     for (const part of item.content) {
+      if (!part || typeof part !== 'object') throw new ChatGPTModelError('invalid_response');
       if (part.type === 'refusal') throw new ChatGPTModelError('refused');
-      if (part.type === 'output_text' && typeof part.text === 'string') parts.push(part.text);
+      if (part.type !== 'output_text' || typeof part.text !== 'string') throw new ChatGPTModelError('invalid_response');
+      parts.push(part.text);
     }
   }
   const text = parts.join('').trim();
@@ -95,6 +122,18 @@ export default class ChatGPTModel implements GeoStructuredModel {
   }
 
   async generateObject<T>(input: GenerateObjectInput): Promise<T> {
+    const startedAt = Date.now();
+    let lastNotifiedAt = 0;
+    let activity: ChatGPTRequestActivity = { phase: 'connecting', elapsedMs: 0, eventCount: 0, outputCharacters: 0 };
+    const notify = (phase: ChatGPTRequestActivity['phase'], force = false) => {
+      const now = Date.now();
+      const changed = phase !== activity.phase;
+      activity = { ...activity, phase, elapsedMs: now - startedAt };
+      if (!force && !changed && now - lastNotifiedAt < 2000) return;
+      lastNotifiedAt = now;
+      try { this.options.onActivity?.({ ...activity }); } catch { /* Optional observer. */ }
+    };
+    notify('connecting', true);
     const controller = new AbortController();
     const signal = this.options.signal ? AbortSignal.any([controller.signal, this.options.signal]) : controller.signal;
     const timeoutMs = this.options.timeoutMs ?? 180_000;
@@ -128,18 +167,28 @@ export default class ChatGPTModel implements GeoStructuredModel {
         // The installed SDK predates the documented `max` effort; preserve its wire value.
         ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } as ResponseCreateParamsStreaming['reasoning'] } : {}),
       }, { signal, maxRetries: 0 }).withResponse();
+      if (requestId && /^[a-zA-Z0-9._:/-]{1,128}$/.test(requestId) && !requestId.includes(accessToken)) {
+        activity.requestId = requestId;
+      }
+      notify('connected', true);
       let completed: ModelResponse | undefined;
+      const doneMessages: ResponseOutputItemDoneEvent[] = [];
       for await (const event of stream) {
+        activity.eventCount++;
+        activity.lastEventAt = new Date().toISOString();
+        if (event.type === 'response.output_text.delta') activity.outputCharacters += event.delta.length;
+        notify('receiving');
         if (event.type === 'response.failed') {
           throw new ChatGPTModelError(isUsageLimit(event.response.error?.code) ? 'usage_limit' : 'request_failed');
         }
         if (event.type === 'error') throw new ChatGPTModelError(isUsageLimit(event.code) ? 'usage_limit' : 'request_failed');
         if (event.type === 'response.incomplete') throw new ChatGPTModelError('incomplete');
+        if (event.type === 'response.output_item.done' && event.item?.type === 'message') doneMessages.push(event);
         if (event.type === 'response.completed') { completed = event.response; break; }
       }
       signal.throwIfAborted();
       if (!completed) throw new ChatGPTModelError('interrupted');
-      const text = responseText(completed);
+      const text = responseText(completed, doneMessages);
       let object: unknown;
       try {
         object = JSON.parse(text);
@@ -148,8 +197,10 @@ export default class ChatGPTModel implements GeoStructuredModel {
       } catch { throw new ChatGPTModelError('invalid_object'); }
       // Observability cannot change an otherwise successful result; never pass content or credentials.
       try { this.options.onMetadata?.(safeMetadata(completed, requestId, model, accessToken, reasoningEffort)); } catch { /* Optional observer. */ }
+      notify('completed', true);
       return object as T;
     } catch (error) {
+      notify('failed', true);
       if (signal.aborted) throw new ChatGPTModelError(timedOut ? 'timeout' : 'cancelled', timedOut ? 504 : 408);
       if (error instanceof ChatGPTModelError) throw error;
       const status = error instanceof OpenAI.APIError && Number.isInteger(error.status) ? error.status : undefined;

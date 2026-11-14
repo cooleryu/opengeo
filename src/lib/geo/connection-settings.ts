@@ -17,9 +17,10 @@ export class GeoSettingsError extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
 
-const modelProviders = ['deepseek', 'openai', 'custom'] as const;
+const modelProviders = ['gemini', 'deepseek', 'openai', 'custom'] as const;
 const searchProviders = ['deepseek', 'qwen', 'doubao'] as const;
-const stringValue = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
+const stringValue = (value: unknown): string =>
+  typeof value === 'string' ? value.trim().replace(/^["']|["']$/g, '') : '';
 const dataPath = (file: string) => path.join(process.env.DATA_DIR || process.cwd(), 'data', file);
 
 function validBaseURL(value: string): string {
@@ -35,6 +36,7 @@ function safeBaseURL(value: string): string {
 function inferProvider(baseURL: string): GeoModelProvider {
   try {
     const hostname = new URL(baseURL).hostname;
+    if (hostname === 'generativelanguage.googleapis.com') return 'gemini';
     return hostname === 'api.deepseek.com' ? 'deepseek' : hostname === 'api.openai.com' ? 'openai' : 'custom';
   } catch { return 'custom'; }
 }
@@ -68,16 +70,32 @@ function resolveModel(saved: SavedSettings): GeoModelConnection {
   const legacy = legacyOpenAIConnection(vaneProviderId);
   const values = saved.model;
   const useVane = Boolean(vaneProviderId && !values);
-  const environmentBaseURL = stringValue(process.env.OPENGEO_LLM_BASE_URL) || 'https://api.openai.com/v1';
+  const geminiKey = stringValue(process.env.GEMINI_API_KEY);
+  const explicitBaseURL = stringValue(process.env.OPENGEO_LLM_BASE_URL);
+  const environmentBaseURL = explicitBaseURL
+    || (geminiKey ? 'https://generativelanguage.googleapis.com/v1beta/openai' : 'https://api.openai.com/v1');
   const baseURL = safeBaseURL(values?.baseURL ?? (useVane && legacy ? legacy.baseURL : environmentBaseURL));
-  const model = values?.model ?? stringValue(process.env.OPENGEO_LLM_MODEL);
-  const apiKey = values?.apiKey ?? (useVane && legacy ? legacy.apiKey : stringValue(process.env.OPENGEO_LLM_API_KEY));
   const provider = values?.provider ?? inferProvider(baseURL);
+  const explicitModel = stringValue(process.env.OPENGEO_LLM_MODEL);
+  const model = values?.model ?? (explicitModel || (provider === 'gemini' && geminiKey ? 'gemini-3.8-flash' : ''));
+  const explicitKey = stringValue(process.env.OPENGEO_LLM_API_KEY);
+  const deepseekKey = stringValue(process.env.DEEPSEEK_API_KEY);
+  const envKeyForProvider = explicitKey || (provider === 'gemini' ? geminiKey : provider === 'deepseek' ? deepseekKey : '');
+  const apiKey = values?.apiKey ?? (useVane && legacy ? legacy.apiKey : envKeyForProvider);
   return { provider, baseURL, model, apiKey, configured: Boolean(model && (useVane || (apiKey && baseURL))),
     source: values ? 'saved' : useVane ? 'vane' : 'environment', ...(useVane ? { vaneProviderId } : {}) };
 }
 
 export function getGeoModelConnection(): GeoModelConnection { return resolveModel(readSavedSettings()); }
+
+export function shouldUseChatGPTSubscription(
+  status: { enabled?: boolean; connected?: boolean },
+  apiConfigured = getGeoModelConnection().configured,
+): boolean {
+  if (!status.enabled) return false;
+  if (status.connected === false && apiConfigured) return false;
+  return true;
+}
 
 function resolveSearch(provider: GeoSearchProvider, saved: SavedSettings): { apiKey: string; model: string | null; source: GeoSettingsSource } {
   const values = saved.search?.[provider];

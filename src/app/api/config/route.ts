@@ -2,6 +2,7 @@ import configManager from '@/lib/config';
 import ModelRegistry from '@/lib/models/registry';
 import { NextRequest, NextResponse } from 'next/server';
 import { ConfigModelProvider } from '@/lib/config/types';
+import { publicModelProvider } from '@/lib/config/public-config';
 
 type SaveConfigBody = {
   key: string;
@@ -20,12 +21,12 @@ export const GET = async (req: NextRequest) => {
       (mp: ConfigModelProvider) => {
         const activeProvider = modelProviders.find((p) => p.id === mp.id);
 
-        return {
+        return publicModelProvider({
           ...mp,
           chatModels: activeProvider?.chatModels ?? mp.chatModels,
           embeddingModels:
             activeProvider?.embeddingModels ?? mp.embeddingModels,
-        };
+        }, fields.modelProviders.find(section => section.key === mp.type)?.fields ?? []);
       },
     );
 

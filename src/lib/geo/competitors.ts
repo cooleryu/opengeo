@@ -363,7 +363,7 @@ export function buildCompetitorComparison(
               );
               const audit = audits?.length === 1 ? audits[0] : undefined;
               // Persisted identity review takes precedence over a raw same-name
-              // occurrence (including the unrelated 项目 paper).
+              // occurrence (including an unrelated same-name publication).
               const ownMention: CompetitorMatch =
                 audits === undefined
                   ? ownNameMatch

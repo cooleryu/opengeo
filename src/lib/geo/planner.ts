@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { getGeoModelConnection, loadGeoModel } from './connection-settings';
+import { improvementModelSettings, loadImprovementModel } from './improvement-model';
 import { z } from 'zod';
 import SessionManager from '@/lib/session';
 import type { WidgetBlock } from '@/lib/types';
@@ -7,6 +7,7 @@ import type { GenerateObjectInput } from '@/lib/models/types';
 import type { AssetGovernanceRecord, GeoTask, GeoSeed, GeoProposal } from './types';
 import type { GeoDiagnosis, GeoWorkflow, QualityLoop, QualityReview, StrategyMemory } from './workflow-types';
 import { buildDiagnosisContext, localDiagnosis, validateDiagnosis, validateProposal, readRegisteredEvidence, type DiagnosisContext } from './diagnosis';
+import { resolveAssetOwnership } from './asset-ownership';
 import { buildQualityReview, proposalDigest, runQualityLoop, continueQualityLoop, QUALITY_CRITERIA_VERSION, GEO_ACCEPTANCE_CRITERIA_VERSION, QUALITY_MINIMUM, QUALITY_TARGET, type QualityIssue } from './quality';
 export { proposalDigest } from './quality';
 import { assertResearchTaskSearchEligible, researchTaskQuestion } from './research-task-context';
@@ -36,11 +37,13 @@ type ResearchDiagnosisContext = DiagnosisContext & {
 function taskMaterialSeed(task: GeoTask, seed: GeoSeed): GeoSeed {
   const target = task.researchContext?.snapshot?.targetAsset;
   // A selected asset is the content the user reviewed when creating this task.
-  let assets = target ? [...seed.assets.filter(asset => asset.id !== target.id), structuredClone(target)] : seed.assets;
+  const trustedTarget = target ? { ...structuredClone(target), ownership: resolveAssetOwnership(target, seed).ownership } : undefined;
+  let assets = trustedTarget ? [...seed.assets.filter(asset => asset.id !== trustedTarget.id), trustedTarget] : seed.assets;
   if (task.workflow?.savedResearch) {
     const allowed = new Set(task.workflow.questions.flatMap(question => question.assetIds));
     const language = task.workflow.savedResearch.language;
-    assets = assets.filter(asset => allowed.has(asset.id) && (target ? asset.id === target.id : asset.language.startsWith(language)));
+    assets = assets.filter(asset => resolveAssetOwnership(asset, seed).ownership === 'external'
+      || (allowed.has(asset.id) && (target ? asset.id === target.id : asset.language.startsWith(language))));
   }
   return { ...seed, assets };
 }
@@ -176,8 +179,8 @@ function unreviewedResearchProposal(task: GeoTask): GeoProposal {
 }
 
 export function getGeoModelSettings() {
-  const connection = getGeoModelConnection();
-  return { modelConfigured: connection.configured, modelName: connection.configured ? connection.model : null };
+  const { modelConfigured, modelName } = improvementModelSettings();
+  return { modelConfigured, modelName };
 }
 
 const boundedText = (max = 3000) => z.string().trim().min(1).max(max);
@@ -213,18 +216,20 @@ const geoReviewSchema = reviewSchema.extend({ geoAcceptance: z.object({
 }).strict() }).strict();
 
 type StructuredModel = { generateObject<T>(input: GenerateObjectInput): Promise<unknown> };
-const loadModel = async () => withOneImprovementStructureRetry(await loadGeoModel());
+const loadModel = async () => withOneImprovementStructureRetry(await loadImprovementModel());
 
 const modelOptionsSchema = z.object({
   temperature: z.number().min(0).max(2),
   maxTokens: z.number().int().positive(),
 }).strict();
 const improvementParametersSchema = z.object({
+  subscriptionTimeoutMs: z.number().int().positive(),
   diagnose: modelOptionsSchema,
   propose: modelOptionsSchema,
   review: modelOptionsSchema,
   repair: modelOptionsSchema,
   defaultMaxQualityRounds: z.number().int().min(1).max(3),
+  projectOptimization: z.unknown().optional(), // Validated by the project optimization caller.
 }).strict();
 
 function improvementParameters() {
@@ -329,7 +334,9 @@ function makeBlocks(proposal: GeoProposal, diagnosis: GeoDiagnosis, quality: Qua
   return blocks;
 }
 
-export async function buildTaskPlan(task: GeoTask, seed: GeoSeed, strategies: StrategyMemory[] = []): Promise<{
+export type TaskPlanProgress = { phase: 'comparing' | 'drafting' | 'reviewing' | 'revising'; message: string };
+export async function buildTaskPlan(task: GeoTask, seed: GeoSeed, strategies: StrategyMemory[] = [],
+  onProgress?: (progress: TaskPlanProgress) => void): Promise<{
   proposal: GeoProposal; blocks: WidgetBlock[]; source: 'evidence' | 'model'; diagnosis: GeoDiagnosis;
   quality: QualityLoop; appliedStrategyIds: string[];
 }> {
@@ -344,6 +351,7 @@ export async function buildTaskPlan(task: GeoTask, seed: GeoSeed, strategies: St
     quality = previewLoop(proposal, seed, context, diagnosis,
       !getGeoModelSettings().modelConfigured ? 'needs_configuration' : 'needs_evidence');
   } else {
+    onProgress?.({ phase: 'comparing', message: '正在对照原回答和刚读取的正文，确认这项改动的依据。' });
     const model = await loadModel();
     const result = diagnosisSchema.parse(await model.generateObject<z.infer<typeof diagnosisSchema>>({
       schema: diagnosisSchema,
@@ -358,10 +366,13 @@ export async function buildTaskPlan(task: GeoTask, seed: GeoSeed, strategies: St
     if (validateDiagnosis(diagnosis, context).length) {
       quality = previewLoop(proposal, seed, context, diagnosis, 'needs_evidence');
     } else {
+      onProgress?.({ phase: 'drafting', message: '正在准备可直接替换的修改稿。' });
       proposal = await createCandidate(model, task, seed, context, diagnosis);
       quality = await runQualityLoop(proposal,
-        candidate => assessCandidate(model, candidate, seed, context, diagnosis),
-        (candidate, review) => createCandidate(model, task, seed, context, diagnosis, { proposal: candidate, review }), task.workflow?.maxQualityRounds ?? improvementParameters().defaultMaxQualityRounds);
+        candidate => { onProgress?.({ phase: 'reviewing', message: '正在独立核查修改稿的事实依据、可用性和复测方法。' });
+          return assessCandidate(model, candidate, seed, context, diagnosis); },
+        (candidate, review) => { onProgress?.({ phase: 'revising', message: '正在修正审核发现的问题，随后再次检查。' });
+          return createCandidate(model, task, seed, context, diagnosis, { proposal: candidate, review }); }, task.workflow?.maxQualityRounds ?? improvementParameters().defaultMaxQualityRounds);
       proposal = structuredClone(quality.rounds.find(round => round.round === quality.bestRound)!.candidate);
       proposal.status = quality.rounds.find(round => round.round === quality.bestRound)!.review.passed ? 'reviewed' : 'needs_review';
     }

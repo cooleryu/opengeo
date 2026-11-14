@@ -240,12 +240,13 @@
   margin-top: 9px;
 }
 .qd-platform-entry { font-size: 10px; color: #7c8781; white-space: nowrap; }
-.qd-result { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
+.qd-result { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px; font-size: 11px; }
 .qd-result.found { color: #347b63; }
 .qd-result.missing { color: #7b756d; }
 .qd-result.unknown { color: #8a929a; }
-.qd-result > svg { width: 13px; height: 13px; }
+.qd-result > svg { width: 13px; height: 13px; flex-shrink: 0; }
 .qd-count { display: inline-flex; align-items: baseline; gap: 3px; font-variant-numeric: tabular-nums; }
+.qd-count-sep { color: #838c86; font-size: 10.5px; }
 .qd-count strong { font-size: 13px; font-weight: 600; }
 .qd-count > span { color: #838c86; }
 .qd-loading {

@@ -10,6 +10,7 @@ import { COMPETITOR_ANALYSIS_VERSION, competitorCandidateId, getCompetitorSelect
 import { analyzePreparedCompetitors, eligibleCompetitorCandidates, prepareCompetitorAnalysis, rankCompetitorCandidates, readDisplayedCompetitorAnalysis } from './competitor-analysis';
 import type { CompetitorCitationAuditOptions } from './competitor-citation-audit';
 import type { GeoStructuredModel } from './connection-settings';
+import type { ResearchOwnershipCheck } from './research-store';
 import {
   buildCompetitorComparison,
   CompetitorError,
@@ -427,15 +428,19 @@ export function getCompetitorCandidates(batchId?: string, previewId?: string, sc
 }
 
 export async function analyzeCompetitorCandidates(batchId?: string,
-  options: { force?: boolean; model?: GeoStructuredModel; timeoutMs?: number } = {}): Promise<CompetitorCandidates> {
+  options: { force?: boolean; model?: GeoStructuredModel; timeoutMs?: number; assertActive?: ResearchOwnershipCheck } = {}): Promise<CompetitorCandidates> {
   const projectId = currentGeoProject();
   return withGeoProject(projectId, async () => {
+    options.assertActive?.();
     const context = candidateContext(batchId);
     const result = await analyzePreparedCompetitors(context.prepared, options);
+    options.assertActive?.();
     if (result.state.status === 'ready' && context.batch) {
       const { auditCompetitorCitations } = await import('./competitor-citation-audit');
-      await auditCompetitorCitations(context.batch, citationCandidates(result.candidates, context));
+      options.assertActive?.();
+      await auditCompetitorCitations(context.batch, citationCandidates(result.candidates, context), { assertActive: options.assertActive });
     }
+    options.assertActive?.();
     return getCompetitorCandidates(batchId);
   });
 }
@@ -445,12 +450,15 @@ export async function auditCompetitorCandidateCitations(batchId?: string,
   options: CompetitorCitationAuditOptions = {}): Promise<CompetitorCandidates> {
   const projectId = currentGeoProject();
   return withGeoProject(projectId, async () => {
+    options.assertActive?.();
     const context = candidateContext(batchId);
     if (context.batch) {
       const { auditCompetitorCitations } = await import('./competitor-citation-audit');
+      options.assertActive?.();
       const { result } = readDisplayedCompetitorAnalysis(context.prepared);
       await auditCompetitorCitations(context.batch, citationCandidates(result?.candidates ?? [], context), options);
     }
+    options.assertActive?.();
     return getCompetitorCandidates(batchId);
   });
 }

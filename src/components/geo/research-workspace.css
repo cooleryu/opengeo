@@ -59,6 +59,11 @@
   place-items: center;
   font-size: 15px;
 }
+.og-brand-mark {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
 .rw-body {
   padding: 22px 24px 40px;
 }

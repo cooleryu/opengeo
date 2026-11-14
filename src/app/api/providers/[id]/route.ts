@@ -1,4 +1,6 @@
 import ModelRegistry from '@/lib/models/registry';
+import configManager from '@/lib/config';
+import { publicModelProvider } from '@/lib/config/public-config';
 import { NextRequest } from 'next/server';
 
 export const DELETE = async (
@@ -69,7 +71,8 @@ export const PATCH = async (
 
     return Response.json(
       {
-        provider: updatedProvider,
+        provider: publicModelProvider(updatedProvider,
+          configManager.getUIConfigSections().modelProviders.find(section => section.key === updatedProvider.type)?.fields ?? []),
       },
       {
         status: 200,

@@ -1,4 +1,6 @@
 import ModelRegistry from '@/lib/models/registry';
+import configManager from '@/lib/config';
+import { publicModelProvider } from '@/lib/config/public-config';
 import { NextRequest } from 'next/server';
 
 export const GET = async (req: Request) => {
@@ -54,7 +56,8 @@ export const POST = async (req: NextRequest) => {
 
     return Response.json(
       {
-        provider: newProvider,
+        provider: publicModelProvider(newProvider,
+          configManager.getUIConfigSections().modelProviders.find(section => section.key === newProvider.type)?.fields ?? []),
       },
       {
         status: 200,

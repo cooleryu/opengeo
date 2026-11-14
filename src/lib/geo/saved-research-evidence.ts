@@ -25,6 +25,40 @@ export function readSavedResearchEvidence(
   const raw = read(evidencePath);
   if (!raw?.trim()) return { ...base, error: '已保存观测的原始证据不存在或不可读取。' };
 
+  // Browser ingestion now saves JSON, while early manual captures used Markdown.
+  // Bind to the original request before exposing the answer; never use summary text.
+  if ((observation.engine === 'chatgpt' || observation.engine === 'google') && /^\s*\{/.test(raw)) {
+    let record: Record<string, unknown>;
+    try { record = JSON.parse(raw); } catch { return { ...base, error: '浏览器原始记录无法解析。' }; }
+    const input = record.version === 1 && record.input && typeof record.input === 'object' && !Array.isArray(record.input)
+      ? record.input as Record<string, unknown> : null;
+    const captured = input || (record.schemaVersion === 1 ? record : null);
+    const inputConditions = input && input.conditions && typeof input.conditions === 'object'
+      ? JSON.stringify({ ...input.conditions, originalURL: input.pageUrl, answerComplete: input.answerComplete,
+        citationsComplete: input.citationsComplete, citationSource: input.citationSource }) : null;
+    if (!captured || captured.engine !== observation.engine || captured.query !== observation.query
+      || (input ? captured.recordedAt : captured.capturedAt) !== observation.recordedAt
+      || (input && (captured.language !== observation.language || captured.entryType !== 'web_answer'
+        || observation.id !== `browser:${captured.captureId}` || inputConditions !== observation.conditions))
+      || (observation.entryType && observation.entryType !== 'web_answer')
+      || (!input && (captured.conditions !== observation.conditions
+        || (observation.engine === 'google' && captured.overviewStatus !== 'generated'))))
+      return { ...base, error: '浏览器记录的原问题、平台或采集条件与任务不一致。' };
+    const answerText = input && typeof captured.answerText === 'string'
+      ? captured.answerText.trim() : extractAnswerContent(raw);
+    if (!answerText) return { ...base, error: '浏览器记录没有回答正文，摘要或搜索链接不能代替回答。' };
+    const answerPath = observation.answerPath || evidencePath;
+    if (answerPath !== evidencePath && read(answerPath)?.trim() !== answerText)
+      return { ...base, error: '回答文件与原始采集正文不一致。' };
+    const platform = observation.engine === 'google' ? 'Google AI Overview' : 'ChatGPT 网页';
+    return { ...base, available: true, answerText,
+      evidencePaths: [...new Set([evidencePath, answerPath])],
+      captureNotes: JSON.stringify({ conditions: captured.conditions,
+        answerComplete: captured.answerComplete ?? 'unknown',
+        citationsComplete: captured.citationsComplete ?? 'unknown', citationCoverage: captured.citationCoverage ?? 'unknown' }),
+      boundary: `已保存的 ${platform} 原始回答，按原问题、平台和采集时间核对。${captured.answerComplete === true ? '采集时标记正文完整。' : '正文完整性未确认，不能据未读部分断言缺失。'}引用完整性沿用原采集记录；来源全文未重新读取，不是新搜索或新基线。` };
+  }
+
   if (observation.engine === 'chatgpt' && (!observation.entryType || observation.entryType === 'web_answer')) {
     const answerPath = observation.answerPath || evidencePath;
     const answerRaw = answerPath === evidencePath ? raw : read(answerPath);
@@ -59,5 +93,5 @@ export function readSavedResearchEvidence(
     return { ...base, available: true, evidencePaths: [evidencePath, requestPath], results,
       boundary: '历史 DeepSeek Search API 原始结果；仅比较返回的正文、摘要或片段，未独立读取来源全文，不是 AI 回答引用或新搜索。' };
   }
-  return { ...base, error: '本入口的保存记录尚未支持原文核验；本轮仅支持 ChatGPT 网页回答和 DeepSeek Search API 原始记录。' };
+  return { ...base, error: '本入口的保存记录尚未支持原文核验；支持 ChatGPT 网页回答、Google AI Overview 和 DeepSeek Search API 原始记录。' };
 }

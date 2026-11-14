@@ -21,7 +21,13 @@ export async function PUT(request: NextRequest) {
     if (!request.headers.get('content-type')?.includes('application/json')) throw new GeoSettingsError('请使用 JSON 提交设置。');
     const body = await request.text();
     if (body.length > 16_384) throw new GeoSettingsError('设置内容过长。');
-    return NextResponse.json(saveGeoConnectionSettings(JSON.parse(body)), { headers });
+    const parsed = JSON.parse(body) as { section?: unknown };
+    const saved = saveGeoConnectionSettings(parsed);
+    if (parsed?.section === 'model') {
+      const { setChatGPTAnalysisEnabled } = await import('@/lib/geo/chatgpt-auth');
+      await setChatGPTAnalysisEnabled(false).catch(() => {});
+    }
+    return NextResponse.json(saved, { headers });
   } catch (error) { return failure(error); }
 }
 

@@ -9,6 +9,7 @@ import { parseQwenAnswer } from './providers/qwen';
 import { evidenceLocation } from './projects';
 import { selectStrategies } from './learning';
 import { readSavedResearchEvidence } from './saved-research-evidence';
+import { editableAssetIssue, resolveAssetOwnership, type EffectiveAssetOwnership } from './asset-ownership';
 
 type SourceExcerpt = { url: string; title: string; summary: string; snippet: string; content: string; contentProvided: boolean; truncated: boolean; boundary: string };
 export interface DiagnosisContext {
@@ -23,6 +24,7 @@ export interface DiagnosisContext {
     savedAnswer?: { text: string; truncated: boolean; boundary: string };
     sources: SourceExcerpt[]; suppliedSourceCount: number; boundary: string }[];
   materials: { id: string; title: string; publicUrl: string | null; sourcePath: string; summary: string; markdown: string;
+    ownership: EffectiveAssetOwnership; ownershipBasis: string; editable: boolean;
     markdownIsExcerpt: boolean; truncated: boolean; boundary: string }[];
   strategies: StrategyMemory[];
   allowedEvidencePaths: string[];
@@ -45,6 +47,9 @@ export function readRegisteredEvidence(file: string): string | null {
 
 const text = (value: unknown, limit: number) => typeof value === 'string' ? value.slice(0, limit) : '';
 export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: StrategyMemory[] = []): DiagnosisContext {
+  const projectMatches = (!task.projectId || task.projectId === seed.project.id)
+    && (!task.researchContext?.projectId || task.researchContext.projectId === seed.project.id)
+    && (!task.researchContext?.snapshot || task.researchContext.snapshot.projectId === seed.project.id);
   const workflow = task.workflow;
   const baseline = workflow?.baseline;
   const frozen = workflow?.questions ?? [];
@@ -73,7 +78,7 @@ export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: 
     if (saved && savedEvidence) {
       const rawAvailable = savedMatches && savedEvidence.available;
       if (rawAvailable) savedEvidence.evidencePaths.forEach(file => allowed.add(file));
-      const rows = saved.engine === 'chatgpt' ? saved.sources : savedEvidence.results;
+      const rows = savedEvidence.answerText !== null ? saved.sources : savedEvidence.results;
       const selected = research?.sourceUrl;
       const ordered = selected ? [...rows.filter(row => row.url === selected), ...rows.filter(row => row.url !== selected)] : rows;
       const sources: SourceExcerpt[] = ordered.slice(0, 5).flatMap(row => {
@@ -130,13 +135,14 @@ export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: 
       sources, suppliedSourceCount: sources.length, boundary: answer ? 'API 回答与原生引用已提供，最多五条来源摘要；引用不证明内容支持相关论断。豆包仅返回引用来源元数据，不是完整搜索列表；消费者 App 未测。' : '每题最多提供前五条可读取来源；未提供的结果和页面内容属于未知。' };
   });
   const allowedTargetAssetIds = [...new Set(frozen.flatMap(question => question.assetIds))]
-    .filter(id => seed.assets.some(asset => asset.id === id));
+    .filter(id => projectMatches && !editableAssetIssue(seed.assets.find(asset => asset.id === id), seed));
   let remaining = 100_000;
   const materials = seed.assets.map(asset => {
     const markdown = asset.markdown.slice(0, Math.min(20_000, remaining));
     remaining -= markdown.length;
     for (const file of saved ? [asset.sourcePath] : [asset.sourcePath, ...asset.evidencePaths]) if (readRegisteredEvidence(file) !== null) allowed.add(file);
     return { id: asset.id, title: asset.title, publicUrl: asset.publicUrl, sourcePath: asset.sourcePath,
+      ...resolveAssetOwnership(asset, seed), editable: !editableAssetIssue(asset, seed),
       summary: asset.summary, markdown, markdownIsExcerpt: Boolean(asset.markdownIsExcerpt), truncated: markdown.length !== asset.markdown.length,
       boundary: asset.markdownIsExcerpt || markdown.length !== asset.markdown.length
         ? '导入节选或输入截断；未见某信息不证明完整页面没有。只可修改明确提供的片段。'
@@ -157,7 +163,7 @@ export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: 
       conditions: saved.conditions, entryType: saved.entryType || (saved.engine === 'chatgpt' ? 'web_answer' : 'api_search'),
       evidencePath: savedEvidence.evidencePath, captureNotes: savedEvidence.captureNotes, boundary: savedEvidence.boundary } } : {}),
     questions, materials, strategies: applicable, allowedEvidencePaths: [...allowed], allowedTargetAssetIds,
-    evidenceReady, limitations: [saved ? savedEvidence?.boundary || '保存证据尚未核验。' : workflow?.collection?.metric === 'answer_target_citation' ? '只观察本轮 API 联网回答及原生引用，不代表消费者 App。搜索来源不等于引用，引用也不自动证明支持相关论断。' : '网页搜索返回不等于 AI 回答引用；未命中不证明没有收录。',
+    evidenceReady: evidenceReady && projectMatches, limitations: [...(!projectMatches ? ['任务与当前项目不一致，不能生成或确认修改稿。'] : []), saved ? savedEvidence?.boundary || '保存证据尚未核验。' : workflow?.collection?.metric === 'answer_target_citation' ? '只观察本轮 API 联网回答及原生引用，不代表消费者 App。搜索来源不等于引用，引用也不自动证明支持相关论断。' : '网页搜索返回不等于 AI 回答引用；未命中不证明没有收录。',
       '生成与审核使用同一配置模型的独立上下文；通过不等于独立事实证明或外部效果验证。',
       '相似策略来自观察性结果，只能帮助提出假设，不能证明本次有效。',
       ...(saved ? [
@@ -200,8 +206,11 @@ export function validateDiagnosis(diagnosis: GeoDiagnosis, context: DiagnosisCon
 export function validateProposal(proposal: GeoProposal, seed: GeoSeed, context: DiagnosisContext): QualityIssue[] {
   const issues: QualityIssue[] = [];
   const reject = (dimension: string, detail: string, suggestion: string) => issues.push({ dimension, severity: 'blocking', detail, suggestion });
+  if (context.project.id !== seed.project.id) reject('relevance', '审核材料不属于当前项目。', '使用当前项目的原题和自有内容重新审核。');
   if (!context.evidenceReady) reject('evidence', '本题原始证据尚未满足方案要求。', '补齐匹配的原文、采集条件和目标材料后重新审核。');
   const asset = seed.assets.find(item => item.id === proposal.targetAssetId);
+  const ownershipIssue = editableAssetIssue(asset, seed);
+  if (ownershipIssue) reject('actionability', ownershipIssue, '外部参考可用于比较和引用；修改目标须为当前项目的自有内容。');
   if (!asset || !context.allowedTargetAssetIds.includes(proposal.targetAssetId)) reject('relevance', '目标材料不属于当前题单的承接范围。', '选择本轮问题绑定的真实材料。');
   if (!asset || proposal.targetUrl !== asset.publicUrl || !asset.publicUrl) reject('actionability', '目标地址与登记材料不一致。', '使用目标材料已登记的公开地址。');
   const material = context.materials.find(item => item.id === proposal.targetAssetId);

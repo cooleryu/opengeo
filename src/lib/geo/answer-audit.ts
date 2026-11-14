@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { readAgentParameters, readAgentText } from './agent-files';
-import { loadGeoModel, type GeoStructuredModel } from './connection-settings';
+import { loadGeoModel, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
 import { singleRequestModel } from './connection-test';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel, { type ChatGPTInferenceMetadata } from './chatgpt-model';
@@ -64,12 +64,19 @@ function exactAssetUrl(left: string, right: string): boolean {
 
 function projectIdentity(seed: GeoSeed): Identity {
   const project = seed.project as GeoSeed['project'] & { identityExclusion?: Identity['exclusion'] };
-  const repositoryName = webUrl(project.repositoryUrl)?.pathname.split('/').filter(Boolean).at(-1);
+  const repoUrl = webUrl(project.repositoryUrl);
+  const repoParts = repoUrl?.pathname.split('/').filter(Boolean) ?? [];
+  const repositoryName = repoParts.at(-1);
+  const inferredOwner =
+    project.owner?.trim() ||
+    (repoUrl?.hostname.toLowerCase() === 'github.com' && repoParts.length >= 2
+      ? repoParts[0]
+      : '');
   return {
     name: project.name,
     aliases: [...new Set([repositoryName, repositoryName?.replace(/[-_]/g, ' ')])]
       .filter((name): name is string => Boolean(name) && name !== project.name),
-    owner: project.owner,
+    owner: inferredOwner,
     description: project.description,
     officialRoots: [project.siteUrl, project.repositoryUrl].filter((url) => Boolean(webUrl(url))),
     publishedUrls: seed.assets.filter((asset) => asset.status === 'published' && webUrl(asset.publicUrl))
@@ -81,7 +88,7 @@ function projectIdentity(seed: GeoSeed): Identity {
 function containsName(text: string, identity: Identity): boolean {
   return [identity.name, ...identity.aliases].some((name) => {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Latin aliases must not match a longer product name such as 项目X.
+    // Latin aliases must not match a longer product name such as ExampleProjectX.
     return new RegExp(`(?<![a-z0-9_])${escaped}(?![a-z0-9_])`, 'iu').test(text) ||
       (/[^\x00-\x7F]/.test(name) && text.includes(name));
   });
@@ -136,9 +143,10 @@ function semanticIssue(result: ModelResult, answer: CollectedAnswer, seed: GeoSe
         if (!result.mentionQuote.trim() || !containsName(result.mentionQuote, identity)) {
           return '未识别项目的结论缺少含项目名称的逐字依据。';
         }
-      } else if (result.identity !== 'excluded' || !containsName(result.mentionQuote, identity) ||
-          containsName(answer.text.replace(result.mentionQuote, ''), identity)) {
+      } else if (result.identity !== 'excluded' || !containsName(result.mentionQuote, identity)) {
         return '回答出现项目名称或别名，未提供未识别项目或同名排除的依据。';
+      } else if (containsProjectIdentityCue(answer.text.replace(result.mentionQuote, ''), seed, identity)) {
+        return '摘录之外仍有本项目所有者或官方链接，不能仅凭同名摘录确认未提及。';
       }
     } else if (result.identity !== 'absent' || result.mentionQuote) {
       return '未提及结论与名称及身份依据不一致。';
@@ -146,6 +154,9 @@ function semanticIssue(result: ModelResult, answer: CollectedAnswer, seed: GeoSe
   }
   if (result.mention === 'unknown' && result.identity !== 'ambiguous') {
     return '待核实提及与模型给出的确定身份结论不一致。';
+  }
+  if (answer.evidence?.citationSource !== 'native' && result.citation !== 'unknown') {
+    return '没有确证的平台原生引用来源，引用结论须保留为待核实。';
   }
   const nativeUrls = new Set(answer.citations.map((citation) => citation.url));
   const nativeOfficialUrls = [...nativeUrls].filter((url) => belongsToProject(url, seed, identity));
@@ -157,8 +168,13 @@ function semanticIssue(result: ModelResult, answer: CollectedAnswer, seed: GeoSe
   } else if (result.officialUrls.length) {
     return '尚未确认引用，却返回了已确认自有引用链接。';
   }
-  if (result.citation === 'no' && nativeOfficialUrls.length) {
-    return '原生引用包含本项目自有链接，与未引用结论矛盾。';
+  if (result.citation === 'no') {
+    if (answer.evidence?.citationsComplete !== true) {
+      return '平台原生引用清单不完整，不能确认未引用。';
+    }
+    if (nativeOfficialUrls.length) {
+      return '原生引用包含本项目自有链接，与未引用结论矛盾。';
+    }
   }
   return undefined;
 }
@@ -169,7 +185,8 @@ export async function analyzeResearchObservation(
   questionId: string,
   observation: ResearchObservation,
   answer?: CollectedAnswer,
-  options: { model?: GeoStructuredModel; persist?: (audit: AnswerAuditRecord) => void } = {},
+  options: { model?: GeoStructuredModel; persist?: (audit: AnswerAuditRecord) => void;
+    onValidatedResult?: (result: ModelResult, issue?: string) => void } = {},
 ): Promise<AnswerAuditRecord> {
   const base = {
     projectId: batch.projectId,
@@ -197,8 +214,8 @@ export async function analyzeResearchObservation(
   }
   if (!answer || typeof answer.text !== 'string' || !answer.text.trim() ||
       !Array.isArray(answer.citations) || answer.evidence?.answerComplete !== true ||
-      answer.evidence.citationSource !== 'native' || answer.evidence.citationsComplete !== true) {
-    return persist(unresolved('缺少完整回答正文或完整平台原生引用证据，不能确认提及或引用。'));
+      !['native', 'unknown', 'none'].includes(answer.evidence.citationSource)) {
+    return persist(unresolved('缺少完整回答正文或引用采集记录，不能确认提及或引用。'));
   }
   if (answer.citations.some((citation) => !citation || !webUrl(citation.url) || typeof citation.title !== 'string')) {
     return persist(unresolved('平台原生引用格式不完整，须重新核实。'));
@@ -208,6 +225,7 @@ export async function analyzeResearchObservation(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let attempted = false;
   let inference: ChatGPTInferenceMetadata | undefined;
+  let validated: { result: ModelResult; issue?: string } | undefined;
   const controller = new AbortController();
   try {
     const parameters = readAgentParameters('answer-evidence-review', parameterSchema);
@@ -216,10 +234,16 @@ export async function analyzeResearchObservation(
       audit = unresolved('项目或问题不属于指定批次，未进行审核。', 'failed');
     } else {
       const identity = projectIdentity(seed);
+      const observedSourceHints = (answer.sources ?? [])
+        .slice(0, 20)
+        .map((s) => ({ title: s.title, url: s.url }));
       const messages = [
         { role: 'system' as const, content: readAgentText('answer-evidence-review') },
         { role: 'user' as const, content: JSON.stringify({ project: identity, query: observation.query,
-          answer: { text: answer.text, nativeCitations: answer.citations, evidence: answer.evidence } }) },
+          answer: { text: answer.text,
+            nativeCitations: answer.evidence.citationSource === 'native' ? answer.citations : [],
+            ...(observedSourceHints.length ? { observedSourceHints } : {}),
+            evidence: answer.evidence } }) },
       ];
       const bytes = Buffer.byteLength(JSON.stringify({ messages, schema: z.toJSONSchema(resultSchema) }), 'utf8');
       if (bytes > parameters.inputLimitBytes) {
@@ -229,7 +253,7 @@ export async function analyzeResearchObservation(
         if (!model) {
           // Only route post-search audits; other Agent operations keep their API model.
           // A failed subscription request must never retry through another provider.
-          const subscription = getChatGPTStatus().enabled;
+          const subscription = shouldUseChatGPTSubscription(getChatGPTStatus());
           const analysisTimeout = subscription ? parameters.subscriptionTimeoutMs : parameters.apiTimeoutMs;
           model = subscription
             ? new ChatGPTModel({ signal: controller.signal, timeoutMs: analysisTimeout,
@@ -246,6 +270,7 @@ export async function analyzeResearchObservation(
         } else {
           const result = parsed.data;
           const issue = semanticIssue(result, answer, seed, identity);
+          validated = { result, issue };
           if (issue) audit = unresolved(issue, 'failed', 'model');
           else audit = {
             ...base, reviewedAt: new Date().toISOString(), method: 'model',
@@ -268,6 +293,8 @@ export async function analyzeResearchObservation(
   } finally {
     if (timer) clearTimeout(timer);
   }
+  // Evidence storage failures must surface as write failures, not model failures.
+  if (validated) options.onValidatedResult?.(validated.result, validated.issue);
   // Do not turn a failed write into a successful audit response.
   if (inference) {
     audit.analysisModel = inference.model;

@@ -1,4 +1,6 @@
-# Vane Search API Documentation
+# Retained Search API / 保留的搜索问答接口
+
+This page documents the inherited `POST /api/search` chat/search interface. OpenGEO question monitoring uses [`/api/geo/research`](opengeo/pages/question-monitoring.md), which saves observations by project; these are different interfaces.
 
 ## Overview
 

@@ -1,0 +1,12 @@
+{
+  "sourceTimeoutMs": 20000,
+  "sourceMaxBytes": 262144,
+  "totalSourceMaxBytes": 524288,
+  "modelSourceMaxBytes": 65536,
+  "inputLimitBytes": 98304,
+  "relatedSourceLimit": 2,
+  "apiTimeoutMs": 90000,
+  "subscriptionTimeoutMs": 240000,
+  "temperature": 0.1,
+  "maxTokens": 2200
+}

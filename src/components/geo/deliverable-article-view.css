@@ -1,0 +1,747 @@
+.dav-root {
+  color: #18181b;
+}
+
+.dav-meta-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #ececee;
+}
+
+.dav-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.dav-path-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #f4f4f5;
+  color: #3f3f46;
+  font-size: 12px;
+  max-width: 100%;
+}
+
+.dav-path-chip code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dav-root .dav-review-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background 0.15s ease;
+}
+
+.dav-root .dav-review-pill:hover {
+  background: #dcfce7;
+}
+
+.dav-copy-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.dav-root .dav-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  background: #fff;
+  color: #27272a;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.dav-root .dav-copy-btn:hover {
+  background: #f8f8f9;
+  border-color: #d4d4d8;
+}
+
+.dav-root .dav-copy-btn.is-primary {
+  border-color: #147a5b;
+  background: #147a5b;
+  color: #ffffff;
+}
+
+.dav-root .dav-copy-btn.is-primary:hover {
+  background: #10634a;
+  border-color: #10634a;
+}
+
+.dav-review-drawer {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px 16px;
+  margin: -8px 0 24px;
+  border-radius: 10px;
+  border: 1px solid #dcfce7;
+  background: #f8fef9;
+}
+
+.dav-review-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dav-review-item > svg {
+  color: #16a34a;
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.dav-review-item strong {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #14532d;
+  margin-bottom: 3px;
+}
+
+.dav-review-item p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #3f6212;
+}
+
+.dav-winners-bar {
+  margin: -6px 0 24px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #e4e4e7;
+  background: #fafafa;
+}
+
+.dav-winners-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 9px;
+}
+
+.dav-winners-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #27272a;
+}
+
+.dav-winners-title svg {
+  color: #2563eb;
+}
+
+.dav-winners-hint {
+  font-size: 11.5px;
+  color: #71717a;
+}
+
+.dav-winners-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dav-winner-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid #d4d4d8;
+  background: #ffffff;
+  font-size: 12px;
+  color: #27272a;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dav-winner-pill:hover {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.dav-winner-pill.is-active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.dav-winner-domain {
+  font-weight: 600;
+}
+
+.dav-winner-status {
+  font-size: 11px;
+  color: #71717a;
+}
+
+.dav-winner-pill.is-active .dav-winner-status {
+  color: #2563eb;
+}
+
+.dav-winner-preview {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid #e4e4e7;
+  background: #ffffff;
+}
+
+.dav-winner-preview-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.dav-winner-preview-top strong {
+  font-size: 13.5px;
+  color: #18181b;
+}
+
+.dav-winner-ext {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.dav-winner-ext:hover {
+  text-decoration: underline;
+}
+
+.dav-winner-block {
+  margin-top: 8px;
+}
+
+.dav-winner-sub {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #52525b;
+  margin-bottom: 5px;
+}
+
+.dav-winner-headings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dav-winner-h2 {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #f4f4f5;
+  color: #3f3f46;
+  font-size: 11.5px;
+}
+
+.dav-winner-block p {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #3f3f46;
+}
+
+/* Blog-grade editorial prose */
+.dav-root .dav-prose {
+  max-width: 740px;
+  margin: 0 auto;
+  font-size: 15.5px;
+  line-height: 1.82;
+  color: #27272a;
+}
+
+.dav-readme-hero {
+  text-align: center;
+  padding: 6px 12px 24px;
+  margin: 0 0 22px;
+  border-bottom: 1px solid #ececee;
+}
+
+.dav-readme-logo {
+  display: block;
+  width: 80px;
+  height: 80px;
+  margin: 2px auto 14px;
+  object-fit: contain;
+}
+
+.dav-root .dav-readme-hero h1 {
+  font-size: 30px;
+  line-height: 1.25;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  color: #111113;
+  margin: 0 0 8px;
+}
+
+.dav-readme-tagline {
+  font-size: 17px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 12px;
+}
+
+.dav-readme-desc {
+  margin: 0 auto 14px;
+  max-width: 58ch;
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: #3f3f46;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dav-readme-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 13.5px;
+  font-weight: 550;
+}
+
+.dav-readme-nav a {
+  color: #147a5b;
+  text-decoration: none;
+}
+
+.dav-readme-nav a:hover {
+  text-decoration: underline;
+}
+
+.dav-readme-sep {
+  color: #a1a1aa;
+}
+
+.dav-root .dav-prose h1 {
+  font-size: 26px;
+  line-height: 1.35;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #111113;
+  margin: 0 0 20px;
+}
+
+.dav-root .dav-prose h2 {
+  font-size: 19px;
+  line-height: 1.4;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #18181b;
+  margin: 36px 0 14px;
+  padding-top: 8px;
+}
+
+.dav-root .dav-prose h3 {
+  font-size: 16.5px;
+  line-height: 1.45;
+  font-weight: 600;
+  color: #18181b;
+  margin: 24px 0 10px;
+}
+
+.dav-root .dav-prose p {
+  margin: 0 0 16px;
+}
+
+.dav-root .dav-prose ul,
+.dav-root .dav-prose ol {
+  margin: 0 0 18px;
+  padding-left: 22px;
+}
+
+.dav-root .dav-prose ul {
+  list-style: disc;
+}
+
+.dav-root .dav-prose ol {
+  list-style: decimal;
+}
+
+.dav-root .dav-prose li {
+  margin-bottom: 7px;
+}
+
+.dav-root .dav-prose li::marker {
+  color: #71717a;
+}
+
+.dav-root .dav-prose a {
+  color: #18181b;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: #a1a1aa;
+}
+
+.dav-root .dav-prose a:hover {
+  text-decoration-color: #18181b;
+}
+
+.dav-root .dav-prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #f4f4f5;
+  color: #27272a;
+}
+
+/* Tables */
+.dav-table-wrap {
+  margin: 20px 0 24px;
+  overflow-x: auto;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.dav-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.dav-table-wrap th {
+  text-align: left;
+  font-weight: 600;
+  color: #18181b;
+  background: #fafafa;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e4e4e7;
+  white-space: nowrap;
+}
+
+.dav-table-wrap td {
+  padding: 11px 14px;
+  color: #3f3f46;
+  border-bottom: 1px solid #f1f1f3;
+  vertical-align: top;
+}
+
+.dav-table-wrap tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Screenshots & Figures (rendered inside <p> safely via span blocks) */
+.dav-figure {
+  display: block;
+  margin: 24px 0 26px;
+}
+
+.dav-root .dav-figure-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border-radius: 11px;
+  border: 1px solid #e4e4e7;
+  background: #fafafa;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05);
+  cursor: zoom-in;
+}
+
+.dav-figure-frame img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.dav-figure-zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: rgba(24, 24, 27, 0.72);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.dav-figure-frame:hover .dav-figure-zoom {
+  opacity: 1;
+}
+
+.dav-figcaption {
+  display: block;
+  margin-top: 9px;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #71717a;
+}
+
+/* Built-in Mermaid Flow Diagram */
+.dav-diagram {
+  margin: 26px 0 28px;
+  padding: 16px 18px 20px;
+  border-radius: 12px;
+  border: 1px solid #e4e4e7;
+  background: #fafafa;
+}
+
+.dav-diagram-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.dav-diagram-tag {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #52525b;
+}
+
+.dav-root .dav-diagram-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid #e4e4e7;
+  background: #fff;
+  color: #52525b;
+  font-size: 11.5px;
+}
+
+.dav-root .dav-diagram-toggle:hover {
+  color: #18181b;
+  border-color: #d4d4d8;
+}
+
+.dav-diagram-source,
+.dav-code-block {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: #18181b;
+  color: #f4f4f5;
+  font-size: 12.5px;
+  line-height: 1.65;
+  overflow-x: auto;
+}
+
+.dav-prose .dav-diagram-source code,
+.dav-prose .dav-code-block code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.dav-flow-list {
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.dav-flow-step {
+  margin: 0 !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.dav-flow-connector {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 22px;
+  justify-content: center;
+}
+
+.dav-flow-line {
+  width: 1.5px;
+  height: 20px;
+  background: #d4d4d8;
+}
+
+.dav-flow-edge-pill {
+  margin: -4px 0 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.dav-flow-node {
+  width: 100%;
+  max-width: 540px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  border: 1px solid #e4e4e7;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.dav-flow-node.is-decision {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.dav-flow-index {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: #18181b;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.dav-flow-node.is-decision .dav-flow-index {
+  background: #d97706;
+  border-radius: 999px;
+}
+
+.dav-flow-text {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: #18181b;
+  font-weight: 500;
+}
+
+.dav-flow-loops {
+  width: 100%;
+  max-width: 540px;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.dav-flow-loop-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #f4f4f5;
+  border: 1px dashed #d4d4d8;
+  color: #52525b;
+  font-size: 11.5px;
+}
+
+/* Lightbox */
+.dav-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(15, 15, 18, 0.78);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.dav-lightbox-inner {
+  position: relative;
+  max-width: min(1160px, 94vw);
+  max-height: 90dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.dav-lightbox-inner img {
+  max-width: 100%;
+  max-height: calc(90dvh - 44px);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  background: #fff;
+}
+
+.dav-lightbox-inner p {
+  margin: 0;
+  color: #e4e4e7;
+  font-size: 13px;
+  text-align: center;
+}
+
+.dav-root .dav-lightbox-close {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: #18181b;
+  border: 1px solid #3f3f46;
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+
+@media (max-width: 760px) {
+  .dav-review-drawer {
+    grid-template-columns: 1fr;
+  }
+  .dav-prose h1 {
+    font-size: 22px;
+  }
+}

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { legacyAnswerAudit as legacyReviews } from './legacy-answer-audit';
+import { loadLegacyAnswerAudit } from './project-data';
 import { readLatestResearch } from './research-store';
 import { readRegisteredEvidence } from './diagnosis';
 import { withGeoProject } from './projects';
@@ -20,7 +20,7 @@ export function findChatGPTVerificationAnswer(projectId: string) {
       for (const observation of question.observations) {
         if (observation.engine !== 'chatgpt') continue;
         const answerPath = observation.answerPath ?? observation.evidencePath;
-        const reviewed = legacyReviews.records.find(item => item.projectId === projectId && item.batchId === batch.id
+        const reviewed = loadLegacyAnswerAudit().records.find(item => item.projectId === projectId && item.batchId === batch.id
           && item.questionId === question.id && item.language === observation.language
           && item.recordedAt === observation.recordedAt && item.evidencePath === answerPath
           && item.answerComplete && item.citationCoverage === 'complete');

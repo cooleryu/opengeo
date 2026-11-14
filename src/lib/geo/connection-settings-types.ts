@@ -1,4 +1,4 @@
-export type GeoModelProvider = 'deepseek' | 'openai' | 'custom';
+export type GeoModelProvider = 'gemini' | 'deepseek' | 'openai' | 'custom';
 export type GeoSearchProvider = 'deepseek' | 'qwen' | 'doubao';
 export type GeoSettingsSection = 'model' | GeoSearchProvider;
 export type GeoSettingsSource = 'environment' | 'saved';

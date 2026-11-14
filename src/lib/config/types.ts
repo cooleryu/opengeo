@@ -58,6 +58,7 @@ type ConfigModelProvider = {
   embeddingModels: Model[];
   config: { [key: string]: any };
   hash: string;
+  configuredSecrets?: string[];
 };
 
 type Config = {
