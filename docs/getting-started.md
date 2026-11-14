@@ -21,7 +21,7 @@ Four things to recognise before you click anything:
 | Answer evidence | The full answer text saved after each question, plus the reference pages shown under it | You check conclusions against the original text instead of your memory |
 | Winner breakdown, matching drafts, retest | A read of the externally cited pages that beat you, the draft written against them, and the same question asked again after you publish | Each change maps to something you can actually observe |
 
-The loop in three moves: **create a project → collect and compare answers → break down the winners, adopt a draft, retest with the original question.**
+The loop in three moves: **create a project -> collect and compare answers -> break down the winners, adopt a draft, retest with the original question.**
 
 ```mermaid
 flowchart LR
@@ -32,15 +32,13 @@ flowchart LR
     E --> F["Ask the same question again on the same platform"]
 ```
 
-A first round takes 30 to 60 minutes, and you do not need dozens of questions to start.
-
 ## 1 · Launch the workbench and create a project
 
 The quickest way to get the UI open is to hand the repository to the AI coding assistant you already use — Claude Code, Cursor, Codex and Antigravity all work. Paste `https://github.com/cooleryu/opengeo` and say: "follow the repo instructions, run it on my machine, and open the UI for me." It installs the dependencies, starts the local service, and gives you an address to open in your browser.
 
 From there you stay in the browser. The first screen is the new-project form, and it asks for three things:
 
-1. **Display language: English or Chinese.** Set it at the top of the form. Every analysis report, draft and UI label follows that choice afterwards, so pick the language you want to read results in.
+1. **Display language: English or Chinese.** Set it at the top of the form. Every analysis report, draft and UI label follows that choice afterwards, so pick the language you want to read results in. If your UI is in Chinese while you are targeting English readers, you can keep the workspace in Chinese and turn on the Chinese companion draft option alongside English deliverables.
 2. **Project type: open-source project, or software or website.** This only changes how the generated questions are worded and angled — nothing else. You can change it later.
 3. **A public link and a few sentences of positioning.** Your homepage, repository page or product site all work. Then describe who uses it, what problem it solves, and what makes it stronger than the alternatives. Those sentences drive everything downstream, so two minutes here pays for itself.
 
@@ -49,6 +47,10 @@ Click **Start analysis**. It reads the public pages it can reach and shows you w
 Pages behind a login cannot be read. The project stays in your list, so retry with a publicly reachable URL.
 
 When the project is created you land on **Overview**, which answers two things only: do these answers mention you, and do the cited links include your domain. Mentions and citations are counted separately — being named in the prose and being cited as a source are different wins, and the workbench keeps them apart.
+
+![Overview screen showing AI answer mentions, official website citations, platform breakdown, and monitored customer questions](images/overview-en.png)
+
+*Live Overview screen — mentions and website citations are tracked separately across your core prompts, with the optimization summary right in the middle.*
 
 <details><summary>Prefer to start from a terminal? (developer option)</summary>
 
@@ -84,15 +86,19 @@ When you paste, paste the whole answer and every link, not the one sentence you 
 
 **Optional: pick one main competitor to compare.** Same question set, same platform, side by side. That immediately separates two very different situations — nobody in your category got mentioned for this question at all, or a specific competitor page was cited while yours was ignored. The first means you need content that answers the question; the second means you should study the angle they wrote from.
 
+![Question detail drawer showing the exact prompt, full captured answer, and extracted competitors for that question](images/question-answer-en.png)
+
+*Question detail — click any prompt from Overview to inspect the exact saved answer and see which competitors appeared instead of you.*
+
 For the first pass, run the questions the workbench already prepared (up to 8) on one or two platforms you actually care about. That is enough to see the direction: which questions name you, which cite a competitor comparison page, which return no link to your site at all.
 
 ## 3 · Break down the winners, review each draft, and retest with the original question
 
-Open **Improvements & Tracking** for a question where you are missing — a category recommendation that lists three competitors, or an answer that quotes someone else's comparison post. OpenGEO first probes the pages the AI actually cited for that question and reads their skeleton: the headings they use, what they answer in the first two sentences, which dimensions they compare. A summary of those reference winners sits at the top of the page, so you know what you are up against before you read a single draft.
+Open **Optimization & Tracking** for a question where you are missing — a category recommendation that lists three competitors, or an answer that quotes someone else's comparison post. OpenGEO first probes the pages the AI actually cited for that question and reads their skeleton: the headings they use, what they answer in the first two sentences, which dimensions they compare. A summary of those reference winners sits at the top of the page, so you know what you are up against before you read a single draft.
 
 It then writes one to three complementary drafts for that question — typically a README front page, a getting-started guide, and a public comparison or hands-on article — rather than restating the same point three ways. Each draft opens as **new draft against original text**, and each passes an independent review before it reaches you, so you are editing something publishable instead of a pile of suggestions.
 
-Nothing gets pushed out in bulk. If a draft fits, click **Adopt this draft**. If you want to wait, click **Not adopting for now** and come back later. Publishing itself stays with you: the workbench never writes to your repository or your live site.
+Nothing gets pushed out in bulk. If a draft fits, click **Adopt this draft**. If you want to wait, click **Not adopting for now** and come back later. Publishing itself stays with you: the workbench writes nothing to your remote repository until you explicitly adopt and confirm pushing, or copy an article out yourself.
 
 Once the content is live, ask the original question again — same platform, same entry point, same wording — and open both records on one timeline. You are comparing your own two answers, not guessing across sources.
 
@@ -107,6 +113,10 @@ flowchart TD
     G --> H["Both records sit on one timeline"]
     H --> A
 ```
+
+![Optimization Studio screen showing the draft list, cited winner references, markdown article view, and adoption controls](images/improvement-tracking-en.png)
+
+*Optimization & Tracking — read each draft in full, compare before/after changes on existing pages, switch to a Chinese companion translation when needed, and adopt one piece at a time.*
 
 ## Cost and local data
 
@@ -152,6 +162,6 @@ Longer than feels natural. Search engines and model crawlers need time to pick u
 
 ### Will OpenGEO publish anything for me?
 
-No. Drafts stay drafts until you copy them into your repository, your docs or your blog. It writes nothing to your live content and posts nothing anywhere, which also means the publish step is where your judgement enters — read the draft, keep what is true about your product, and cut the rest.
+No. Drafts stay drafts until you explicitly adopt them or copy them into your repository, your docs or your blog. Nothing pushes to GitHub or any live site without your confirmation, so your judgement stays on the final publish step.
 
 Stuck on a step? Open an issue with the saved answer or a screenshot and it gets much easier to pin down: `https://github.com/cooleryu/opengeo/issues/new`.

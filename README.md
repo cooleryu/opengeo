@@ -23,7 +23,7 @@ OpenGEO is built for indie SaaS teams, docs owners, and open-source maintainers 
 
 - **Every conclusion links back to the original answer.** Who was mentioned, which page was cited — the saved answer text and the source URL sit in the same view. If it isn't in the captured answer, it doesn't count as a mention.
 - **It writes the draft, not just the advice.** Each gap comes with several complementary drafts and a before/after comparison, so there is something to publish when the round ends.
-- **Adopt one draft at a time.** Review each one and adopt only what fits. Nothing is published for you, and anything you skip leaves your live pages untouched.
+- **Adopt one draft at a time.** Review each one and adopt only what fits. Nothing is published automatically, and anything you skip leaves your live pages untouched.
 - **Your data, questions, and keys stay on your machine.** Project details, saved answers, and API keys never leave your computer, and you choose which model provider to use.
 
 ### How it differs from other GEO tools
@@ -42,7 +42,7 @@ OpenGEO is built for indie SaaS teams, docs owners, and open-source maintainers 
 
 **2 · Create a project and a question list.** First launch opens the new-project screen: pick a project type, paste your public homepage, add a couple of notes. Once OpenGEO understands the product, it proposes the question categories customers usually ask, and you can add your own in English or Chinese.
 
-**3 · Capture a round, pick drafts, re-test.** After the first round, see which questions leave you out. Review each draft and adopt only the ones that fit. Once a draft is live, register it in the workbench and re-run the same question later — both records sit on one timeline, so the change is visible.
+**3 · Capture a round, pick drafts, re-test.** After the first round, see which questions leave you out. Review each draft and adopt only the ones that fit. Once a draft is live, register it in the workbench (or push repo docs straight from the studio) and re-run the same question later — both records sit on one timeline, so the change is visible.
 
 ## How it works
 
@@ -57,6 +57,10 @@ flowchart LR
     E --> C
 ```
 
+![OpenGEO overview screen showing AI answer mentions, official website citations, platform breakdown, and monitored questions](docs/images/overview-en.png)
+
+*Overview screen — brand mentions and website citations tracked separately, with diagnosis summary and per-question audit rows*
+
 ## Features
 
 ### Question monitoring with the source evidence attached
@@ -70,9 +74,17 @@ English and Chinese questions live in one list. Pick your platforms, run a round
 | Every cited page with its URL | Which outside pages are winning that question today |
 | Your domain vs. your competitor's, same question | Which gap is yours to fix and which one belongs to the category |
 
+![OpenGEO question detail showing the prompt, full captured answer, and extracted competitor candidates](docs/images/question-answer-en.png)
+
+*Question detail — inspect the full answer captured from Google or ChatGPT alongside every competitor named instead of you*
+
 ### Winner teardown, drafts with before/after, and per-draft adoption
 
-When a question misses you, OpenGEO first reads the pages AI cited for it — their heading order, how they open, what they cover that you don't — then writes several complementary drafts instead of three versions of the same paragraph. Each draft puts your current text and the proposed text side by side and passes a fixed three-point review before it reaches you. You adopt what you like, publish it yourself, register it as live, and re-test the original question later. Nothing is published automatically.
+When a question misses you, OpenGEO first reads the pages AI cited for it — their heading order, how they open, what they cover that you don't — then writes several complementary drafts instead of three versions of the same paragraph. Each draft puts your current text and the proposed text side by side and passes a fixed three-point review before it reaches you. You adopt what you like, publish it yourself, register it as live, and re-test the original question later. Nothing is published without your confirmation.
+
+![OpenGEO optimization studio showing winner structure breakdown, markdown draft view, and per-draft adoption](docs/images/improvement-tracking-en.png)
+
+*Optimization & Tracking — read each draft in full, compare before/after edits, view companion translations when enabled, and adopt one piece at a time*
 
 ### Supported platforms
 
