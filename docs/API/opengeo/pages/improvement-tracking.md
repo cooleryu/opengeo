@@ -31,7 +31,7 @@
 
 | action / 页面操作 | 请求必选字段（另加公共字段） | 可选字段 / 默认 | 成功后的数据及执行边界 |
 |---|---|---|---|
-| `create_task` 新建任务 | `goal`:非空字符串 ≤2,000 字 | `collectionProvider`: `deepseek`（默认）/`doubao`/`qwen`；`researchContext`；`legacyQuestionPlan:boolean` | 新任务 `queued`，`proposal:null,implementation:null,runs:[]`；默认每日 09:00、7 天、预算 0.5、未启用、replay。仅本地登记；不调用模型或搜索。 |
+| `create_task` 新建任务 | `goal`:非空字符串 ≤2,000 字 | `collectionProvider`: `chatgpt`（默认）/`google`；`researchContext`；`legacyQuestionPlan:boolean` | 新任务 `queued`，`proposal:null,implementation:null,runs:[]`；默认每日 09:00（UTC）、7 天、预算 0.5 USD、未启用、replay。仅本地登记；不调用模型或搜索。 |
 | `review_research_gap` 核对已有材料 | `taskId` | 无 | 要求已有 `researchContext`；本地计算 `researchGapReview:GeoDiagnosis`，追加事件；不搜索、不批准改稿、不确认产品能力。 |
 | `start_workflow` 启动真实任务/历史预览 | `taskId,mode:"live"\|"replay"`；live 必须显式 `budgetLimit:number` | `maxQualityRounds`:整数 1–3，默认 3 | 冻结问题、provider/参数和 protocolKey，旧 workflow 进入 workflowHistory，清空当前方案；`investigating`；依次基线→诊断→候选→独立审核。 |
 | `investigate` 重试诊断与审核 | `taskId` | 无 | 要求已有 workflow.baseline，未实施，状态 queued/failed/proposal_ready；复用已存基线，异步重新诊断/生成/审核，不重新搜索。 |
@@ -40,7 +40,7 @@
 
 存在 latestResearch 时，不传 researchContext 就必须明确 `legacyQuestionPlan:true`；旧题入口以当前 ready 题单冻结所有 selected 且非 exclude 的候选。带研究上下文时冻结一题及原语言，不将消费者网页历史伪造为 API 基线；snapshot 非 search_now 的核查任务不能启动搜索。
 
-`start_workflow` 只接受 queued/failed/proposal_ready，拒绝已实施或已有完整真实基线；北京时间同任务同日真实基线尝试（含失败）不可重跑。live 需采集配置、诊断模型配置；预算 ≥已用金额+本轮预留且 ≤100。replay 只支持 DeepSeek；不会把新题补成零命中，也不能形成通过审核的实施建议。live 问法限制：DeepSeek 128、其他采集入口 2,000 个 Unicode 字符；不截短原题。
+`start_workflow` 只接受 queued/failed/proposal_ready，拒绝已实施或已有完整真实基线；UTC 同任务同日真实基线尝试（含失败）不可重跑。需要可用诊断模型与本地回放证据（旧搜索 API live 采集路径已下线）。不会把新题补成零命中，也不能形成通过审核的实施建议。问法限制：2,000 个 Unicode 字符；不截短原题。
 
 来源：[store.ts:481](../../../../src/lib/geo/store.ts#L481)、[store.ts:543](../../../../src/lib/geo/store.ts#L543)、[research-task-context.ts:33](../../../../src/lib/geo/research-task-context.ts#L33)、[planner.ts:81](../../../../src/lib/geo/planner.ts#L81)。
 
@@ -79,23 +79,21 @@
 
 | action | 请求字段 | 行为、约束与结果 |
 |---|---|---|
-| `update_monitor` | 必选 `monitor:{...}`；可选补丁 `mode:"live"\|"replay",timeOfDay:"HH:MM",days:1..90整数,budgetLimit:number,enabled:boolean` | 未给字段保留；budgetLimit 不低于 spent 且 ≤100；days 根据已经消耗的计划天数重算 remaining。enabled 要求已实施且 remaining>0。成功写整个 GeoMonitor、下个北京时间时点和事件；有实施则 task.status=monitoring。 |
-| `run_monitor` | 必选 `mode:"live"\|"replay"` | 已实施，状态 monitoring/paused/failed/completed；异步增加 runs；真实模式额外要求未暂停、当天未实测、user_confirmed、已在设置中选择 live、有效配置、同实施版本和足够一轮预算。单次手动运行不消耗 remaining。 |
+| `update_monitor` | 必选 `monitor:{...}`；可选补丁 `mode:"live"\|"replay",timeOfDay:"HH:MM",days:1..90整数,budgetLimit:number,enabled:boolean` | 未给字段保留；budgetLimit 不低于 spent 且 ≤100（USD）；days 根据已经消耗的计划天数重算 remaining。enabled 要求已实施且 remaining>0。成功写整个 GeoMonitor、下个 UTC 时点和事件；有实施则 task.status=monitoring。 |
+| `run_monitor` | 必选 `mode:"live"\|"replay"` | 已实施，状态 monitoring/paused/failed/completed；支持 `replay` 重算与回放（旧 `live` 搜索 API 模式已下线，返回错误提示）。单次手动运行不消耗 remaining。 |
 | `pause` | 无额外字段 | 状态 monitoring/failed；设置 paused、disabled、nextRunAt=null。已发出的请求会保存结果，循环发现暂停后不发余下题；不是立即中断网络请求。 |
-| `resume` | 无额外字段 | 状态 paused/failed，已有实施、remaining>0；live 另需配置、真实实施及预算。设 monitoring、enabled、下一北京时间时点，清 error；不补造离线数据。 |
-| `reflect` | 无额外字段 | 要求 workflow+implementation；本地重算 workflow.outcome，可能新增策略候选，无搜索和模型请求。真实跟测完成/失败后也自动执行同样复盘。 |
+| `resume` | 无额外字段 | 状态 paused/failed，已有实施、remaining>0。设 monitoring、enabled、下一 UTC 时点，清 error；不补造离线数据。 |
+| `reflect` | 无额外字段 | 要求 workflow+implementation；本地重算 workflow.outcome，可能新增策略候选，无搜索和模型请求。复测完成/失败后也自动执行同样复盘。 |
 
 单次 `run_monitor` 不设置 running 状态，也不立即追加占位 run；完成后才追加。若从 failed/completed 状态执行且没有其他 investigating/monitoring 任务，当前共享轮询条件不会因此成立，页面不会可靠地自动显示本次完成结果；需要重新读取状态。这是现有刷新限制。
 
-切换 `update_monitor` 到 live 必须本次显式给 budgetLimit；即使 enabled=false，只要 mode=live 也校验采集配置、真实实施和一轮剩余预算。replay 仅 DeepSeek 可用。UI `costConsent` 是复选框的前端状态，未作为请求字段；后端依靠模式、配置、预算、实施记录等校验，没有独立 consent token。
+旧版在线搜索 API 已下线，`update_monitor` 切换 `mode:"live"` 与 `run_monitor` `mode:"live"` 均已禁用。UI `costConsent` 是复选框的前端状态，费用字段统一以 `USD`（`$`）展示。
 
-每日任务跟测：`startGeoScheduler()` 由 GET/POST `/api/geo` 启动；立即 tick，之后每 30 秒扫描两项目。已到时的 monitoring+enabled 任务启动一轮；同日已有真实运行则排下一日。只有 scheduled 运行会 remaining−1；到零变 completed 并关闭，失败变 failed 并关闭，partial 保留记录继续计划。服务进程不在时不运行；恢复后不按离线天数补跑。
+每日任务跟测：`startGeoScheduler()` 由 GET/POST `/api/geo` 启动；立即 tick，之后每 30 秒扫描项目。已到时的 monitoring+enabled 任务按配置执行回放调度；只有 scheduled 运行会 remaining−1，到零变 completed 并关闭，失败变 failed 并关闭，partial 保留记录继续计划。服务进程不在时不运行；恢复后不按离线天数补跑。
 
-收费触发是 live 基线或 live 跟测实际发出供应商请求：DeepSeek 每题预留 ¥0.005，已知 HTTP 非成功/空结果会退预留；超时或不可解析成功返回保留预留且不自动重试。豆包/千问每题预留 ¥0.10、`costEstimated:true`，失败也不凭推测退款；实际费用由供应商账单决定，预留不是供应商保证上限。replay、登记、复盘、策略状态转换不调用收费模型/搜索。上述价格是源码中的配置与文案，不代表已核对当日供应商计价。
+完整原文、失败及请求参数保存在对应证据目录，API 返回 run 含结构化结果；未取得结果时 hitCount=null，不是零。
 
-DeepSeek workflow 采集参数为 `count:50,need_content:true`，旧固定题路径为 need_content=false；豆包/千问采集联网回答，命中依据原生 citations，rank=null、aiCited=projectHit，不把 sources 列表直接当原生引用。完整原文、失败及请求参数保存在文件，API 返回 run 含结构化结果；未取得结果时 hitCount=null，不是零。
-
-来源：[store.ts:677](../../../../src/lib/geo/store.ts#L677)、[monitor.ts:123](../../../../src/lib/geo/monitor.ts#L123)、[scheduler.ts:6](../../../../src/lib/geo/scheduler.ts#L6)、[providers/config.ts:15](../../../../src/lib/geo/providers/config.ts#L15)、[answer-monitor.ts:27](../../../../src/lib/geo/answer-monitor.ts#L27)。
+来源：[store.ts:677](../../../../src/lib/geo/store.ts#L677)、[monitor.ts:123](../../../../src/lib/geo/monitor.ts#L123)、[scheduler.ts:6](../../../../src/lib/geo/scheduler.ts#L6)。
 
 ## 真实效果与策略学习
 

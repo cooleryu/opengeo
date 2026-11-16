@@ -5,6 +5,7 @@ import {
   ArrowRight,
   BookOpen,
   Check,
+  Clock,
   FileStack,
   Loader2,
   RefreshCw,
@@ -26,10 +27,18 @@ import {
 import { useChineseCompanionPreference, useUiLanguage } from './UiLanguageContext';
 import './optimization-hero-card.css';
 
+export interface HeroCitedSource {
+  key: string;
+  label: string;
+  url: string;
+  questionCount: number;
+}
+
 export interface OptimizationHeroCardProps {
   projectId: string;
   questionCount: number;
   missedQuestionCount?: number;
+  topCitedSources?: HeroCitedSource[];
   onOpenStudio: (runId?: string) => void;
   onOpenQuestions: () => void;
   onStatusChange?: (viewModel: OptimizationRunViewModel | null) => void;
@@ -98,10 +107,34 @@ function parseHeroDiagnosis(
   return { lead: fallbackLead, bullets: [] };
 }
 
+function renderTopCitedStrip(topCitedSources: HeroCitedSource[], isEn: boolean) {
+  if (!topCitedSources.length) return null;
+  return (
+    <div className="ohc-cited-row">
+      <span className="ohc-cited-label">
+        {isEn ? 'AI currently cites:' : 'AI 当前高频引用：'}
+      </span>
+      {topCitedSources.map((src) => (
+        <a
+          key={src.key}
+          href={src.url}
+          target="_blank"
+          rel="noreferrer"
+          className="ohc-cited-pill"
+        >
+          <span>{src.label}</span>
+          <em>{isEn ? `${src.questionCount}q` : `${src.questionCount}题`}</em>
+        </a>
+      ))}
+    </div>
+  );
+}
+
 export default function OptimizationHeroCard({
   projectId,
   questionCount,
   missedQuestionCount = 0,
+  topCitedSources = [],
   onOpenStudio,
   onOpenQuestions,
   onStatusChange,
@@ -358,6 +391,8 @@ export default function OptimizationHeroCard({
               </ul>
             )}
 
+            {renderTopCitedStrip(topCitedSources, isEn)}
+
             {!isMulti && (
               <ol className="ohc-safe-steps" aria-label={isEn ? '3-step workflow' : '后续三步流程'}>
                 <li>
@@ -549,13 +584,14 @@ export default function OptimizationHeroCard({
                 ? '目前改动只保存在你的本机电脑上，AI 搜索还抓取不到。前往工作台可一键推送到 GitHub 默认分支，上线后再进入收录观察期。'
                 : '搜索引擎与 AI 检索重建网页索引通常需要 3～7 天。刚上线就立刻重测多半仍会命中旧缓存，等收录稳定后用原题复查才准确。'}
             </p>
+            {renderTopCitedStrip(topCitedSources, isEn)}
           </div>
           <button
             type="button"
             className="ohc-cta-primary"
             onClick={() => onOpenStudio(run.id)}
           >
-            <span>{needsGitHubPushFirst ? '前往工作台一键推送' : '查看收录观察期与复测面板'}</span>
+            <span>{needsGitHubPushFirst ? '前往优化方案推送' : '查看优化方案'}</span>
             <ArrowRight size={16} />
           </button>
         </div>
@@ -563,29 +599,76 @@ export default function OptimizationHeroCard({
     );
   }
 
-  // 4. Completed: show clean before -> after summary
+  // 4. Completed: show honest before -> after summary (only green when measurable lift occurred)
   if (effectiveStatus === 'completed' && run) {
+    const hasImprovement = retestSummary
+      ? retestSummary.afterMentionYes > retestSummary.beforeMentionYes ||
+        retestSummary.afterCitationYes > retestSummary.beforeCitationYes
+      : false;
+    const compared = retestSummary?.comparedCount ?? 0;
+    const beforeM = retestSummary?.beforeMentionYes ?? 0;
+    const afterM = retestSummary?.afterMentionYes ?? 0;
+    const beforeC = retestSummary?.beforeCitationYes ?? 0;
+    const afterC = retestSummary?.afterCitationYes ?? 0;
+
     return (
-      <section className="ohc-stage is-completed" aria-label="本轮改进已完成">
+      <section
+        className={`ohc-stage ${hasImprovement ? 'is-completed' : 'is-warn'}`}
+        aria-label={isEn ? 'Optimization retest summary' : '本轮复测结果'}
+      >
         <div className="ohc-single-layout">
           <div className="ohc-story">
-            <div className="ohc-eyebrow">
-              <Check size={13} />
-              <span>本轮改进已完成复测</span>
+            <div className={`ohc-eyebrow ${hasImprovement ? '' : 'is-warn'}`.trim()}>
+              {hasImprovement ? <Check size={13} /> : <Clock size={13} />}
+              <span>
+                {hasImprovement
+                  ? isEn
+                    ? 'Re-audit completed'
+                    : '本轮改进已完成复测'
+                  : isEn
+                    ? 'Re-audit · No change yet'
+                    : '复测结果 · 暂未见变化'}
+              </span>
             </div>
-            <h2 className="ohc-headline">已完成改进前后的同题表现对比</h2>
+            <h2 className="ohc-headline">
+              {hasImprovement
+                ? isEn
+                  ? 'Before vs after comparison shows movement'
+                  : '已完成改进前后的同题表现对比'
+                : isEn
+                  ? 'No mention or citation lift yet'
+                  : '本轮上线并复测后，暂未出现新增提及或引用'}
+            </h2>
             <p className="ohc-why">
               {retestSummary
-                ? `共复测 ${retestSummary.comparedCount} 条问答：AI 提及从 ${retestSummary.beforeMentionYes} 条变为 ${retestSummary.afterMentionYes} 条，官网引用从 ${retestSummary.beforeCitationYes} 条变为 ${retestSummary.afterCitationYes} 条。`
-                : run.statusMessage || '可查看逐题回答对比，或针对其余未提及问题开启下一轮改进。'}
+                ? isEn
+                  ? hasImprovement
+                    ? `Retested ${compared} answers: mentions ${beforeM} → ${afterM}, official citations ${beforeC} → ${afterC}.`
+                    : `Retested ${compared} answers: mentions ${beforeM} → ${afterM}, official citations ${beforeC} → ${afterC}. Open Action Plan for one-click Awesome list PRs, repo metadata sync, and multi-angle posts.`
+                  : hasImprovement
+                    ? `共复测 ${compared} 条问答：AI 提及从 ${beforeM} 条变为 ${afterM} 条，官网引用从 ${beforeC} 条变为 ${afterC} 条。`
+                    : `共复测 ${compared} 条问答：提及 ${beforeM} → ${afterM} 条，引用 ${beforeC} → ${afterC} 条。打开「优化方案」即可用 AI 预写好的一键卡片补齐榜单 PR、社区发声和仓库门面。`
+                : run.statusMessage ||
+                  (isEn
+                    ? 'Inspect answer-by-answer comparisons or start a new round.'
+                    : '可查看逐题回答对比，或针对其余未提及问题开启下一轮改进。')}
             </p>
+            {renderTopCitedStrip(topCitedSources, isEn)}
           </div>
           <button
             type="button"
             className="ohc-cta-primary"
             onClick={() => onOpenStudio(run.id)}
           >
-            <span>查看完整前后对比</span>
+            <span>
+              {hasImprovement
+                ? isEn
+                  ? 'Open Action Plan'
+                  : '查看优化方案'
+                : isEn
+                  ? 'Open Action Plan'
+                  : '查看优化方案'}
+            </span>
             <ArrowRight size={16} />
           </button>
         </div>
@@ -659,6 +742,7 @@ export default function OptimizationHeroCard({
               ? 'When AI answers skip your product, public docs are usually unclear or missing practical walkthroughs. Generate a package of drafts to inspect before publishing anything.'
               : 'AI 回答里没提你，通常是因为公开介绍还不够清楚或缺少直接解答客户疑问的内容。点击右侧按钮，我们会结合当前曝光缺口为你备好配套方案，先给你逐篇过目再决定采用哪些。'}
           </p>
+          {renderTopCitedStrip(topCitedSources, isEn)}
         </div>
 
         {questionCount > 0 ? (

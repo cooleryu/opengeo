@@ -1,6 +1,5 @@
 export type GeoModelProvider = 'gemini' | 'deepseek' | 'openai' | 'custom';
-export type GeoSearchProvider = 'deepseek' | 'qwen' | 'doubao';
-export type GeoSettingsSection = 'model' | GeoSearchProvider;
+export type GeoSettingsSection = 'model';
 export type GeoSettingsSource = 'environment' | 'saved';
 
 export type GeoConnectionSettings = {
@@ -12,14 +11,6 @@ export type GeoConnectionSettings = {
     keyConfigured: boolean;
     source: GeoSettingsSource | 'vane';
   };
-  search: Array<{
-    id: GeoSearchProvider;
-    name: string;
-    model: string | null;
-    configured: boolean;
-    keyConfigured: boolean;
-    source: GeoSettingsSource;
-  }>;
 };
 
 export type GeoSettingsUpdate = {

@@ -34,7 +34,7 @@ function collectionDate(value: string | undefined, compact: boolean): string {
   if (Number.isFinite(timestamp))
     return new Date(timestamp)
       .toLocaleDateString('zh-CN', {
-        timeZone: 'Asia/Shanghai',
+        timeZone: 'UTC',
         year: compact ? undefined : 'numeric',
         month: '2-digit',
         day: '2-digit',
@@ -169,11 +169,11 @@ export default function OverviewPriorityQuestions({
               <button
                 type="button"
                 className={`pov-priority-action${index === 0 ? ' is-primary' : ''}`}
-                disabled={!previewOnly && (planning !== null || !onPlan || !rows.some(row => row.question.id === question.id && row.observation && ['chatgpt', 'deepseek'].includes(row.engine)))}
-                title={!previewOnly && !rows.some(row => row.question.id === question.id && row.observation && ['chatgpt', 'deepseek'].includes(row.engine)) ? '暂未接入该平台的保存证据；当前支持 ChatGPT 回答和 DeepSeek 搜索原文。' : undefined}
+                disabled={!previewOnly && (planning !== null || !onPlan || !rows.some(row => row.question.id === question.id && row.observation && ['chatgpt', 'google'].includes(row.engine)))}
+                title={!previewOnly && !rows.some(row => row.question.id === question.id && row.observation && ['chatgpt', 'google'].includes(row.engine)) ? '暂未接入该平台的保存证据；当前支持 ChatGPT 与 Google 采集原文。' : undefined}
                 onClick={async () => {
                   if (previewOnly) { setPreview(question); return; }
-                  const candidates = rows.filter(row => row.question.id === question.id && row.observation && ['chatgpt', 'deepseek'].includes(row.engine));
+                  const candidates = rows.filter(row => row.question.id === question.id && row.observation && ['chatgpt', 'google'].includes(row.engine));
                   const selected = candidates.find(row => isAiAnswerRow(row)) ?? candidates[0];
                   if (!selected || !onPlan) return;
                   setPlanning(question.id);

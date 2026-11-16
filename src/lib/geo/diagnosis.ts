@@ -4,8 +4,6 @@ import type { GeoProposal, GeoSeed, GeoTask } from './types';
 import type { GeoDiagnosis, StrategyMemory } from './workflow-types';
 import type { QualityIssue } from './quality';
 import type { CollectedAnswer } from './providers/types';
-import { parseDoubaoAnswer } from './providers/doubao';
-import { parseQwenAnswer } from './providers/qwen';
 import { evidenceLocation } from './projects';
 import { selectStrategies } from './learning';
 import { readSavedResearchEvidence } from './saved-research-evidence';
@@ -97,23 +95,19 @@ export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: 
       return { id: question.id, query: question.query, target: question.target, assetIds: question.assetIds,
         exploratory: question.exploratory, answer: null, provider: saved.engine,
         evidencePath: savedEvidence.evidencePath, rawAvailable, measurementAt: saved.recordedAt,
-        resultCount: saved.engine === 'deepseek' && rawAvailable ? savedEvidence.results.length : null, projectHit: null,
+        resultCount: saved.engine === 'google' && rawAvailable ? savedEvidence.results.length : null, projectHit: null,
         ...(answerText === null ? {} : { savedAnswer: { text: answerText,
           truncated: answerText.length !== savedEvidence.answerText!.length, boundary: savedEvidence.boundary } }),
         sources, suppliedSourceCount: sources.length, boundary: savedEvidence.boundary };
     }
     const measured = baseline?.questions.find(item => item.id === question.id && item.query === question.query);
     const rawText = measured ? readRegisteredEvidence(measured.evidencePath) : null;
-    let raw: { results?: unknown } | null = null;
+    let raw: { results?: unknown; text?: unknown } | null = null;
     try { raw = rawText === null ? null : JSON.parse(rawText); } catch { /* Missing/malformed evidence stays unknown. */ }
-    const provider = workflow?.collection?.provider || 'deepseek';
-    let answer: CollectedAnswer | null = null;
-    if (raw && provider !== 'deepseek') {
-      try { answer = provider === 'doubao' ? parseDoubaoAnswer(raw) : parseQwenAnswer(raw); } catch { /* Invalid answer evidence remains unknown. */ }
-    }
-    const results = provider === 'deepseek' ? raw && Array.isArray(raw.results) ? raw.results : null : answer?.sources ?? null;
+    const answer: CollectedAnswer | null = measured?.answer ?? null;
+    const results = raw && Array.isArray(raw.results) ? raw.results : answer?.sources ?? null;
     const rawAvailable = results !== null && measured?.resultCount === results.length
-      && (provider === 'deepseek' || Boolean(answer?.searchPerformed && measured?.answer?.text === answer.text));
+      && (!answer || Boolean(answer.searchPerformed && measured?.answer?.text === answer.text));
     if (rawAvailable && measured) allowed.add(measured.evidencePath);
     const sources: SourceExcerpt[] = (results ?? []).slice(0, 5).flatMap((item: unknown) => {
       if (!item || typeof item !== 'object') return [];
@@ -129,10 +123,10 @@ export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: 
         content, contentProvided: Boolean(content.trim()), truncated,
         boundary: '搜索服务返回的摘要、片段或正文；未独立抓取页面，content 存在也不能保证全文完整。' }];
     });
-    return { answer, provider: workflow?.collection?.label || 'DeepSeek Search API', id: question.id, query: question.query, target: question.target, assetIds: question.assetIds,
+    return { answer, provider: workflow?.collection?.label || measured?.provider || 'ChatGPT', id: question.id, query: question.query, target: question.target, assetIds: question.assetIds,
       exploratory: question.exploratory, evidencePath: measured?.evidencePath ?? '', rawAvailable,
       measurementAt: measured?.measurementAt ?? null, resultCount: results?.length ?? null, projectHit: measured?.projectHit ?? null,
-      sources, suppliedSourceCount: sources.length, boundary: answer ? 'API 回答与原生引用已提供，最多五条来源摘要；引用不证明内容支持相关论断。豆包仅返回引用来源元数据，不是完整搜索列表；消费者 App 未测。' : '每题最多提供前五条可读取来源；未提供的结果和页面内容属于未知。' };
+      sources, suppliedSourceCount: sources.length, boundary: answer ? '已保存回答与原生引用已提供，最多五条来源摘要；引用不证明内容支持相关论断。' : '每题最多提供前五条可读取来源；未提供的结果和页面内容属于未知。' };
   });
   const allowedTargetAssetIds = [...new Set(frozen.flatMap(question => question.assetIds))]
     .filter(id => projectMatches && !editableAssetIssue(seed.assets.find(asset => asset.id === id), seed));
@@ -160,7 +154,7 @@ export function buildDiagnosisContext(task: GeoTask, seed: GeoSeed, strategies: 
   return { goal: task.goal, project: seed.project, protocolKey: workflow?.protocolKey ?? null,
     baseline: baseline ? { id: baseline.id, mode: baseline.mode, status: baseline.status, measurementAt: baseline.measurementAt } : null,
     ...(saved && savedEvidence ? { savedResearch: { engine: saved.engine, language: saved.language, recordedAt: saved.recordedAt,
-      conditions: saved.conditions, entryType: saved.entryType || (saved.engine === 'chatgpt' ? 'web_answer' : 'api_search'),
+      conditions: saved.conditions, entryType: saved.entryType || (saved.engine === 'chatgpt' ? 'web_answer' : 'web_search'),
       evidencePath: savedEvidence.evidencePath, captureNotes: savedEvidence.captureNotes, boundary: savedEvidence.boundary } } : {}),
     questions, materials, strategies: applicable, allowedEvidencePaths: [...allowed], allowedTargetAssetIds,
     evidenceReady: evidenceReady && projectMatches, limitations: [...(!projectMatches ? ['任务与当前项目不一致，不能生成或确认修改稿。'] : []), saved ? savedEvidence?.boundary || '保存证据尚未核验。' : workflow?.collection?.metric === 'answer_target_citation' ? '只观察本轮 API 联网回答及原生引用，不代表消费者 App。搜索来源不等于引用，引用也不自动证明支持相关论断。' : '网页搜索返回不等于 AI 回答引用；未命中不证明没有收录。',

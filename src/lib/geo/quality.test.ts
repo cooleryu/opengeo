@@ -153,11 +153,11 @@ test('diagnosis uses real raw evidence, scopes strategies and rejects fabricated
     fs.writeFileSync(path.join(root, 'article.md'), proposal.before);
     const seed = { project: { id: 'project' }, assets: [{ id: 'article', title: 'Article', publicUrl: proposal.targetUrl,
       sourcePath: 'article.md', summary: 'Source summary', markdown: proposal.before, markdownIsExcerpt: true, evidencePaths: [] }] } as unknown as GeoSeed;
-    const task = { id: 'current-task', projectId: 'project', goal: 'Improve discovery', workflow: { protocolKey: 'deepseek-p1', questions: [{ id: 'q1', query: 'Question?',
+    const task = { id: 'current-task', projectId: 'project', goal: 'Improve discovery', workflow: { protocolKey: 'chatgpt-p1', questions: [{ id: 'q1', query: 'Question?',
       category: 'content', target: 'article', assetIds: ['article'], exploratory: false }], baseline: { id: 'b', mode: 'live', status: 'completed',
-      protocolKey: 'deepseek-p1', phase: 'baseline', measurementAt: '2026-10-22T01:00:00Z', completedCount: 1,
+      protocolKey: 'chatgpt-p1', phase: 'baseline', measurementAt: '2026-10-22T01:00:00Z', completedCount: 1,
       questions: [{ id: 'q1', query: 'Question?', resultCount: 1, projectHit: false, evidencePath: 'data/geo-evidence/b/q1.json' }] } } } as unknown as GeoTask;
-    const strategy: StrategyMemory = { id: 's1', taskId: 'previous-task', projectId: 'project', protocolKey: 'deepseek-p1',
+    const strategy: StrategyMemory = { id: 's1', taskId: 'previous-task', projectId: 'project', protocolKey: 'chatgpt-p1',
       targetAssetId: 'article', categories: ['content'], createdAt: '2026-10-20T00:00:00Z', status: 'active', version: 3,
       outcome: 'improved', recommendation: 'Use under the same observed conditions.', action: 'Clarify scope.',
       beforeRate: 0, afterRate: 1, baselineRunId: 'previous-baseline', followupRunIds: ['previous-followup'],

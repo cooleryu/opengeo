@@ -69,13 +69,7 @@ function platformFromRow(
   const observation = row.observation;
   const entryType =
     observation?.entryType ??
-    (row.engine === 'google'
-      ? 'web_search'
-      : row.engine === 'chatgpt'
-        ? 'web_answer'
-        : row.engine === 'deepseek'
-          ? 'api_search'
-          : 'api_answer');
+    (row.engine === 'google' ? 'web_search' : 'web_answer');
   const entryLabels = {
     web_answer: '网页回答',
     web_search: '网页搜索',

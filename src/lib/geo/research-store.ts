@@ -8,15 +8,14 @@ import { ensureProjectRelationalData, syncObservationToRelational } from './db/m
 import { projectDataDirectory, resolveGeoProject, withGeoProject } from './projects';
 import type { ResearchBatch, ResearchObservation } from './research-types';
 import type { GeoQuestion, GeoRun } from './types';
-import type { NormalizedResearchBudget } from './research-budget';
-import type { CollectionConfig } from './providers/types';
+import { isConsumerResearchEngine } from './research-engines';
 
 export const RESEARCH_LEASE_MS = 60_000;
 export type ResearchOwnershipCheck = (connection?: Database.Database) => void;
 export interface ResearchQuestionProgress {
   status: 'pending' | 'sent' | 'complete' | 'uncertain' | 'failed';
-  reservedCny: number;
-  confirmedCny: number;
+  reservedUsd?: number;
+  confirmedUsd?: number;
   sentAt?: string;
   result?: GeoQuestion;
   error?: string;
@@ -50,16 +49,13 @@ export interface ResearchRunRecord {
   ownerPid?: number;
   costAllocation?: 'per_query';
   scheduleId?: string;
-  budget?: NormalizedResearchBudget;
-  confirmedSpentCny?: number;
-  reservedCny?: number;
+  confirmedSpentUsd?: number;
+  reservedUsd?: number;
   currentQuestionId?: string;
   phase?: 'searching' | 'analyzing' | 'finalizing';
   stopRequestedAt?: string;
   analysisStatus?: 'pending_budget';
   analysisNote?: string;
-  /** Credentials are loaded only when sending; this snapshot contains request settings only. */
-  collection?: CollectionConfig;
   protocolKey?: string;
   execution?: { token: string; heartbeatAt: string; leaseUntil: string };
   questionProgress?: Record<string, ResearchQuestionProgress>;
@@ -121,8 +117,12 @@ function initializeResearch(db: Database.Database, projectId: string): void {
 }
 
 /** Use the existing project database without importing store.ts or its scheduler. */
-function inDatabase<T>(projectId: string, operation: (db: Database.Database, projectId: string) => T): T {
+function inDatabase<T>(projectId: string, operation: (db: Database.Database, projectId: string) => T, connection?: Database.Database): T {
   const id = resolveGeoProject(projectId);
+  if (connection) {
+    initializeResearch(connection, id);
+    return operation(connection, id);
+  }
   const directory = withGeoProject(id, projectDataDirectory);
   fs.mkdirSync(directory, { recursive: true });
   const db = new Database(path.join(directory, 'db.sqlite'));
@@ -134,31 +134,51 @@ function inDatabase<T>(projectId: string, operation: (db: Database.Database, pro
   } finally { db.close(); }
 }
 
+function sanitizeBatchObservations(batch: ResearchBatch): ResearchBatch {
+  return {
+    ...batch,
+    questions: batch.questions.map((question) => ({
+      ...question,
+      observations: question.observations.filter((obs) => isConsumerResearchEngine(obs.engine)),
+    })),
+    deferredQuestions: batch.deferredQuestions.map((question) => ({
+      ...question,
+      observations: question.observations.filter((obs) => isConsumerResearchEngine(obs.engine)),
+    })),
+  };
+}
+
 function readBatch(db: Database.Database, projectId: string, batchId: string): ResearchBatch {
   const row = db.prepare('SELECT payload FROM geo_research_batches WHERE project_id = ? AND id = ?').get(projectId, batchId) as PayloadRow | undefined;
   if (!row) throw new ResearchStoreError('没有找到当前项目的研究批次。', 404);
-  return JSON.parse(row.payload) as ResearchBatch;
+  return sanitizeBatchObservations(JSON.parse(row.payload) as ResearchBatch);
 }
 
 function readRun(db: Database.Database, projectId: string, id: string): ResearchRunRecord | null {
   const row = db.prepare('SELECT payload FROM geo_research_runs WHERE project_id = ? AND id = ?').get(projectId, id) as PayloadRow | undefined;
-  return row ? JSON.parse(row.payload) as ResearchRunRecord : null;
+  if (!row) return null;
+  const parsed = JSON.parse(row.payload) as ResearchRunRecord;
+  return isConsumerResearchEngine(parsed.provider) ? parsed : null;
 }
 
-export function readLatestResearch(projectId: string): ResearchBatch | null {
+export function readLatestResearch(projectId: string, connection?: Database.Database): ResearchBatch | null {
   return inDatabase(projectId, (db, id) => {
     const row = db.prepare('SELECT payload FROM geo_research_batches WHERE project_id = ? ORDER BY seq DESC LIMIT 1').get(id) as PayloadRow | undefined;
     if (!row) return null;
-    return withAppendedObservations(db, id, JSON.parse(row.payload) as ResearchBatch);
-  });
+    return withAppendedObservations(db, id, sanitizeBatchObservations(JSON.parse(row.payload) as ResearchBatch));
+  }, connection);
 }
 
-function withAppendedObservations(db: Database.Database, projectId: string, batch: ResearchBatch): ResearchBatch {
+function withAppendedObservations(db: Database.Database, projectId: string, rawBatch: ResearchBatch): ResearchBatch {
+  const batch = sanitizeBatchObservations(rawBatch);
   const questions = new Map([...batch.questions, ...batch.deferredQuestions].map((question) => [question.id, question]));
-  const observations = db.prepare('SELECT question_id, payload, appended_at FROM geo_research_observations WHERE project_id = ? AND batch_id = ? ORDER BY seq')
-    .all(projectId, batch.id) as (PayloadRow & { question_id: string; appended_at: string })[];
+  const observations = db.prepare('SELECT question_id, engine, payload, appended_at FROM geo_research_observations WHERE project_id = ? AND batch_id = ? ORDER BY seq')
+    .all(projectId, batch.id) as (PayloadRow & { question_id: string; engine: string; appended_at: string })[];
   for (const observation of observations) {
-    questions.get(observation.question_id)!.observations.push(JSON.parse(observation.payload));
+    if (!isConsumerResearchEngine(observation.engine)) continue;
+    const parsed = JSON.parse(observation.payload) as ResearchObservation;
+    if (!isConsumerResearchEngine(parsed.engine)) continue;
+    questions.get(observation.question_id)?.observations.push(parsed);
     batch.updatedAt = observation.appended_at;
   }
   return batch;
@@ -206,7 +226,7 @@ export function getResearchRun(projectId: string, runId: string): ResearchRunRec
 export function listResearchRuns(projectId: string): ResearchRunRecord[] {
   return inDatabase(projectId, (db, id) => (
     db.prepare('SELECT payload FROM geo_research_runs WHERE project_id = ? ORDER BY started_at DESC, seq DESC').all(id) as PayloadRow[]
-  ).map((row) => JSON.parse(row.payload) as ResearchRunRecord));
+  ).map((row) => JSON.parse(row.payload) as ResearchRunRecord).filter((run) => isConsumerResearchEngine(run.provider)));
 }
 
 function frozenInput(record: ResearchRunRecord) {
@@ -218,8 +238,7 @@ function frozenInput(record: ResearchRunRecord) {
     taskId: record.taskId, entryType: record.entryType, imported: record.imported,
     importedRun: record.importedRun, matchedQuestionIds: record.matchedQuestionIds,
     ownerPid: record.execution ? undefined : record.ownerPid, costAllocation: record.costAllocation,
-    scheduleId: record.scheduleId, budget: record.budget,
-    collection: record.collection, protocolKey: record.protocolKey,
+    scheduleId: record.scheduleId, protocolKey: record.protocolKey,
   };
 }
 
@@ -241,18 +260,17 @@ export function saveResearchRun(projectId: string, record: ResearchRunRecord, ex
   const save = (db: Database.Database, id: string) => db.transaction(() => {
     if (record.projectId !== id) throw new ResearchStoreError('研究运行不属于当前项目。');
     if (!record.id || !['running', 'completed', 'partial', 'failed', 'interrupted'].includes(record.status)) throw new ResearchStoreError('研究运行编号或状态无效。');
-    if (!['chatgpt', 'google', 'deepseek', 'qwen', 'doubao'].includes(record.provider) || !['zh', 'en'].includes(record.language)) throw new ResearchStoreError('研究运行入口或语言无效。');
+    if (!['chatgpt', 'google'].includes(record.provider) || !['zh', 'en'].includes(record.language)) throw new ResearchStoreError('研究运行入口或语言无效。');
     if (![record.startedAt, record.updatedAt, ...(record.completedAt ? [record.completedAt] : [])].every((at) => Number.isFinite(Date.parse(at)))) throw new ResearchStoreError('研究运行时间无效。');
     const unlimited = record.budgetEnabled === false;
     if ((record.budgetEnabled !== undefined && typeof record.budgetEnabled !== 'boolean')
-      || (unlimited ? record.budgetLimit !== null || record.budget !== undefined
+      || (unlimited ? record.budgetLimit !== null
         : record.budgetLimit === null || !Number.isFinite(record.budgetLimit) || record.budgetLimit < 0)
       || !Number.isFinite(record.spent) || record.spent < 0
       || (record.budgetLimit !== null && record.spent > record.budgetLimit)) throw new ResearchStoreError('研究运行费用必须在本次预算范围内。');
     if (record.budgetEnforcement !== undefined && !(
       (record.budgetEnforcement === 'disabled' && unlimited)
       || (record.budgetEnforcement === 'legacy' && !unlimited)
-      || (record.budgetEnforcement === 'strict' && record.budgetEnabled === true && record.provider === 'deepseek')
     )) throw new ResearchStoreError('研究运行费用上限模式无效。');
     if (!Array.isArray(record.questions) || (!record.imported && record.questions.length === 0) || record.questions.some((question) => !question.questionId || !question.query)) throw new ResearchStoreError('研究运行必须保存冻结的问题与问法。');
     if (record.completedCount !== undefined && (!Number.isInteger(record.completedCount) || record.completedCount < 0 || record.completedCount > record.questions.length)) throw new ResearchStoreError('研究运行完成题数无效。');
@@ -325,122 +343,4 @@ function assertResearchOwner(run: ResearchRunRecord, token?: string, now = Date.
   if (run.status !== 'running' || !token || run.execution?.token !== token || Date.parse(run.execution.leaseUntil) <= now) {
     throw new ResearchLeaseLostError();
   }
-}
-
-/** A caller already holding a write transaction must use that same connection. */
-export function assertResearchRunOwner(projectId: string, runId: string, token: string, connection?: Database.Database): ResearchRunRecord {
-  const check = (db: Database.Database, id: string) => {
-    const run = readRun(db, id, runId);
-    if (!run) throw new ResearchLeaseLostError();
-    assertResearchOwner(run, token);
-    return run;
-  };
-  return connection ? check(connection, resolveGeoProject(projectId)) : inDatabase(projectId, check);
-}
-
-export function newResearchExecution(now = Date.now()): NonNullable<ResearchRunRecord['execution']> {
-  return { token: randomUUID(), heartbeatAt: new Date(now).toISOString(), leaseUntil: new Date(now + RESEARCH_LEASE_MS).toISOString() };
-}
-
-/** The transaction is the lock: only one process can replace an expired execution. */
-export function claimResearchRun(projectId: string, runId: string, now = Date.now()): ResearchRunRecord | null {
-  return inDatabase(projectId, (db, id) => db.transaction(() => {
-    const run = readRun(db, id, runId);
-    if (!run || run.status !== 'running' || !run.execution || !run.questionProgress || !run.collection
-      || Date.parse(run.execution.leaseUntil) > now) return null;
-    const next = { ...run, ownerPid: process.pid, execution: newResearchExecution(now), updatedAt: new Date(now).toISOString() };
-    db.prepare('UPDATE geo_research_runs SET payload = ?, updated_at = ? WHERE project_id = ? AND id = ?')
-      .run(JSON.stringify(next), next.updatedAt, id, runId);
-    return next;
-  }).immediate());
-}
-
-export function heartbeatResearchRun(projectId: string, runId: string, token: string, now = Date.now()): void {
-  inDatabase(projectId, (db, id) => db.transaction(() => {
-    const run = readRun(db, id, runId);
-    if (!run) throw new ResearchLeaseLostError();
-    assertResearchOwner(run, token, now);
-    run.execution = { token, heartbeatAt: new Date(now).toISOString(), leaseUntil: new Date(now + RESEARCH_LEASE_MS).toISOString() };
-    run.updatedAt = new Date(now).toISOString();
-    db.prepare('UPDATE geo_research_runs SET payload = ?, updated_at = ? WHERE project_id = ? AND id = ?')
-      .run(JSON.stringify(run), run.updatedAt, id, runId);
-  }).immediate());
-}
-
-/** Read/modify/write from the latest row, fenced against both takeover and expiry. */
-export function updateOwnedResearchRun(projectId: string, runId: string, token: string,
-  update: (run: ResearchRunRecord) => void): ResearchRunRecord {
-  return inDatabase(projectId, (db, id) => db.transaction(() => {
-    const run = readRun(db, id, runId);
-    if (!run) throw new ResearchLeaseLostError();
-    assertResearchOwner(run, token);
-    update(run);
-    run.updatedAt = new Date().toISOString();
-    return saveResearchRun(id, run, token, db);
-  }).immediate());
-}
-
-function updateResearchTotals(run: ResearchRunRecord): void {
-  const questions = Object.values(run.questionProgress!);
-  const round = (value: number) => Math.round(value * 1000) / 1000;
-  run.confirmedSpentCny = round(questions.reduce((total, question) => total + question.confirmedCny, 0));
-  run.reservedCny = round(questions.reduce((total, question) => total + question.reservedCny, 0));
-  run.spent = round(run.confirmedSpentCny + run.reservedCny);
-  run.completedCount = questions.filter(question => question.status === 'complete').length;
-}
-
-/** Reserve and record possible dispatch together. A crash after this point is uncertain. */
-export function beginResearchQuestion(projectId: string, runId: string, token: string, questionId: string, reserve: number): ResearchRunRecord {
-  return inDatabase(projectId, (db, id) => db.transaction(() => {
-    const run = readRun(db, id, runId);
-    if (!run) throw new ResearchLeaseLostError();
-    assertResearchOwner(run, token);
-    const question = run.questionProgress?.[questionId];
-    if (!question || question.status !== 'pending') throw new ResearchStoreError('本题已经发送或保存，不会重复请求。', 409);
-    const schedule = run.scheduleId ? db.prepare('SELECT status FROM geo_research_schedules WHERE project_id = ? AND id = ?')
-      .get(id, run.scheduleId) as { status: string } | undefined : undefined;
-    if (run.stopRequestedAt || (run.scheduleId && schedule?.status !== 'active')) throw new ResearchStoreError('已请求停止，后续问题未发送。', 409);
-    if (!Number.isFinite(reserve) || reserve < 0 || (run.budgetLimit !== null && run.spent + reserve > run.budgetLimit + 1e-9)) throw new ResearchStoreError('已达到本批费用上限。');
-    Object.assign(question, { status: 'sent', sentAt: new Date().toISOString(), reservedCny: reserve });
-    run.currentQuestionId = questionId;
-    run.phase = 'searching';
-    updateResearchTotals(run);
-    run.updatedAt = new Date().toISOString();
-    return saveResearchRun(id, run, token, db);
-  }).immediate());
-}
-
-/** Observation, progress, and accounting commit together or all roll back. */
-export function completeResearchQuestion(projectId: string, runId: string, token: string,
-  result: GeoQuestion, observation: ResearchObservation): ResearchRunRecord {
-  return inDatabase(projectId, (db, id) => db.transaction(() => {
-    const run = readRun(db, id, runId);
-    if (!run) throw new ResearchLeaseLostError();
-    assertResearchOwner(run, token);
-    const question = run.questionProgress?.[result.id];
-    if (!question || !['sent', 'complete'].includes(question.status)) throw new ResearchStoreError('本题没有可核对的请求记录。', 409);
-    appendResearchObservation(id, run.batchId, result.id, observation, token, db);
-    if (question.status === 'complete') return run;
-    question.status = 'complete';
-    question.result = result;
-    if (run.provider === 'deepseek') {
-      question.confirmedCny = result.resultCount > 0 ? question.reservedCny : 0;
-      question.reservedCny = 0;
-    }
-    updateResearchTotals(run);
-    run.updatedAt = new Date().toISOString();
-    return saveResearchRun(id, run, token, db);
-  }).immediate());
-}
-
-export function failResearchQuestion(projectId: string, runId: string, token: string, questionId: string,
-  error: string, refundable: boolean): ResearchRunRecord {
-  return updateOwnedResearchRun(projectId, runId, token, run => {
-    const question = run.questionProgress?.[questionId];
-    if (!question || question.status !== 'sent') return;
-    question.status = refundable ? 'failed' : 'uncertain';
-    question.error = error;
-    if (refundable) question.reservedCny = 0;
-    updateResearchTotals(run);
-  });
 }

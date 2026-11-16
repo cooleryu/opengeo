@@ -105,15 +105,15 @@ const candidate = (
 test('groups every platform answer once and preserves saved question order', () => {
   const q2Chatgpt = row('q2');
   const q1Chatgpt = row('q1');
-  const q1Qwen = row('q1', { engine: 'qwen', entryType: 'api_answer' });
-  const q2Qwen = row('q2', { engine: 'qwen', entryType: 'api_answer' });
+  const q1GoogleAi = row('q1', { engine: 'google', entryType: 'web_answer' });
+  const q2GoogleAi = row('q2', { engine: 'google', entryType: 'web_answer' });
   const currentQ2Chatgpt = row('q2', {
     observationIndex: 1,
     recordedAt: '2026-10-29T02:00:00Z',
     ownMention: { status: 'matched', names: ['我们'], excerpts: [] },
   });
   const result = getCompetitorQuestionGaps(
-    comparison([q2Chatgpt, q1Chatgpt, q1Qwen, q2Qwen, currentQ2Chatgpt]),
+    comparison([q2Chatgpt, q1Chatgpt, q1GoogleAi, q2GoogleAi, currentQ2Chatgpt]),
     null,
     scope,
   );
@@ -121,14 +121,14 @@ test('groups every platform answer once and preserves saved question order', () 
     result.map((group) => group.questionId),
     ['q2', 'q1'],
   );
-  assert.equal(result[0].question, q2Qwen.question);
+  assert.equal(result[0].question, q2GoogleAi.question);
   assert.deepEqual(
     result[0].answers.map((answer) => answer.row),
-    [q2Qwen],
+    [q2GoogleAi],
   );
   assert.deepEqual(
     result[1].answers.map((answer) => answer.row),
-    [q1Chatgpt, q1Qwen],
+    [q1Chatgpt, q1GoogleAi],
   );
   assert.ok(
     result.every((group) =>
@@ -172,16 +172,16 @@ test('unknown mentions and unavailable answers never count as gaps', () => {
 });
 
 test('scope uses the latest record before AI filtering, matching overview metrics', () => {
-  const answer = row('q1', { engine: 'qwen', entryType: 'api_answer' });
-  const currentAnswer = row('q5', { engine: 'qwen', entryType: 'api_answer' });
+  const answer = row('q1', { engine: 'google', entryType: 'web_answer' });
+  const currentAnswer = row('q5', { engine: 'google', entryType: 'web_answer' });
   const rows = [
     answer,
     row('q1', {
-      engine: 'qwen',
-      entryType: 'api_search',
+      engine: 'google',
+      entryType: 'web_search',
       recordedAt: '2026-10-30T01:00:00Z',
     }),
-    row('q2', { language: 'en', engine: 'qwen' }),
+    row('q2', { language: 'en', engine: 'google', entryType: 'web_answer' }),
     row('q3'),
     row('q4', { engine: 'google', entryType: 'web_search' }),
     currentAnswer,
@@ -189,7 +189,7 @@ test('scope uses the latest record before AI filtering, matching overview metric
   const selected = candidate([evidence(answer)]);
   const result = getCompetitorQuestionGaps(comparison(rows), selected, {
     language: 'zh',
-    engine: 'qwen',
+    engine: 'google',
   });
   assert.deepEqual(
     result.map((group) => group.questionId),
@@ -209,7 +209,7 @@ test('actions cannot borrow cross-question, cross-platform or obsolete evidence'
   const answer = row('q1');
   const otherRecords: Partial<CandidateQuestion>[] = [
     { questionId: 'q2' },
-    { engine: 'qwen' },
+    { engine: 'google' },
     { language: 'en' },
     { batchId: 'old-batch' },
     { observationIndex: 1 },
@@ -246,7 +246,7 @@ test('every referenced evidence item must match, with no fallback to another sco
   const current = evidence(answer);
   const otherPlatform = evidence(answer, {
     evidenceId: 'evidence-2',
-    engine: 'qwen',
+    engine: 'google',
   });
   const selected = candidate(
     [current, otherPlatform],

@@ -70,7 +70,7 @@ GET 省略 project 默认 `example-project`；POST 要求 projectId 为 string�
 | `ownMention,targetMention`         | `{status:matched或not_seen或unknown,names[],excerpts[]}`                                                                               |
 | `sources[]`                        | ResearchSource 加 `own:boolean,target:boolean`；第三方来源保留；官方归属独立匹配                                                       |
 
-rows 支持 ResearchEngine 的 ChatGPT、Google、DeepSeek、千问、豆包，并保留 entryType。网页搜索不当作 AI 回答。正文支持已登记 ChatGPT 文本段、标准 answer_text 等 JSON、千问/豆包完整响应及明确标记 api_answer 的归一化 `.answer.md`。缺失、失败、不完整或未知格式保留 unknown。自己的名称匹配优先遵从精确项目/批次/问题/平台/语言/时间/原文路径匹配的持久审核；审核 no 不会被同名文本覆盖，缺审核或审核不完整保持 unknown。候选正文名称匹配不等于已核实身份、推荐或排名。
+rows 支持 ResearchEngine 的 ChatGPT、Google，并保留 entryType。网页搜索不当作 AI 回答。正文支持已登记 ChatGPT 与 Google AI Overview 的完整回答文本、标准 `answer_text` 等 JSON 及归一化 `.answer.md`。缺失、失败、不完整或未知格式保留 unknown。自己的名称匹配优先遵从精确项目/批次/问题/平台/语言/时间/原文路径匹配的持久审核；审核 no 不会被同名文本覆盖，缺审核或审核不完整保持 unknown。候选正文名称匹配不等于已核实身份、推荐或排名。
 
 官方 URL 按主机、端口、路径及子路径匹配，同域其他仓库不计入。GitHub 的 owner/repo 忽略大小写，其下文件路径仍严格匹配；候选名称链接明确指向另一同名仓库且没有本候选身份链接时，提及保持 unknown。未见官方入口不代表未收录。
 

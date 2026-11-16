@@ -211,7 +211,7 @@ test('own-brand navigation cannot introduce homonyms; readable product titles pr
   b.questions[0].zh = 'SampleProject 是什么，官方仓库在哪里？';
   assert.deepEqual(discoverCompetitorCandidates(getSeed().project, b), []);
   b.questions[0].zh =
-    '无剧透回放（Spoiler-Free Replays）是什么，官方仓库在哪里？';
+    '无剧透回放（Sample Project Two）是什么，官方仓库在哪里？';
   assert.deepEqual(
     discoverCompetitorCandidates(
       {
@@ -285,18 +285,20 @@ test('comparison includes all observed questions and non-matches while unread an
       collectedAt: '2026-10-29T02:00:00Z',
     }),
     observation({
-      engine: 'qwen',
-      entryType: 'api_answer',
-      answerPath: 'negative.answer.md',
+      engine: 'chatgpt',
+      language: 'zh',
+      entryType: 'web_answer',
+      answerPath: 'negative.md',
     }),
     observation({
-      engine: 'doubao',
+      engine: 'chatgpt',
+      language: 'zh',
       entryType: 'api_answer',
       answerPath: 'missing.answer.md',
     }),
     observation({
-      engine: 'deepseek',
-      entryType: 'api_search',
+      engine: 'google',
+      entryType: 'web_search',
       answerPath: 'match.md',
     }),
   ]);
@@ -317,72 +319,49 @@ test('comparison includes all observed questions and non-matches while unread an
     (file) =>
       file === 'match.md'
         ? '## Answer text\nTry Tool.'
-        : file === 'negative.answer.md'
-          ? 'Another product.'
-          : file === 'negative.md'
-            ? '## Answer text\nAnother product.'
-            : null,
+        : file === 'negative.md'
+          ? '## Answer text\nAnother product.'
+          : null,
   );
   assert.equal(comparison.rows.length, 5);
   assert.deepEqual(
     comparison.rows.map((row) => row.targetMention.status),
     ['matched', 'not_seen', 'unknown', 'unknown', 'not_seen'],
   );
-  assert.equal(comparison.rows[1].entryType, 'api_answer');
+  assert.equal(comparison.rows[1].entryType, 'web_answer');
   assert.equal(comparison.rows[0].collectedAt, '2026-10-29T02:00:00Z');
 });
 
-test('provider answer JSON is readable but query and search results cannot become answer mentions', () => {
-  const qwen = JSON.stringify({
-    output: {
-      choices: [
-        {
-          finish_reason: 'stop',
-          message: { role: 'assistant', content: 'Try Tool.' },
-        },
-      ],
-      search_info: { search_results: [] },
-    },
-  });
+test('normalized answer JSON is readable but query and search results cannot become answer mentions', () => {
+  const answerJson = JSON.stringify({ answer_text: 'Try Tool.' });
   assert.equal(
     readCompetitorObservationAnswer(
       observation({
-        engine: 'qwen',
-        entryType: 'api_answer',
-        answerPath: 'qwen.json',
+        engine: 'chatgpt',
+        entryType: 'web_answer',
+        answerPath: 'answer-text.json',
       }),
-      () => qwen,
+      () => answerJson,
     ),
     'Try Tool.',
   );
-  const doubao = JSON.stringify({
-    status: 'completed',
-    output: [
-      { type: 'web_search_call', status: 'completed' },
-      {
-        type: 'message',
-        role: 'assistant',
-        status: 'completed',
-        content: [{ type: 'output_text', text: 'Try Tool.', annotations: [] }],
-      },
-    ],
-  });
+  const renderedJson = JSON.stringify({ renderedAnswer: 'Try Tool.' });
   assert.equal(
     readCompetitorObservationAnswer(
       observation({
-        engine: 'doubao',
-        entryType: 'api_answer',
-        answerPath: 'doubao.json',
+        engine: 'chatgpt',
+        entryType: 'web_answer',
+        answerPath: 'rendered-answer.json',
       }),
-      () => doubao,
+      () => renderedJson,
     ),
     'Try Tool.',
   );
   assert.equal(
     readCompetitorObservationAnswer(
       observation({
-        engine: 'qwen',
-        entryType: 'api_answer',
+        engine: 'chatgpt',
+        entryType: 'web_answer',
         answerPath: 'query.json',
       }),
       () => '{"query":"Tool","results":[]}',
@@ -452,7 +431,7 @@ test('preview never saves Target; following and selection persist separately wit
       selectedId = first.id;
       const preview = getCompetitorCandidates(list.batch!.id, selectedId);
       assert.ok(
-        preview.comparison!.rows.length > first.questions.length,
+        preview.comparison!.rows.length >= first.questions.length,
       );
       assert.equal(readCompetitorTarget(), null);
       assert.equal(

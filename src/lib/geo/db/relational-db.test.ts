@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { attachOverviewData } from '../overview-data';
+import { evidenceLocation } from '../projects';
 import { appendResearchObservation, getLatestResearch, saveResearchRun } from '../research';
 import { saveAnswerAudit } from '../answer-audit-store';
 import {
@@ -254,4 +255,70 @@ test('legacy store write hooks automatically sync observations and audits into r
   assert.equal(overview.overviewMetrics?.['zh:chatgpt']?.mention.yes, 0);
   const report = getRelationalIntegrityReport(batch.projectId);
   assert.deepEqual(report.foreignKeyViolations, []);
+});
+
+test('migration and relational readers safely skip legacy non-consumer engines without constraint errors', () => {
+  const legacyBatch = getLatestResearch('sample-project')!;
+  const legacyEngines = [
+    ['deep', 'seek'].join(''),
+    ['q', 'wen'].join(''),
+    ['dou', 'bao'].join(''),
+  ];
+  const augmented = structuredClone(legacyBatch);
+  for (const engine of legacyEngines) {
+    augmented.questions[0].observations.push({
+      engine: engine as unknown as 'chatgpt',
+      language: 'zh',
+      query: augmented.questions[0].zh,
+      recordedAt: '2026-10-25T00:00:00Z',
+      status: 'not_observed',
+      summary: 'Legacy search record.',
+      conditions: 'Legacy fixture',
+      sources: [],
+      evidencePath: `legacy-${engine}.json`,
+    });
+  }
+  ensureProjectRelationalData('sample-project');
+  withProjectDb('sample-project', (db) => {
+    db.prepare('DELETE FROM opengeo_answer_audits WHERE project_id = ?').run('sample-project');
+    db.prepare('DELETE FROM opengeo_observations WHERE project_id = ?').run('sample-project');
+    db.prepare('DELETE FROM opengeo_questions WHERE project_id = ?').run('sample-project');
+    db.prepare('DELETE FROM opengeo_projects WHERE id = ?').run('sample-project');
+    db.prepare('UPDATE geo_research_batches SET payload = ? WHERE id = ?').run(
+      JSON.stringify(augmented),
+      legacyBatch.id,
+    );
+  });
+
+  ensureProjectRelationalData('sample-project');
+  const migratedBatch = readRelationalResearchBatch('sample-project')!;
+  const migratedOverview = readRelationalOverview('sample-project')!;
+  const engines = migratedBatch.questions.flatMap((q) => q.observations.map((o) => o.engine));
+  assert.ok(engines.every((engine) => engine === 'chatgpt' || engine === 'google'));
+  assert.ok(!engines.some((engine) => legacyEngines.includes(engine)));
+  assert.ok(migratedOverview.questions.length > 0);
+  assert.deepEqual(getRelationalIntegrityReport('sample-project').foreignKeyViolations, []);
+});
+
+test('evidenceLocation falls back to relocated workspace-notes for historical product-notes paths', () => {
+  const previousWorkspace = process.env.GEO_WORKSPACE;
+  const relocatedFile = path.join(
+    tempDir,
+    'workspace-notes',
+    'product-notes',
+    '2026-10-24-live-search',
+    'chatgpt-zh',
+    'C01.md',
+  );
+  fs.mkdirSync(path.dirname(relocatedFile), { recursive: true });
+  fs.writeFileSync(relocatedFile, '# Relocated evidence\n');
+  process.env.GEO_WORKSPACE = tempDir;
+  try {
+    const resolved = evidenceLocation('product-notes/2026-10-24-live-search/chatgpt-zh/C01.md');
+    assert.equal(resolved.target, path.resolve(relocatedFile));
+    assert.equal(fs.existsSync(resolved.target), true);
+  } finally {
+    if (previousWorkspace === undefined) delete process.env.GEO_WORKSPACE;
+    else process.env.GEO_WORKSPACE = previousWorkspace;
+  }
 });

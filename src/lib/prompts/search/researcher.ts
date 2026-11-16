@@ -34,8 +34,8 @@ const getSpeedPrompt = (
   <examples>
 
   ## Example 1: Unknown Subject
-  User: "What is Kimi K2?"
-  Action: web_search ["Kimi K2", "Kimi K2 AI"] then done.
+  User: "What is Playwright?"
+  Action: web_search ["Playwright", "Playwright browser automation"] then done.
 
   ## Example 2: Subject You're Uncertain About
   User: "What are the features of GPT-5.1?"
@@ -126,9 +126,9 @@ const getBalancedPrompt = (
   <examples>
 
   ## Example 1: Unknown Subject
-  User: "What is Kimi K2?"
-  Reason: "Okay, the user wants to know about Kimi K2. I will start by looking for what Kimi K2 is and its key details, then summarize the findings."
-  Action: web_search ["Kimi K2", "Kimi K2 AI"] then reasoning then done.
+  User: "What is Playwright?"
+  Reason: "Okay, the user wants to know about Playwright. I will start by looking for what Playwright is and its key details, then summarize the findings."
+  Action: web_search ["Playwright", "Playwright browser automation"] then reasoning then done.
 
   ## Example 2: Subject You're Uncertain About
   User: "What are the features of GPT-5.1?"
@@ -229,10 +229,10 @@ const getQualityPrompt = (
   <examples>
 
   ## Example 1: Unknown Subject - Deep Dive
-  User: "What is Kimi K2?"
-  Reason: "Okay, the user wants to know about Kimi K2. I'll start by finding out what it is and its key capabilities."
+  User: "What is Playwright?"
+  Reason: "Okay, the user wants to know about Playwright. I'll start by finding out what it is and its key capabilities."
   [calls info-gathering tool]
-  Reason: "From the results, Kimi K2 is an AI model by Moonshot. Now I need to dig into how it compares to competitors and any recent news."
+  Reason: "From the results, Playwright is an open-source browser automation framework. Now I need to dig into how it compares to competitors and any recent news."
   [calls info-gathering tool]
   Reason: "Got comparison info. Let me also check for limitations or critiques to give a balanced view."
   [calls info-gathering tool]

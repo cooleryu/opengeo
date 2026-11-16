@@ -48,7 +48,7 @@
 | --- | --- | --- |
 | 理解产品 | 新建项目读取公开入口、主动补找资料、整理关联并追加 SQLite，随后接现有理解和选题 | [资料入库与读取](opengeo/pages/content-assets.md#新建项目的资料调查与持久化)；既有项目的周期材料刷新未实现 |
 | 确认问题 | 模型拟题、独立审核、人工维护、版本保存与批次确认 | [输入包含已存调查资料；候选合并与材料更新尚有限制](opengeo/pages/question-monitoring.md#数据生产与更新审计) |
-| 搜索并诊断 | DeepSeek 搜索、Qwen/Doubao 联网回答、原始返回、SQLite 追加、逐条回答审核、服务端提及/引用汇总与概览版本刷新；新增浏览器逐题入库接口与采集命令 | [浏览器链路验证与边界](opengeo/browser-observations.md)；应用内浏览器搜索按钮、持续浏览器调度与诊断更新仍未接通；[回答审核](opengeo/pages/overview.md#数据生产与更新审计)缺证据时保留 unknown |
+| 搜索并诊断 | ChatGPT 与 Google 浏览器采集、原始返回、SQLite 追加、逐条回答审核、服务端提及/引用汇总与概览版本刷新；提供浏览器逐题入库接口与采集命令 | [浏览器链路验证与边界](opengeo/browser-observations.md)；持续浏览器调度与诊断更新仍未接通；[回答审核](opengeo/pages/overview.md#数据生产与更新审计)缺证据时保留 unknown |
 | 方案与独立审核 | 模型诊断、改稿、独立复审、按条件停止、保存各轮 | [新依据对诊断和续改意见的版本约束不完整](opengeo/pages/improvement-tracking.md#数据生产与更新审计) |
 | 跟测与学习 | 实施登记、同条件复测、经验候选、验证、启用与回退 | [评分偏差分析、可执行观察窗口未接通](opengeo/pages/improvement-tracking.md#数据生产与更新审计) |
 

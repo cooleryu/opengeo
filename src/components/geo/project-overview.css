@@ -87,6 +87,18 @@
   flex-wrap: wrap;
 }
 
+.pov-shell .pov-rerun-btn {
+  height: 36px;
+  padding: 0 13px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.pov-shell .pov-rerun-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .pov-shell .pov-segmented {
   display: inline-flex;
   align-items: center;
@@ -318,27 +330,59 @@
   flex-wrap: wrap;
 }
 
-.pov-metric-chips > span {
+.pov-metric-card-click {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pov-metric-card-click:focus-visible {
+  outline: 2px solid #18181b;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.pov-shell .pov-metric-chips > span,
+.pov-shell .pov-metric-chips > button {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 999px;
   background: #f4f4f5;
   color: #52525b;
-  font-size: 11.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
-.pov-metric-chips > span.is-yes {
+.pov-shell .pov-metric-chips > button {
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.pov-shell .pov-metric-chips > button:hover {
+  border-color: #d4d4d8;
+}
+
+.pov-shell .pov-metric-chips > span.is-yes,
+.pov-shell .pov-metric-chips > button.is-yes {
   background: #ecfdf5;
   color: #15803d;
   font-weight: 550;
 }
 
-.pov-metric-chips > span.is-amber {
+.pov-shell .pov-metric-chips > span.is-amber,
+.pov-shell .pov-metric-chips > button.is-amber {
   background: #fffbeb;
   color: #b45309;
   font-weight: 550;
+}
+
+.pov-shell .pov-metric-chips > button.is-active {
+  border-color: #18181b;
+  box-shadow: 0 0 0 1px #18181b inset;
 }
 
 /* Platform Breakdown Card */
@@ -1099,6 +1143,99 @@
   color: #fff;
   font-size: 13.5px;
   font-weight: 550;
+}
+
+.pov-shell .pov-primary-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pov-shell .pov-secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #d4d4d8;
+  background: #ffffff;
+  color: #27272a;
+  font-size: 12.5px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+
+.pov-shell .pov-secondary-btn:hover:not(:disabled) {
+  background: #f4f4f5;
+}
+
+.pov-collect-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 16px;
+  border-radius: 11px;
+  border: 1px solid #e4e4e7;
+  background: #f8faf9;
+  flex-wrap: wrap;
+}
+
+.pov-collect-status.is-handoff {
+  border-color: #f5d08a;
+  background: #fffbeb;
+}
+
+.pov-collect-status.is-error {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.pov-collect-status-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.pov-collect-status-main svg {
+  margin-top: 2px;
+  flex-shrink: 0;
+  color: #147a5b;
+}
+
+.pov-collect-status.is-handoff .pov-collect-status-main svg {
+  color: #b45309;
+}
+
+.pov-collect-status.is-error .pov-collect-status-main svg {
+  color: #b91c1c;
+}
+
+.pov-shell .pov-collect-status-main strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #18181b;
+}
+
+.pov-shell .pov-collect-status-main p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: #52525b;
+}
+
+.pov-cli-fallback summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: #71717a;
+  user-select: none;
+}
+
+.pov-cli-fallback[open] summary {
+  margin-bottom: 10px;
+  color: #3f3f46;
 }
 
 @media (max-width: 1020px) {

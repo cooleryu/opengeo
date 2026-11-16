@@ -28,7 +28,7 @@ afterEach(() => {
 
 function run(batch: ResearchBatch, id = 'run-1'): ResearchRunRecord {
   return {
-    id, projectId: batch.projectId, batchId: batch.id, provider: 'deepseek', language: 'zh',
+    id, projectId: batch.projectId, batchId: batch.id, provider: 'chatgpt', language: 'zh',
     questions: [{ questionId: batch.questions[0].id, query: batch.questions[0].zh }],
     status: 'running', startedAt: '2026-10-27T00:00:00Z', updatedAt: '2026-10-27T00:00:00Z',
     budgetLimit: 0.02, spent: 0,

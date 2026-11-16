@@ -9,9 +9,12 @@ export async function collectBrowserQuestion(task, input) {
   try {
     const prior=JSON.parse(await fs.readFile(captureFile,'utf8'));
     if (prior.projectId !== input.projectId || prior.batchId !== input.batchId || prior.questionId !== input.questionId || prior.query !== input.query || prior.engine !== input.engine || prior.language !== input.language) throw new Error('采集编号已对应其他问题。');
-    return submitBrowserCapture(input,prior);
+    const replayPayload = input.optimizationRunId
+      ? { ...prior, optimizationRunId: input.optimizationRunId }
+      : prior;
+    return submitBrowserCapture(input, replayPayload);
   } catch(error) { if(error.code !== 'ENOENT') throw error; }
-  const page = task.page('p1');
+  const page = typeof task.page === 'function' ? task.page('p1') : task;
   console.log('正在浏览器采集这一题…');
   let result;
   let conditions;
@@ -25,36 +28,131 @@ export async function collectBrowserQuestion(task, input) {
       return hit ? hit[0] : '';
     });
     if (!input.resume) {
-    const composer='#prompt-textarea, [contenteditable="true"][aria-label*="ChatGPT"], [contenteditable="true"][aria-label="询问 ChatGPT"], textarea[placeholder*="ChatGPT"], textarea[placeholder*="Ask"]';
+    const composerSelectors = [
+      '#prompt-textarea',
+      'form [contenteditable="true"].ProseMirror',
+      'form [contenteditable="true"]',
+      '[contenteditable="true"][aria-label*="ChatGPT"]',
+      '[contenteditable="true"][aria-label="询问 ChatGPT"]',
+      'textarea[placeholder*="ChatGPT"]',
+      'textarea[placeholder*="Ask"]',
+    ];
+    const composer = composerSelectors.join(', ');
     await page.goto('https://chatgpt.com/?temporary-chat=true');
     const preBlock = await detectChatGPTBlock();
-    if (preBlock) throw new Error(`ChatGPT 触发风控/限流或人工校验（${preBlock}），已主动熔断停止，请勿高频重试，请在当前页人工确认后再使用 --space 恢复。`);
+    if (preBlock) throw new Error(`ChatGPT 触发风控/限流或人工校验（${preBlock}），已主动熔断停止，请勿高频重试，请在当前页人工确认后点击继续。`);
     try {
       await page.waitForSelector(composer, {state:'visible',timeout:30000});
     } catch (waitError) {
       const postBlock = await detectChatGPTBlock();
-      if (postBlock) throw new Error(`ChatGPT 触发风控/限流或人工校验（${postBlock}），已主动熔断停止，请勿高频重试，请在当前页人工确认后再使用 --space 恢复。`);
+      if (postBlock) throw new Error(`ChatGPT 触发风控/限流或人工校验（${postBlock}），已主动熔断停止，请勿高频重试，请在当前页人工确认后点击继续。`);
+      const needsLogin = await page.evaluate(() =>
+        /auth\.openai\.com|\/auth\/login/i.test(globalThis.location?.href ?? '') ||
+        [...document.querySelectorAll('button,a')].some((el) =>
+          el.checkVisibility() && /^(登录|Log in|Sign in|Sign up|免费注册)$/i.test(el.innerText?.trim() ?? ''),
+        ),
+      ).catch(() => false);
+      if (needsLogin) {
+        throw new Error('ChatGPT 需要先登录账号或完成人工验证，请在打开的浏览器窗口完成后点击继续。');
+      }
       throw waitError;
     }
-    await page.waitForFunction(() => /临时聊天|Temporary Chat|won't appear in history/i.test(document.body.innerText), undefined, {timeout:15000});
+    let temporaryChatVerified = false;
+    try {
+      await page.waitForFunction(() => /临时聊天|Temporary Chat|won't appear in history/i.test(document.body.innerText), undefined, {timeout:8000});
+      temporaryChatVerified = true;
+    } catch {
+      const signedOutVisible = await page.evaluate(() =>
+        [...document.querySelectorAll('button,a')].some(
+          (el) => el.checkVisibility() && /^(登录|Log in|Sign in|Sign up|免费注册)$/i.test(el.innerText?.trim() ?? ''),
+        ),
+      ).catch(() => false);
+      if (signedOutVisible) {
+        throw new Error('ChatGPT 需要先登录账号才能开启临时聊天采集，请在打开的浏览器窗口登录后点击继续。');
+      }
+      throw new Error('ChatGPT 未进入临时聊天模式（可能有弹窗或人工校验待确认），请在打开的浏览器窗口确认后点击继续。');
+    }
     const personal = await page.evaluate(() => [...document.querySelectorAll('button')].some(b => b.checkVisibility() && /^(个性化|Personalization)$/i.test(b.innerText.trim())));
     if (personal) {
       try {
-        await page.click('text=/^(个性化|Personalization)$/i');
-        await page.click('text=/不个性化|Without memory|Turn off|Off/i', { timeout: 5000 });
+        await page.evaluate(() => {
+          const btn = [...document.querySelectorAll('button')].find((b) => b.checkVisibility() && /^(个性化|Personalization)$/i.test(b.innerText?.trim() ?? ''));
+          btn?.click();
+        });
+        await page.waitForFunction(() => [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], button, [role="option"]')].some((el) => el.checkVisibility() && /不个性化|Without memory|Turn off|Off/i.test(el.innerText?.trim() ?? '')), undefined, { timeout: 5000 });
+        await page.evaluate(() => {
+          const item = [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], button, [role="option"]')].find((el) => el.checkVisibility() && /不个性化|Without memory|Turn off|Off/i.test(el.innerText?.trim() ?? ''));
+          item?.click();
+        });
         await page.waitForFunction(() => /不会使用记忆|without memory/i.test(document.body.innerText) ||
           [...document.querySelectorAll('button')].some(b => b.checkVisibility() && /^(不个性化|Without memory|Off)$/i.test(b.innerText.trim())), undefined, { timeout: 8000 });
       } catch {
-        await page.keyboard.press('Escape').catch(() => {});
+        await page.keyboard?.press?.('Escape').catch(() => {});
       }
     }
-    conditions=await page.evaluate(readChatGPTConditions,{language:input.language,temporaryChatVerified:true});
+    conditions=await page.evaluate(readChatGPTConditions,{language:input.language,temporaryChatVerified});
     turnIndex=await page.evaluate(({query}) => [...document.querySelectorAll('[data-talvt-turn-state]')]
       .filter(turn => turn.querySelector('[data-user-message-bubble]')?.textContent?.trim() === query).length, {query:input.query});
     if (input.humanPause) await jitterPause(1200, 2600);
-    await page.fill(composer, input.query);
+    const targetComposer = await page.evaluate(({ fullSelector, candidates }) => {
+      const allMatched = [...document.querySelectorAll(fullSelector)];
+      const visibleAll = allMatched.filter((el) => el.checkVisibility());
+      if (allMatched.length <= 1 && visibleAll.length <= 1) return fullSelector;
+      for (const candidate of candidates) {
+        const all = [...document.querySelectorAll(candidate)];
+        if (all.length === 1 && all[0].checkVisibility()) return candidate;
+      }
+      for (const candidate of candidates) {
+        const visible = [...document.querySelectorAll(candidate)].filter((el) => el.checkVisibility());
+        if (visible.length === 1) return candidate;
+        if (visible.length > 1) return `${candidate} >> nth=0`;
+      }
+      return fullSelector;
+    }, { fullSelector: composer, candidates: composerSelectors });
+    await page.fill(targetComposer, input.query);
+    const composerFilled = await page.evaluate((sel) => {
+      const cleanSel = sel.replace(/\s*>>\s*nth=\d+$/, '');
+      const el = [...document.querySelectorAll(cleanSel)].find((node) => node.checkVisibility()) || document.querySelector(cleanSel);
+      if (!el) return false;
+      const val = 'value' in el && typeof el.value === 'string' ? el.value : '';
+      const txt = el.innerText || el.textContent || '';
+      return Boolean((val || txt).trim());
+    }, targetComposer);
+    if (!composerFilled && typeof page.keyboard?.insertText === 'function') {
+      await page.click(targetComposer);
+      await page.keyboard.insertText(input.query);
+    }
     if (input.humanPause) await jitterPause(700, 1500);
-    await page.click('button[data-testid="send-button"], button[aria-label="Send prompt"], button[aria-label="发送"]');
+    const sendCandidates = [
+      'button[data-testid="send-button"]',
+      'button[data-testid="composer-submit-button"]',
+      'button[aria-label="Send prompt"]',
+      'button[aria-label="发送提示"]',
+      'button[aria-label="发送"]',
+      'form button[type="submit"]',
+    ];
+    const sendSelector = sendCandidates.join(', ');
+    await page.waitForFunction((sel) =>
+      [...document.querySelectorAll(sel)].some(
+        (btn) => btn.checkVisibility() && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true',
+      ), sendSelector, { timeout: 8000 });
+    const targetSendSelector = await page.evaluate(({ fullSelector, candidates }) => {
+      const isEnabledVisible = (btn) => btn.checkVisibility() && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true';
+      const allMatched = [...document.querySelectorAll(fullSelector)];
+      const visibleEnabled = allMatched.filter(isEnabledVisible);
+      if (allMatched.length <= 1 && visibleEnabled.length <= 1) return fullSelector;
+      for (const candidate of candidates) {
+        const all = [...document.querySelectorAll(candidate)];
+        if (all.length === 1 && isEnabledVisible(all[0])) return candidate;
+      }
+      for (const candidate of candidates) {
+        const enabled = [...document.querySelectorAll(candidate)].filter(isEnabledVisible);
+        if (enabled.length === 1) return candidate;
+        if (enabled.length > 1) return `${candidate} >> nth=0`;
+      }
+      return fullSelector;
+    }, { fullSelector: sendSelector, candidates: sendCandidates });
+    await page.click(targetSendSelector);
     if (input.humanPause) await jitterPause(1500, 2500);
     }
     if (!(await page.url()).startsWith('https://chatgpt.com/')) throw new Error('当前页面不是 ChatGPT，不能继续采集。');
@@ -126,6 +224,7 @@ export async function collectBrowserQuestion(task, input) {
   }
   if (!result.answerText?.trim()) throw new Error('没有取得完整的可读回答，未提交空结果。');
   const payload = {projectId:input.projectId,batchId:input.batchId,questionId:input.questionId,
+    ...(input.optimizationRunId ? {optimizationRunId:input.optimizationRunId} : {}),
     query:input.query,language:input.language,engine:input.engine,captureId:input.captureId,
     recordedAt:new Date().toISOString(),pageUrl:await page.url(),entryType:result.entryType,
     answerText:result.answerText,sources:result.sources,answerComplete:result.answerComplete,

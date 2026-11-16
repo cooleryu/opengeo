@@ -38,7 +38,7 @@ test('empty installations exclude examples and first real project uses its own d
   assert.equal(created.created, true);
   assert.match(created.project.id, /^project-[a-f0-9]{24}$/);
   assert.equal(resolveGeoProject(null), created.project.id);
-  assert.deepEqual(listGeoProjects(), [created.project]);
+  assert.deepEqual(listGeoProjects(), [{ ...created.project, uiLanguage: 'zh' }]);
   assert.equal(withGeoProject(created.project.id, projectDataDirectory), path.join(temporary, 'data/projects', created.project.id));
   assert.equal(fs.existsSync(path.join(temporary, 'data/db.sqlite')), false);
 });

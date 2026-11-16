@@ -8,8 +8,10 @@ import { afterEach, beforeEach, test } from 'node:test';
 import type { LLMTransport } from '../../agent-hub';
 import { readAgentMeta, readAgentText } from '../agent-files';
 import { ensureProjectRelationalData, withProjectDb } from '../db';
+import { ingestBrowserObservation } from '../browser-collection';
 import { loadProjectSeed } from '../project-data';
-import { deliverableWriterAgent } from './agents';
+import { readLatestResearch } from '../research-store';
+import { deliverableWriterAgent, optimizationStrategistAgent } from './agents';
 import {
   buildExternalMarkdown,
   buildExternalRichHtml,
@@ -18,6 +20,11 @@ import {
 import {
   applyOptimizationDeliverables,
   buildOptimizationRunViewModel,
+  cancelOptimizationRun,
+  createOptimizationRunRecord,
+  finalizeOptimizationBrowserRetest,
+  getOptimizationRun,
+  listOptimizationRuns,
   OptimizationStateError,
   publishRepoDeliverablesToGitHub,
   runOptimizationRetest,
@@ -1239,4 +1246,292 @@ test('exports external articles with public GitHub raw image URLs, step cards fo
   );
   assert.ok(richHtml.includes('<blockquote><p><strong>Workflow Overview</strong></p>\n<ol>'));
   assert.ok(richHtml.includes('<table><thead><tr><th>Tool</th><th>Best for</th></tr></thead><tbody><tr><td><strong>OpenGEO</strong></td><td>Local captures</td></tr></tbody></table>'));
+});
+
+test('finalizeOptimizationBrowserRetest transitions awaiting_retest -> remeasuring -> completed and matches en baseline', async () => {
+  const projectId = 'sample-project';
+  ensureProjectRelationalData(projectId);
+  const ownedSiteUrl = loadProjectSeed(projectId).project.siteUrl;
+  const batch = readLatestResearch(projectId);
+  assert.ok(batch);
+  const targetQuestion =
+    batch.questions.find((q) =>
+      batch.answerAudits?.some(
+        (audit) =>
+          audit.questionId === q.id &&
+          audit.engine === 'chatgpt' &&
+          audit.language === 'en' &&
+          audit.mention === 'no',
+      ),
+    ) ?? batch.questions[1];
+  assert.ok(targetQuestion);
+
+  const mockTransport: LLMTransport = {
+    provider: 'test',
+    async complete(req) {
+      const sys = req.messages[0]?.content ?? '';
+      let content = '{}';
+      if (sys.includes('策略官')) {
+        content = JSON.stringify({
+          summary: 'Write a clear comparison guide targeting English discovery prompts.',
+          deliverables: [
+            {
+              priority: 1,
+              kind: 'new_content',
+              format: 'rich_markdown',
+              title: 'How to Check AI Search Visibility',
+              targetAssetId: null,
+              destination: 'Dev.to / Technical Blog',
+              audienceAndGoal: 'Show developers how to inspect ChatGPT and Google citations.',
+              questionIds: [targetQuestion.id],
+              writingBrief: 'Walk through the capture and audit steps in English.',
+            },
+          ],
+        });
+      } else if (sys.includes('对外公开获客实操长文') || sys.includes('本篇文体')) {
+        content = JSON.stringify({
+          title: 'How to Check AI Search Visibility',
+          afterContent: [
+            '# How to Check AI Search Visibility',
+            '',
+            'Potential users ask ChatGPT and Google AI Overviews directly when comparing tools.',
+            '',
+            '| Workflow | Captures native citations | Supports before/after retest |',
+            '| --- | --- | --- |',
+            '| Ad-hoc chat prompt | Easy to lose links | Manual copy only |',
+            '| Structured local audit | Stores full text and citations | Re-runs exact prompt cleanly |',
+            '',
+            '```mermaid',
+            'flowchart LR',
+            '  A["Run buyer prompts"] --> B["Inspect citations"] --> C["Ship improvements & retest"]',
+            '```',
+          ].join('\n'),
+          mediaManifest: [
+            { type: 'table', pathOrTitle: 'Workflow Comparison', caption: 'Compare ad-hoc checks and local audit' },
+            { type: 'mermaid', pathOrTitle: 'Audit Loop', caption: 'From capture to retest' },
+          ],
+        });
+      } else if (sys.includes('成稿守门人')) {
+        content = JSON.stringify({
+          verdict: 'pass',
+          summary: 'All three checks passed.',
+          checks: {
+            authenticity: { passed: true, note: 'Accurate.' },
+            compliance: { passed: true, note: 'Objective.' },
+            readability: { passed: true, note: 'Clear English.' },
+          },
+          revisionInstructions: [],
+        });
+      }
+      return { message: { role: 'assistant', content }, model: 'mock-v4', latencyMs: 4 };
+    },
+  };
+
+  const run = await startOptimizationRun(projectId, {
+    mode: 'focus',
+    targetLanguage: 'en',
+    transport: mockTransport,
+  });
+  assert.equal(run.status, 'awaiting_approval', run.errorMessage ?? undefined);
+  const applied = applyOptimizationDeliverables(projectId, run.id, [
+    {
+      deliverableId: run.deliverables[0].id,
+      action: 'apply',
+      publishedUrl: 'https://dev.to/example/ai-visibility',
+      note: 'Published to Dev.to',
+    },
+  ]);
+  assert.equal(applied.status, 'awaiting_retest');
+
+  const ingested = await ingestBrowserObservation(
+    {
+      projectId,
+      batchId: batch.id,
+      questionId: targetQuestion.id,
+      captureId: 'browser-en-retest-check-1',
+      optimizationRunId: run.id,
+      query: targetQuestion.en,
+      language: 'en',
+      engine: 'chatgpt',
+      entryType: 'web_answer',
+      recordedAt: new Date().toISOString(),
+      pageUrl: 'https://chatgpt.com/c/en-retest-check',
+      answerText: 'Sample Project now appears clearly in English ChatGPT answers.',
+      sources: [{ title: 'Official Docs', url: ownedSiteUrl }],
+      citations: [{ title: 'Official Docs', url: ownedSiteUrl }],
+      citationSource: 'native',
+      answerComplete: true,
+      citationsComplete: true,
+      conditions: {
+        mode: 'web_answer',
+        region: 'global',
+        loginState: 'signed_in',
+      },
+    },
+    {
+      model: {
+        generateObject: async () => ({
+          identity: 'matched',
+          mention: 'yes',
+          citation: 'yes',
+          mentionQuote: 'Sample Project now appears clearly',
+          mentionEvidence: 'Brand matched in English answer.',
+          citationEvidence: 'Official URL in native citations.',
+          officialUrls: [ownedSiteUrl],
+          answerComplete: true,
+          limitations: [],
+        }),
+      },
+    },
+  );
+  assert.equal(ingested.status, 'complete');
+
+  const completed = finalizeOptimizationBrowserRetest(projectId, run.id);
+  assert.equal(completed.status, 'completed');
+  const vm = buildOptimizationRunViewModel(projectId, completed.id);
+  assert.equal(vm.retestComparison?.comparedCount, 1);
+  assert.equal(vm.retestComparison?.beforeMentionYes, 0);
+  assert.equal(vm.retestComparison?.afterMentionYes, 1);
+  assert.equal(vm.retestComparison?.afterCitationYes, 1);
+});
+
+test('cancelOptimizationRun deletes unapplied drafting runs safely and onlyNewContent enforces 1 new_content deliverable', async () => {
+  const projectId = 'sample-project';
+  ensureProjectRelationalData(projectId);
+  const activeQuestion = withProjectDb(projectId, (db, id) =>
+    db
+      .prepare("SELECT id FROM opengeo_questions WHERE project_id = ? AND status = 'active' ORDER BY sort_order LIMIT 1")
+      .get(id) as { id: string },
+  );
+
+  assert.match(
+    optimizationStrategistAgent.validate?.(
+      {
+        summary: 'Draft one external guide without editing README.',
+        deliverables: [
+          {
+            priority: 1,
+            kind: 'update_asset',
+            format: 'rich_markdown',
+            title: 'Update README instead of blog',
+            targetAssetId: null,
+            destination: 'README.md',
+            audienceAndGoal: 'Developers reading repo homepage.',
+            questionIds: [activeQuestion.id],
+            writingBrief: 'Rewrite README structure.',
+          },
+        ],
+      },
+      { mode: 'focus', uiLanguage: 'en', targetLanguage: 'en', onlyNewContent: true },
+      { projectId },
+    ) ?? '',
+    /单篇新角度文章模式下/,
+  );
+
+  // Create a mock completed shipped run first
+  const shippedMockTransport: LLMTransport = {
+    provider: 'test',
+    async complete(req) {
+      const sys = req.messages[0]?.content ?? '';
+      if (sys.includes('策略官')) {
+        return {
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({
+              summary: 'Write a standalone external tutorial for developers.',
+              deliverables: [
+                {
+                  priority: 1,
+                  kind: 'new_content',
+                  format: 'rich_markdown',
+                  title: 'Buyer Guide for AI Citation Checks',
+                  targetAssetId: null,
+                  destination: 'docs/blog/buyer-guide.md',
+                  audienceAndGoal: 'Developers evaluating local visibility tools.',
+                  questionIds: [activeQuestion.id],
+                  writingBrief: 'Practical guide contrasting live browser citations with SaaS API scores.',
+                },
+              ],
+            }),
+          },
+          model: 'mock-flash',
+          latencyMs: 5,
+        };
+      }
+      if (sys.includes('对外公开获客实操长文') || sys.includes('本篇文体')) {
+        return {
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({
+              title: 'Buyer Guide for AI Citation Checks',
+              afterContent: [
+                '# Buyer Guide for AI Citation Checks',
+                '',
+                'Live ChatGPT answers differ from raw API responses when web search is enabled.',
+                '',
+                '| Method | Captures Native Citations | Local Cost |',
+                '| --- | --- | --- |',
+                '| Manual prompt | Easy to lose source URLs | Free |',
+                '| Local browser audit | Saves full text & links | Self-hosted |',
+                '',
+                '```mermaid',
+                'flowchart LR',
+                '  A["Ask buyer prompts"] --> B["Audit cited pages"] --> C["Ship & retest"]',
+                '```',
+                '',
+                'Detailed walkthrough for engineering teams checking real web citations.',
+              ].join('\n'),
+              mediaManifest: [
+                { type: 'table', pathOrTitle: 'Method comparison', caption: 'Live comparison' },
+                { type: 'mermaid', pathOrTitle: 'Audit flow', caption: 'Citation audit loop' },
+              ],
+            }),
+          },
+          model: 'mock-flash',
+          latencyMs: 5,
+        };
+      }
+      return {
+        message: {
+          role: 'assistant',
+          content: JSON.stringify({
+            verdict: 'pass',
+            summary: 'All three checks passed.',
+            checks: {
+              authenticity: { passed: true, note: 'Accurate.' },
+              compliance: { passed: true, note: 'Objective.' },
+              readability: { passed: true, note: 'Clear English.' },
+            },
+            revisionInstructions: [],
+          }),
+        },
+        model: 'mock-flash',
+        latencyMs: 5,
+      };
+    },
+  };
+
+  const shippedRun = await startOptimizationRun(projectId, {
+    mode: 'focus',
+    onlyNewContent: true,
+    angleBrief: 'Buyer comparison perspective',
+    targetLanguage: 'en',
+    transport: shippedMockTransport,
+  });
+  assert.equal(shippedRun.status, 'awaiting_approval', shippedRun.errorMessage ?? undefined);
+  applyOptimizationDeliverables(projectId, shippedRun.id, [
+    { deliverableId: shippedRun.deliverables[0].id, action: 'apply', publishedUrl: 'https://dev.to/a/b' },
+  ]);
+
+  assert.throws(
+    () => cancelOptimizationRun(projectId, shippedRun.id),
+    (err: unknown) => err instanceof OptimizationStateError && err.status === 409,
+  );
+
+  const accidentalRun = createOptimizationRunRecord(projectId, 'deep', '正在规划…');
+  assert.ok(getOptimizationRun(projectId, accidentalRun.id));
+  const cancelled = cancelOptimizationRun(projectId, accidentalRun.id);
+  assert.equal(cancelled.cancelledRunId, accidentalRun.id);
+  assert.equal(getOptimizationRun(projectId, accidentalRun.id), null);
+  assert.equal(listOptimizationRuns(projectId).some((r) => r.id === shippedRun.id), true);
 });

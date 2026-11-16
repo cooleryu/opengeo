@@ -136,7 +136,7 @@ function questionAverage(
 export function isAiAnswerRow(row: ResearchRow): boolean {
   const entry = row.observation?.entryType;
   if (entry) return entry === 'web_answer' || entry === 'api_answer';
-  return ['chatgpt', 'qwen', 'doubao'].includes(row.engine);
+  return row.engine === 'chatgpt';
 }
 
 export function summarizeMetric(

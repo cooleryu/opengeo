@@ -7,7 +7,7 @@ import { getLatestResearch } from './research';
 test('manual claim review binds saved answer text to its original project and observation', () => {
   const batch = getLatestResearch('sample-project')!;
   const input = { projectId: batch.projectId, batchId: batch.id, questionId: 'C01', observationIndex: 0,
-    engine: 'chatgpt', language: 'zh', quote: 'SampleProject（example/SampleProject）是一个开源的 AI Agent 上下文管理与执行前校验项目。',
+    engine: 'chatgpt', language: 'zh', quote: 'SampleProject is an example project.',
     fact: '项目的实际能力需以仓库文档为依据。', evidenceUrl: 'https://github.com/example/sample-project',
     conclusion: 'uncertain', scope: '人工登记，尚未逐项验证原句中的能力范围。' };
   const saved = buildClaimReview(input, batch, batch.projectId);

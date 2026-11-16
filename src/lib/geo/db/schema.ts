@@ -275,7 +275,7 @@ export const RELATIONAL_SCHEMA_SQL = `
     question_id TEXT NOT NULL,
     optimization_run_id TEXT,
     run_id TEXT,
-    engine TEXT NOT NULL CHECK (engine IN ('chatgpt', 'google', 'deepseek', 'qwen', 'doubao')),
+    engine TEXT NOT NULL CHECK (engine IN ('chatgpt', 'google')),
     language TEXT NOT NULL CHECK (language IN ('zh', 'en')),
     entry_type TEXT CHECK (
       entry_type IS NULL OR entry_type IN ('web_answer', 'web_search', 'api_answer', 'api_search')
@@ -438,7 +438,7 @@ export function configureSqliteConnection(db: Database.Database): Database.Datab
         question_id TEXT NOT NULL,
         optimization_run_id TEXT,
         run_id TEXT,
-        engine TEXT NOT NULL CHECK (engine IN ('chatgpt', 'google', 'deepseek', 'qwen', 'doubao')),
+        engine TEXT NOT NULL CHECK (engine IN ('chatgpt', 'google')),
         language TEXT NOT NULL CHECK (language IN ('zh', 'en')),
         entry_type TEXT CHECK (
           entry_type IS NULL OR entry_type IN ('web_answer', 'web_search', 'api_answer', 'api_search')
@@ -458,9 +458,16 @@ export function configureSqliteConnection(db: Database.Database): Database.Datab
         FOREIGN KEY (project_id, question_id) REFERENCES opengeo_questions(project_id, id) ON DELETE CASCADE,
         FOREIGN KEY (project_id, optimization_run_id) REFERENCES opengeo_optimization_runs(project_id, id) ON DELETE SET NULL
       );
-      INSERT INTO new_opengeo_observations SELECT * FROM opengeo_observations;
+      INSERT INTO new_opengeo_observations
+      SELECT * FROM opengeo_observations WHERE engine IN ('chatgpt', 'google');
       DROP TABLE opengeo_observations;
       ALTER TABLE new_opengeo_observations RENAME TO opengeo_observations;
+      DELETE FROM opengeo_answer_audits
+      WHERE NOT EXISTS (
+        SELECT 1 FROM opengeo_observations o
+        WHERE o.project_id = opengeo_answer_audits.project_id
+          AND o.id = opengeo_answer_audits.observation_id
+      );
 
       CREATE TABLE new_opengeo_deliverables (
         id TEXT PRIMARY KEY,

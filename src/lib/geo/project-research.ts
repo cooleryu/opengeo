@@ -11,8 +11,8 @@ import { isProjectOwnedUrl } from './asset-ownership';
 type ReadDocument = Pick<ProjectResearchDocument, 'title' | 'url' | 'markdown' | 'readAt' | 'type'>;
 export type ProjectResearchSearch = (query: string) => Promise<{
   results: { title: string; url: string }[];
-  confirmedCostCny: number | null;
-  reservedCostCny: number;
+  confirmedCostUsd: number | null;
+  reservedCostUsd: number;
   error?: string;
 }>;
 
@@ -58,16 +58,16 @@ export async function researchProject(input: {
     onProgress: message => { if (storageError) throw storageError; input.onProgress?.(message); },
     search: input.search ? async query => {
       const search: NonNullable<ProjectResearchSnapshot['searches']>[number] = {
-        query, requestedAt: new Date().toISOString(), status: 'pending', confirmedCostCny: null,
-        reservedCostCny: 0.005, results: [],
+        query, requestedAt: new Date().toISOString(), status: 'pending', confirmedCostUsd: null,
+        reservedCostUsd: 0.005, results: [],
       };
       searches.push(search);
       save();
       let result: Awaited<ReturnType<ProjectResearchSearch>>;
       try { result = await input.search!(query); }
-      catch { result = { results: [], confirmedCostCny: null, reservedCostCny: 0.005, error: '补充搜索未完成。' }; }
+      catch { result = { results: [], confirmedCostUsd: null, reservedCostUsd: 0.005, error: '补充搜索未完成。' }; }
       Object.assign(search, { status: result.error ? 'failed' : 'completed', results: result.results,
-        confirmedCostCny: result.confirmedCostCny, reservedCostCny: result.reservedCostCny });
+        confirmedCostUsd: result.confirmedCostUsd, reservedCostUsd: result.reservedCostUsd });
       save();
       if (result.error) throw new Error('补充搜索未完成。');
       return result.results;

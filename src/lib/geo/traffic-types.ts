@@ -3,7 +3,7 @@ export interface TrafficRange {
   endDate: string;
   startAt: number;
   endAt: number;
-  timezone: 'Asia/Shanghai';
+  timezone: 'UTC';
 }
 
 export type TrafficErrorCode =

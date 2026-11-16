@@ -106,7 +106,7 @@ export default function QuestionDetailVisual(props: Props) {
           const selected = platform.recordKey === props.selectedKey;
           const known = platform.totalSources !== null && platform.officialCount !== null;
           const sourceLabel = platform.entryType === 'web_search' || platform.entryType === 'api_search' ||
-            (!platform.entryType && (platform.engine === 'google' || platform.engine === 'deepseek'))
+            (!platform.entryType && platform.engine === 'google')
             ? (isEn ? 'Official page' : '官方网页')
             : (isEn ? 'Official source' : '官方来源');
           const hasMention = platform.mention !== undefined;
@@ -126,7 +126,7 @@ export default function QuestionDetailVisual(props: Props) {
               ? (isEn ? 'Mentioned' : '回答已提及')
               : platform.mention === 'no'
                 ? (isEn ? 'Not mentioned' : '回答未提及')
-                : (isEn ? 'Pending' : '提及待核实');
+                : (isEn ? 'Analyzing' : '分析中');
           const entryDisplay = isEn
             ? ({
                 '网页回答': 'Web Answer',
@@ -196,7 +196,7 @@ export default function QuestionDetailVisual(props: Props) {
                           ? sourceLabel
                           : state === 'unknown'
                             ? (isEn ? 'Unavailable' : '暂无有效结果')
-                            : (isEn ? 'Pending' : '待核实')}
+                            : (isEn ? 'Analyzing' : '分析中')}
                       </span>
                       {known && (
                         <span

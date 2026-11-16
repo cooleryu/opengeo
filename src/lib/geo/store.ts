@@ -17,13 +17,13 @@ import { buildClaimReview } from './claim-review';
 import { validateImplementationDate } from './implementation';
 import { normalizeStrategyMemory, validateStrategyMemory, activateStrategyMemory, revertStrategyMemory } from './strategy-lifecycle';
 import { currentGeoProject, DEFAULT_PROJECT_ID, listGeoProjects, projectDataDirectory, withGeoProject } from './projects';
-import { buildVisibility, readImportedDeepSeek } from './visibility';
+import { buildVisibility } from './visibility';
 import { buildResearchGapReview, buildTaskDiagnosisContext, buildTaskPlan, canContinueTaskRevision, continueTaskRevision, getGeoModelSettings, proposalDigest, reviewEditedProposal } from './planner';
 import { validateDiagnosis, validateProposal } from './diagnosis';
 import { GEO_ACCEPTANCE_CRITERIA_VERSION } from './quality';
 import { buildSearchProtocolKey } from './search-protocol';
-import { collectionProvider, collectionKey, collectionReservation, collectionStatuses, getCollectionConfig, requireCollectionKey } from './providers/config';
-import type { CollectionProvider } from './providers/types';
+import { isConsumerResearchEngine } from './research-engines';
+import type { ResearchEngine } from './research-types';
 import { evaluateOutcome, buildStrategyMemory, selectStrategies } from './learning';
 import { buildInitialQuestionPlan, generateQuestionPlan, validateQuestionPlan } from './question-planner';
 import { reviewManualQuestion, saveManualQuestion } from './question-management';
@@ -31,7 +31,7 @@ import type { GeoQuestionPlan, QuestionGenerationProgress } from './question-typ
 import { QuestionGenerationJobs } from './question-generation-job';
 import { getProjectOnboarding, getProjectOnboardingPlanningContext } from './project-onboarding-store';
 import type { AssetGovernanceInput, AssetGovernanceRecord, ClaimReviewRecord, GeoEvent, GeoMonitor, GeoRun, GeoState, GeoTask } from './types';
-import type { GeoWorkflow, StrategyMemory, WorkflowQuestion } from './workflow-types';
+import type { GeoWorkflow, LegacyCollectionConfig, StrategyMemory, WorkflowQuestion } from './workflow-types';
 import { buildProjectOptimization, freezeProjectOptimization, preserveProjectOptimizationHistory, recoverUnreadProjectEvidence, setProjectOptimizationProgress, validateProjectOptimizationMode, type ProjectOptimizationDependencies } from './project-optimization';
 import { selectProjectDelivery } from './project-optimization-delivery';
 import { editableAssetIssue } from './asset-ownership';
@@ -72,8 +72,7 @@ export function newEvent(title: string, detail: string, kind: GeoEvent['kind'] =
 
 export function nextDailyRun(timeOfDay: string, now = new Date()): string {
   const [hour, minute] = timeOfDay.split(':').map(Number);
-  const shanghai = new Date(now.getTime() + 8 * 60 * 60 * 1000);
-  let next = Date.UTC(shanghai.getUTCFullYear(), shanghai.getUTCMonth(), shanghai.getUTCDate(), hour - 8, minute);
+  let next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, minute);
   if (next <= now.getTime()) next += 24 * 60 * 60 * 1000;
   return new Date(next).toISOString();
 }
@@ -355,35 +354,17 @@ function taskDisplayMetadata(projectId: string): Record<string, HistoryContext> 
 export function getGeoState(): GeoState {
   const model = getGeoModelSettings();
   const seed = getSeed();
-  const imported = readImportedDeepSeek(seed);
   const history = taskDisplayMetadata(seed.project.id);
   const tasks = listTasks();
   for (const task of tasks) importTaskResearchRuns(task);
-  const completeRuns = tasks.flatMap(task => task.runs).filter(run =>
-    !run.protocolKey && !run.phase && run.mode === 'live' && run.status === 'completed' &&
-    run.queryCount === seed.questions.length && run.completedCount === seed.questions.length &&
-    run.questions.length === seed.questions.length &&
-    seed.questions.every(fixed => run.questions.some(question => question.id === fixed.id && question.query === fixed.query && question.provider === 'DeepSeek Search API')),
-  ).sort((a, b) => new Date(b.measurementAt).getTime() - new Date(a.measurementAt).getTime());
-  const comparableGroup = `deepseek-search-v1-count50-fixed${seed.questions.length}`;
-  const baseline = seed.observations.find(observation => observation.comparableGroup === comparableGroup);
-  const observations = [...completeRuns.map(run => ({
-    id: `live-${run.id}`, measurementAt: run.measurementAt, provider: 'DeepSeek Search API',
-    comparableGroup: baseline?.comparableGroup || comparableGroup,
-    queryCount: run.questions.length, hitCount: run.questions.filter(question => question.projectHit).length,
-    resultCount: run.questions.reduce((sum, question) => sum + question.resultCount, 0), rank: null, aiCited: null,
-    sourcePath: `data/geo-evidence/${run.id}/run.json`,
-    comparabilityNote: '固定题、同 DeepSeek 搜索入口、count=50、need_content=false；是否可比须核对对应基线执行条件。单次变化不证明因果，AI 引用仍未测。',
-  })), ...(imported ? [imported.observation] : []), ...seed.observations].sort((a, b) => new Date(b.measurementAt).getTime() - new Date(a.measurementAt).getTime());
-  const newest = completeRuns[0];
-  const savedQuestions = imported && new Date(imported.observation.measurementAt).getTime() > new Date(seed.questions[0]?.measurementAt || 0).getTime() ? imported.questions : seed.questions;
-  const questions = newest && new Date(newest.measurementAt).getTime() > new Date(savedQuestions[0]?.measurementAt || 0).getTime() ? newest.questions : savedQuestions;
+  const observations = [...seed.observations].sort((a, b) => new Date(b.measurementAt).getTime() - new Date(a.measurementAt).getTime());
+  const questions = seed.questions;
   return {
     latestResearch: readRelationalOverview(seed.project.id), governanceRecords: listGovernanceRecords(), claimReviews: listClaimReviews(),
     ...seed, projects: listGeoProjects(), questions, observations, tasks: tasks.map(task => ({ ...task, ...(history[task.id] ? { historyContext: history[task.id] } : {}), canContinueRevision: canContinueTaskRevision(task) })), questionPlan: getQuestionPlan(), questionGeneration: getQuestionGeneration(), visibility: buildVisibility(seed, questions, tasks), strategies: listStrategies(),
     settings: {
-      liveSearchConfigured: Boolean(collectionKey('deepseek')),
-      collectionProviders: collectionStatuses(),
+      liveSearchConfigured: false,
+      collectionProviders: [],
       modelConfigured: model.modelConfigured, modelName: model.modelName,
       questionModelConfigured: shouldUseChatGPTSubscription(getChatGPTStatus(), model.modelConfigured) || model.modelConfigured,
       mode: 'demo', schedulerRunning: geoRuntime.schedulerRunning,
@@ -401,10 +382,11 @@ function requireStatus(task: GeoTask, statuses: GeoTask['status'][]): void {
 
 /** Creation and the active-task check share a write transaction, including across server requests. */
 export function createProjectOptimizationTask(input: { mode: unknown; batchId: unknown }): { task: GeoTask; created: boolean } {
-  return database().transaction(() => {
+  const db = database();
+  return db.transaction(() => {
     const mode = validateProjectOptimizationMode(input.mode);
     const seed = getSeed();
-    const batch = getLatestResearch(seed.project.id);
+    const batch = getLatestResearch(seed.project.id, db);
     if (!batch || input.batchId !== batch.id) throw new GeoError('当前问题批次已变化，请刷新后再开始。', 409);
     const active = listTasks().find(task => task.projectOptimization && task.status !== 'failed' && task.status !== 'completed');
     if (active) return { task: active, created: false };
@@ -566,7 +548,16 @@ async function finishInvestigation(id: string, buildPlan = buildTaskPlan) {
   } finally { releaseTask(id); }
 }
 
-function freezeQuestions(provider: CollectionProvider = 'deepseek'): GeoWorkflow {
+function defaultCollectionConfig(provider: ResearchEngine = 'chatgpt'): LegacyCollectionConfig {
+  return {
+    provider,
+    label: provider === 'google' ? 'Google' : 'ChatGPT',
+    parameters: {},
+    metric: 'answer_target_citation',
+  };
+}
+
+function freezeQuestions(provider: ResearchEngine = 'chatgpt'): GeoWorkflow {
   const seed = getSeed();
   const plan = validateQuestionPlan(getQuestionPlan(), seed);
   if (plan.status !== 'ready') throw new GeoError('请先在题单里审阅并确认要搜索的问题。');
@@ -578,7 +569,7 @@ function freezeQuestions(provider: CollectionProvider = 'deepseek'): GeoWorkflow
     category: candidate.category, target: candidate.target, assetIds: [...candidate.assetIds],
     exploratory: candidate.review.decision === 'explore', intent: candidate.intent, expectedResult: candidate.expectedResult,
   }));
-  const collection = getCollectionConfig(provider);
+  const collection = defaultCollectionConfig(provider);
   return { version: 1, collection, questionPlanId: plan.id, questionPlanRevision: plan.revision, frozenAt: nowISO(), questions,
     protocolKey: buildSearchProtocolKey(questions, collection), stage: 'search', proposalRevision: 0, appliedStrategyIds: [] };
 }
@@ -774,7 +765,7 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
   }
   if (action === 'create_task') {
     const goal = textInput(body.goal, 2000, '任务描述');
-    const created = { ...makeTask(goal), collectionProvider: collectionProvider(body.collectionProvider) };
+    const created = { ...makeTask(goal), collectionProvider: isConsumerResearchEngine(body.collectionProvider) ? body.collectionProvider : 'chatgpt' as const };
     if (body.researchContext !== undefined) {
       try {
         const batch = getLatestResearch(currentGeoProject());
@@ -904,38 +895,30 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
       if (task.implementation) throw new GeoError('实施后的任务请使用原题单跟测；新题单请新建任务。');
       if (task.workflow?.baseline?.mode === 'live' && task.workflow.baseline.status === 'completed') throw new GeoError('已经有真实基线，请继续诊断和审核；更换题单请新建任务。');
       if (body.mode !== 'live' && body.mode !== 'replay') throw new GeoError('请选择真实搜索或历史预览。');
+      if (body.mode === 'live') throw new GeoError('旧版 API 实时搜索已下线，请使用 ChatGPT / Google 浏览器采集获取最新回答。');
       let workflow: GeoWorkflow;
       let researchContext = task.researchContext;
+      const collection = defaultCollectionConfig(isConsumerResearchEngine(task.collectionProvider) ? task.collectionProvider : 'chatgpt');
       if (researchContext) {
         try {
           if (!researchContext.snapshot) researchContext = resolveResearchTaskContext(researchContext, getLatestResearch(currentGeoProject()), currentGeoProject(), getSeed().assets).context;
-          workflow = freezeResearchTaskContext(researchContext, getLatestResearch(currentGeoProject()), currentGeoProject(), getCollectionConfig(task.collectionProvider), nowISO(), body.mode);
+          workflow = freezeResearchTaskContext(researchContext, getLatestResearch(currentGeoProject()), currentGeoProject(), collection, nowISO(), body.mode);
         } catch (error) { throw new GeoError(error instanceof Error ? error.message : '研究题无法冻结。'); }
       } else {
-        workflow = freezeQuestions(task.collectionProvider);
+        workflow = freezeQuestions(collection.provider);
       }
       const rounds = body.maxQualityRounds ?? 3;
       if (!Number.isInteger(rounds) || Number(rounds) < 1 || Number(rounds) > 3) throw new GeoError('审核轮次上限应为 1 到 3。');
       workflow.maxQualityRounds = Number(rounds);
       const mode = body.mode;
-      if (mode === 'replay' && workflow.collection!.provider !== 'deepseek') throw new GeoError('豆包、千问尚无可匹配的历史回放，请选择真实联网回答。');
-      let budgetLimit = task.monitor.budgetLimit;
-      if (mode === 'live') {
-        const dateKey = (value: string) => new Date(Date.parse(value) + 8 * 3600000).toISOString().slice(0, 10);
-        const baselines = [task.workflow, ...(task.workflowHistory || [])].flatMap(workflow => workflow?.baseline ? [workflow.baseline] : []);
-        if (baselines.some(run => run.mode === 'live' && dateKey(run.at) === dateKey(nowISO()))) throw new GeoError('这条任务今天已尝试真实基线采集，失败记录和费用预留已保留；请明天再采集。');
-        requireCollectionKey(workflow.collection!.provider);
-        if (!getGeoModelSettings().modelConfigured) throw new GeoError('请先在设置中配置 AI 模型，才能在搜索后继续诊断和独立审核。');
-        if (typeof body.budgetLimit !== 'number' || !Number.isFinite(body.budgetLimit) || body.budgetLimit > 100 || body.budgetLimit < task.monitor.spent + workflow.questions.length * collectionReservation(workflow.collection!.provider)) throw new GeoError('请明确填写足够完成本轮搜索的预算，且不超过 100 元。');
-        budgetLimit = roundCost(body.budgetLimit);
-      }
+      const budgetLimit = task.monitor.budgetLimit;
       claimTask(id, 'investigate', undefined, mode);
       updateTask(id, t => {
         if (t.workflow) (t.workflowHistory ??= []).push(structuredClone(t.workflow));
         if (researchContext) t.researchContext = researchContext;
         t.workflow = workflow; t.proposal = null; t.blocks = []; t.status = 'investigating'; delete t.error;
         t.monitor = { ...t.monitor, enabled: false, nextRunAt: null, queryIds: workflow.questions.map(question => question.id), budgetLimit };
-        t.events.push(newEvent('题单已冻结，开始搜索', `题单第 ${workflow.questionPlanRevision} 版，共 ${workflow.questions.length} 题；${mode === 'live' ? '真实搜索后自动诊断、生成候选并独立审核。' : '只匹配已有历史证据，未测新题保持缺失；不产生真实效果或通过审核的建议。'}`));
+        t.events.push(newEvent('题单已冻结，开始搜索', `题单第 ${workflow.questionPlanRevision} 版，共 ${workflow.questions.length} 题；只匹配已有历史证据，未测新题保持缺失；不产生真实效果或通过审核的建议。`));
       });
       void finishWorkflowSearch(id, mode);
       break;
@@ -1050,24 +1033,19 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
       if (!body.monitor || typeof body.monitor !== 'object' || Array.isArray(body.monitor)) throw new GeoError('监控设置格式无效。');
       const input = body.monitor as Record<string, unknown>;
       const next: GeoMonitor = { ...task.monitor };
-      const provider = task.workflow?.collection?.provider || task.collectionProvider || 'deepseek';
       if (input.mode !== undefined) { if (!['live', 'replay'].includes(String(input.mode))) throw new GeoError('无效的观察模式。'); next.mode = input.mode as GeoMonitor['mode']; }
       if (input.timeOfDay !== undefined) { if (typeof input.timeOfDay !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.timeOfDay)) throw new GeoError('时间请使用 HH:MM 格式。'); next.timeOfDay = input.timeOfDay; }
       if (input.days !== undefined) { if (!Number.isInteger(input.days) || Number(input.days) < 1 || Number(input.days) > 90) throw new GeoError('观察天数应为 1 到 90 天。'); next.days = Number(input.days); next.remaining = Math.max(0, next.days - (task.monitor.days - task.monitor.remaining)); }
-      if (input.budgetLimit !== undefined) { if (typeof input.budgetLimit !== 'number' || !Number.isFinite(input.budgetLimit) || input.budgetLimit < task.monitor.spent || input.budgetLimit > 100) throw new GeoError('预算必须不少于已用金额，且不超过 100 元。'); next.budgetLimit = roundCost(input.budgetLimit); }
+      if (input.budgetLimit !== undefined) { if (typeof input.budgetLimit !== 'number' || !Number.isFinite(input.budgetLimit) || input.budgetLimit < task.monitor.spent || input.budgetLimit > 100) throw new GeoError('预算必须不少于已用金额，且不超过 $100 USD。'); next.budgetLimit = roundCost(input.budgetLimit); }
       if (input.enabled !== undefined) { if (typeof input.enabled !== 'boolean') throw new GeoError('监控开关格式无效。'); next.enabled = input.enabled; }
       if (next.mode === 'live') {
-        if (task.monitor.mode !== 'live' && input.budgetLimit === undefined) throw new GeoError('启用真实观察时需要明确填写预算。联网回答采用费用预留，实际费用以供应商账单为准。');
-        requireCollectionKey(provider);
-        if (task.implementation?.kind !== 'user_confirmed') throw new GeoError('请先确认已经实际实施；演练任务不能启用付费真实观察。');
-        if (next.budgetLimit - next.spent + 1e-9 < next.queryIds.length * collectionReservation(provider)) throw new GeoError('剩余预算不足以完成一轮固定题观察。');
+        throw new GeoError('旧版 API 实时搜索已下线，请使用 ChatGPT / Google 浏览器采集获取最新回答。');
       }
-      if (next.mode === 'replay' && provider !== 'deepseek') throw new GeoError('该入口没有可匹配的历史回放，请使用真实观察。');
       if (next.enabled && !task.implementation) throw new GeoError('请先确认实施，再启用每日观察。');
       if (next.enabled && next.remaining <= 0) throw new GeoError('观察计划已经结束，请增加观察天数后再启用。');
       next.nextRunAt = next.enabled ? nextDailyRun(next.timeOfDay) : null;
       // Daily scheduling is independent of a user's explicit one-off recheck.
-      updateTask(id, t => { t.monitor = next; if (t.implementation) t.status = 'monitoring'; t.events.push(newEvent('每日观察设置已更新', `北京时间 ${next.timeOfDay}，${next.days} 天；${next.mode === 'live' ? `真实采集，预算 ¥${next.budgetLimit.toFixed(3)}` : '历史回放，不会产生新的实测数据'}；${next.enabled ? '已启用' : '未启用'}。`)); });
+      updateTask(id, t => { t.monitor = next; if (t.implementation) t.status = 'monitoring'; t.events.push(newEvent('每日观察设置已更新', `UTC ${next.timeOfDay}，${next.days} 天；历史回放，不会产生新的实测数据；${next.enabled ? '已启用' : '未启用'}。`)); });
       break;
     }
     case 'pause': {
@@ -1079,8 +1057,8 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
       requireStatus(task, ['paused', 'failed']);
       if (!task.implementation) throw new GeoError('请先完成调查、确认方案和实施。');
       if (task.monitor.remaining <= 0) throw new GeoError('观察计划已经结束，请先增加观察天数。');
-      if (task.monitor.mode === 'live' && (!collectionKey(task.workflow?.collection?.provider || 'deepseek') || task.implementation.kind !== 'user_confirmed' || task.monitor.budgetLimit - task.monitor.spent + 1e-9 < task.monitor.queryIds.length * collectionReservation(task.workflow?.collection?.provider || 'deepseek'))) throw new GeoError('真实观察需要有效配置、实际实施确认和充足的剩余预算。');
-      updateTask(id, t => { t.status = 'monitoring'; t.monitor.enabled = true; t.monitor.nextRunAt = nextDailyRun(t.monitor.timeOfDay); delete t.error; t.events.push(newEvent('每日观察已恢复', '从下一个北京时间计划时点继续，不补造离线期间的数据。', 'success')); });
+      if (task.monitor.mode === 'live') throw new GeoError('旧版 API 实时搜索已下线，请使用 ChatGPT / Google 浏览器采集获取最新回答。');
+      updateTask(id, t => { t.status = 'monitoring'; t.monitor.enabled = true; t.monitor.nextRunAt = nextDailyRun(t.monitor.timeOfDay); delete t.error; t.events.push(newEvent('每日观察已恢复', '从下一个 UTC 计划时点继续，不补造离线期间的数据。', 'success')); });
       break;
     }
     default: throw new GeoError('不支持的任务操作。');

@@ -102,18 +102,20 @@ test('a summary-only capture, wrong raw query or missing original cannot stand i
   assert.match(noCitations.boundary, /隐藏引用.*未知/);
 });
 
-test('saved DeepSeek content requires the matching original request and actual content, not links alone', () => {
-  const observation: ResearchObservation = { engine: 'deepseek', language: 'zh', query: 'exact question', recordedAt: '2026-10-28',
-    conditions: 'count=10; need_content=true', entryType: 'api_search', status: 'not_observed', summary: 'summary only', sources: [], evidencePath: 'raw.json' };
-  const read = (payload: unknown, query: string | null) => readSavedResearchEvidence(observation, file =>
-    file === 'raw.json' ? JSON.stringify(payload) : query === null ? null : JSON.stringify({ payload: { query } }));
-  const payload = { results: [{ title: 'Source', url: 'https://example.org', snippet: 'Saved content.' }] };
-  assert.equal(read(payload, 'exact question').available, true);
-  assert.equal(read(payload, null).available, false);
-  assert.equal(read(payload, 'different question').available, false);
-  assert.equal(read({ results: [{ url: 'https://example.org' }] }, 'exact question').available, false);
-  assert.equal(read({ error: 'failure' }, 'exact question').available, false);
-  assert.equal(read({ results: [] }, 'exact question').available, false);
+test('saved Google AI Overview content requires the matching original request and actual content, not search-only records', () => {
+  const observation: ResearchObservation = { engine: 'google', language: 'en', query: 'exact question', recordedAt: '2026-10-28T00:00:00Z',
+    conditions: 'locale=en', entryType: 'web_answer', status: 'not_observed', summary: 'summary only', sources: [], evidencePath: 'raw.json' };
+  const read = (payload: unknown) => readSavedResearchEvidence(observation, file =>
+    file === 'raw.json' ? JSON.stringify(payload) : null);
+  const payload = {
+    schemaVersion: 1, engine: 'google', query: 'exact question', capturedAt: '2026-10-28T00:00:00Z',
+    conditions: 'locale=en', overviewStatus: 'generated', answer_text: 'Saved AI Overview content.',
+  };
+  assert.equal(read(payload).available, true);
+  assert.equal(read({ ...payload, query: 'different question' }).available, false);
+  assert.equal(read({ ...payload, overviewStatus: 'not_shown' }).available, false);
+  assert.equal(read({ ...payload, answer_text: ' ' }).available, false);
+  assert.equal(read({ error: 'failure' }).available, false);
 });
 
 test('a removed saved file invalidates the same workflow on refresh and path escapes remain unreadable', () => {

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { analyzeResearchObservation } from './answer-audit';
 import { requireChatGPTLocalRequest } from './chatgpt-local-request';
 import type { GeoStructuredModel } from './connection-settings';
+import { ensureProjectRelationalData, withProjectDb } from './db';
 import { attachOverviewData } from './overview-data';
 import { evidenceLocation, resolveGeoProject, withGeoProject } from './projects';
 import { appendResearchObservation, getResearchBatch, getResearchRun, ResearchStoreError, saveResearchRun, type ResearchRunRecord } from './research-store';
@@ -32,6 +33,7 @@ export const browserObservationSchema = z.object({
   batchId: text(400),
   questionId: text(200),
   captureId: identifier,
+  optimizationRunId: identifier.optional(),
   query: text(16000),
   language: z.enum(['zh', 'en']),
   engine: z.enum(['chatgpt', 'google']),
@@ -156,6 +158,44 @@ export function getBrowserObservation(projectId: string, captureId: string) {
   });
 }
 
+function stripOptimizationLink(input: CaptureInput): Omit<CaptureInput, 'optimizationRunId'> {
+  const { optimizationRunId: _ignored, ...rest } = input;
+  return rest;
+}
+
+function linkBrowserObservationToOptimizationRun(
+  projectId: string,
+  optimizationRunId: string | undefined,
+  observationId: string | undefined,
+): void {
+  if (!optimizationRunId || !observationId) return;
+  withProjectDb(projectId, (db, id) => {
+    ensureProjectRelationalData(id, db);
+    const row = db
+      .prepare(
+        'SELECT followup_obs_ids_json FROM opengeo_optimization_runs WHERE project_id = ? AND id = ?',
+      )
+      .get(id, optimizationRunId) as { followup_obs_ids_json: string } | undefined;
+    if (!row) return;
+    db.prepare(
+      'UPDATE opengeo_observations SET optimization_run_id = ? WHERE project_id = ? AND id = ?',
+    ).run(optimizationRunId, id, observationId);
+    let ids: string[] = [];
+    try {
+      const parsed = JSON.parse(row.followup_obs_ids_json);
+      if (Array.isArray(parsed)) ids = parsed.filter((item): item is string => typeof item === 'string');
+    } catch {
+      ids = [];
+    }
+    if (!ids.includes(observationId)) {
+      ids.push(observationId);
+      db.prepare(
+        'UPDATE opengeo_optimization_runs SET followup_obs_ids_json = ?, updated_at = ? WHERE project_id = ? AND id = ?',
+      ).run(JSON.stringify(ids), new Date().toISOString(), id, optimizationRunId);
+    }
+  });
+}
+
 /** Save immutable browser evidence and the observation before awaiting the existing AI audit. */
 export async function ingestBrowserObservation(value: unknown, options: { model?: GeoStructuredModel } = {}) {
   const parsed = browserObservationSchema.safeParse(value);
@@ -171,7 +211,7 @@ export async function ingestBrowserObservation(value: unknown, options: { model?
     const files = locations(input.captureId);
     let capture = readCapture(input.captureId);
     const duplicate = Boolean(capture);
-    if (capture && !isDeepStrictEqual(capture.input, input)) throw new BrowserCollectionError('此采集编号已保存其他内容，不能覆盖原始记录。', 409);
+    if (capture && !isDeepStrictEqual(stripOptimizationLink(capture.input), stripOptimizationLink(input))) throw new BrowserCollectionError('此采集编号已保存其他内容，不能覆盖原始记录。', 409);
     if (!capture) {
       if (input.citationSource === 'native' && input.citations === undefined) {
         throw new BrowserCollectionError('新的原生引用采集必须显式提供 citations 清单，普通正文链接不能代替引用。');
@@ -182,7 +222,7 @@ export async function ingestBrowserObservation(value: unknown, options: { model?
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
         capture = readCapture(input.captureId)!;
-        if (!isDeepStrictEqual(capture.input, input)) throw new BrowserCollectionError('此采集编号已保存其他内容，不能覆盖原始记录。', 409);
+        if (!isDeepStrictEqual(stripOptimizationLink(capture.input), stripOptimizationLink(input))) throw new BrowserCollectionError('此采集编号已保存其他内容，不能覆盖原始记录。', 409);
       }
     }
     if (input.entryType === 'web_answer' && !fs.existsSync(files.answerFile)) {
@@ -191,8 +231,14 @@ export async function ingestBrowserObservation(value: unknown, options: { model?
     }
     const current = resultFor(capture, duplicate);
     if (current.status === 'analyzing') return current;
-    if (current.audit && (!retryAnalysis || !current.retryable)) return current;
-    if (current.run && current.run.status !== 'running' && !retryAnalysis) return current;
+    if (current.audit && (!retryAnalysis || !current.retryable)) {
+      if (current.observation) linkBrowserObservationToOptimizationRun(input.projectId, input.optimizationRunId, current.observation.id);
+      return current;
+    }
+    if (current.run && current.run.status !== 'running' && !retryAnalysis) {
+      if (current.observation) linkBrowserObservationToOptimizationRun(input.projectId, input.optimizationRunId, current.observation.id);
+      return current;
+    }
     // A process-owned exclusive lease prevents duplicate model calls across requests or workers.
     if (fs.existsSync(files.lockFile) && !lockAlive(files.lockFile)) fs.unlinkSync(files.lockFile);
     try { fs.writeFileSync(files.lockFile, JSON.stringify({ pid: process.pid }), { flag: 'wx', mode: 0o600 }); }
@@ -206,8 +252,14 @@ export async function ingestBrowserObservation(value: unknown, options: { model?
       // Re-read under the lease, without mistaking our own lease for another analysis.
       const fresh = resultFor(capture, duplicate, true);
       run = fresh.run;
-      if (fresh.audit && (!retryAnalysis || !fresh.retryable)) return { ...fresh, duplicate: true };
-      if (run && run.status !== 'running' && !retryAnalysis) return { ...fresh, duplicate: true };
+      if (fresh.audit && (!retryAnalysis || !fresh.retryable)) {
+        if (fresh.observation) linkBrowserObservationToOptimizationRun(input.projectId, input.optimizationRunId, fresh.observation.id);
+        return { ...fresh, duplicate: true };
+      }
+      if (run && run.status !== 'running' && !retryAnalysis) {
+        if (fresh.observation) linkBrowserObservationToOptimizationRun(input.projectId, input.optimizationRunId, fresh.observation.id);
+        return { ...fresh, duplicate: true };
+      }
       if (!run) run = saveResearchRun(input.projectId, {
         id: `browser-${input.captureId}`, projectId: input.projectId, batchId: input.batchId,
         provider: input.engine, language: input.language, entryType: input.entryType,
@@ -218,6 +270,7 @@ export async function ingestBrowserObservation(value: unknown, options: { model?
       });
       const observation = fresh.observation ?? observationFromCapture(capture);
       appendResearchObservation(input.projectId, input.batchId, input.questionId, observation);
+      linkBrowserObservationToOptimizationRun(input.projectId, input.optimizationRunId, observation.id);
       if (run.status === 'running') run = saveResearchRun(input.projectId, { ...run, completedCount: 1, phase: 'analyzing', updatedAt: new Date().toISOString() });
       const audit = await analyzeResearchObservation(batch, input.questionId, observation,
         input.entryType === 'web_answer' ? {

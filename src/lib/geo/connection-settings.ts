@@ -2,11 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { GenerateObjectInput } from '@/lib/models/types';
-import type { GeoConnectionSettings, GeoModelProvider, GeoSearchProvider, GeoSettingsSource, GeoSettingsUpdate } from './connection-settings-types';
+import type { GeoConnectionSettings, GeoModelProvider, GeoSettingsSource, GeoSettingsUpdate } from './connection-settings-types';
 
 type ModelValues = { provider?: GeoModelProvider; baseURL?: string; model?: string; apiKey?: string };
-type SearchValues = { apiKey?: string; model?: string };
-type SavedSettings = { version: 1; model?: ModelValues; search?: Partial<Record<GeoSearchProvider, SearchValues>> };
+type SavedSettings = { version: 1; model?: ModelValues; search?: unknown };
 export type GeoModelConnection = {
   provider: GeoModelProvider; baseURL: string; model: string; apiKey: string;
   configured: boolean; source: GeoSettingsSource | 'vane'; vaneProviderId?: string;
@@ -18,7 +17,6 @@ export class GeoSettingsError extends Error {
 }
 
 const modelProviders = ['gemini', 'deepseek', 'openai', 'custom'] as const;
-const searchProviders = ['deepseek', 'qwen', 'doubao'] as const;
 const stringValue = (value: unknown): string =>
   typeof value === 'string' ? value.trim().replace(/^["']|["']$/g, '') : '';
 const dataPath = (file: string) => path.join(process.env.DATA_DIR || process.cwd(), 'data', file);
@@ -97,27 +95,10 @@ export function shouldUseChatGPTSubscription(
   return true;
 }
 
-function resolveSearch(provider: GeoSearchProvider, saved: SavedSettings): { apiKey: string; model: string | null; source: GeoSettingsSource } {
-  const values = saved.search?.[provider];
-  const environmentKey = provider === 'doubao' ? process.env.ARK_API_KEY || process.env.DOUBAO_API_KEY
-    : provider === 'qwen' ? process.env.DASHSCOPE_API_KEY || process.env.QWEN_API_KEY : process.env.DEEPSEEK_API_KEY;
-  const environmentModel = provider === 'doubao' ? stringValue(process.env.OPENGEO_DOUBAO_MODEL) || 'doubao-seed-2-0-lite-260428'
-    : provider === 'qwen' ? stringValue(process.env.OPENGEO_QWEN_MODEL) || 'qwen-plus-2025-07-14' : null;
-  return { apiKey: values?.apiKey ?? stringValue(environmentKey), model: provider === 'deepseek' ? null : values?.model ?? environmentModel,
-    source: values ? 'saved' : 'environment' };
-}
-
-export function getGeoSearchConnection(provider: GeoSearchProvider) { return resolveSearch(provider, readSavedSettings()); }
-
 function publicSettings(saved: SavedSettings): GeoConnectionSettings {
   const { apiKey, vaneProviderId: _vaneProviderId, ...model } = resolveModel(saved);
   return {
     model: { ...model, keyConfigured: Boolean(apiKey) },
-    search: searchProviders.map(id => {
-      const connection = resolveSearch(id, saved);
-      return { id, name: id === 'deepseek' ? 'DeepSeek Search API' : id === 'qwen' ? '千问联网回答 API' : '豆包联网回答 API',
-        model: connection.model, configured: Boolean(connection.apiKey), keyConfigured: Boolean(connection.apiKey), source: connection.source };
-    }),
   };
 }
 export function getGeoConnectionSettings(): GeoConnectionSettings { return publicSettings(readSavedSettings()); }
@@ -125,8 +106,8 @@ export function getGeoConnectionSettings(): GeoConnectionSettings { return publi
 function validateUpdate(input: unknown): GeoSettingsUpdate {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new GeoSettingsError('设置格式无效。');
   const { section, values } = input as GeoSettingsUpdate;
-  if (!['model', ...searchProviders].includes(section) || !values || typeof values !== 'object' || Array.isArray(values)) throw new GeoSettingsError('请选择有效的设置项目。');
-  const allowed = section === 'model' ? ['provider', 'baseURL', 'model', 'apiKey'] : section === 'deepseek' ? ['apiKey'] : ['model', 'apiKey'];
+  if (section !== 'model' || !values || typeof values !== 'object' || Array.isArray(values)) throw new GeoSettingsError('请选择有效的设置项目。');
+  const allowed = ['provider', 'baseURL', 'model', 'apiKey'];
   if (Object.keys(values).some(key => !allowed.includes(key))) throw new GeoSettingsError('设置包含不支持的字段。');
   const normalized: GeoSettingsUpdate['values'] = {};
   for (const [key, value] of Object.entries(values)) {
@@ -151,29 +132,25 @@ function validateUpdate(input: unknown): GeoSettingsUpdate {
 }
 
 export function saveGeoConnectionSettings(input: unknown): GeoConnectionSettings {
-  const { section, values } = validateUpdate(input);
+  const { values } = validateUpdate(input);
   // Read and merge synchronously at write time; parallel section requests cannot
   // overwrite one another with a stale cached object in this server process.
   const saved = readSavedSettings();
   if (Object.keys(values).length === 0) return publicSettings(saved);
-  if (section === 'model') {
-    const current = resolveModel(saved);
-    const nextBaseURL = values.baseURL ?? current.baseURL;
-    const nextProvider = values.provider ?? current.provider;
-    if (current.apiKey && !values.apiKey && (nextBaseURL !== current.baseURL || nextProvider !== current.provider)) {
-      throw new GeoSettingsError('切换模型服务或 API 地址时，请填写该服务的新 API Key；原设置尚未改变。');
-    }
-    if (current.source === 'vane' && !values.apiKey && !current.apiKey) {
-      throw new GeoSettingsError('切换到 OpenGEO 模型设置时，请填写 API Key；原连接尚未改变。');
-    }
-    saved.model = { ...saved.model, ...values };
-    // A supported legacy OpenAI connection can be adopted without erasing its
-    // existing key. Other legacy provider types stay on their original path.
-    if (current.source === 'vane') saved.model = { provider: current.provider, baseURL: current.baseURL,
-      model: current.model, apiKey: current.apiKey, ...saved.model };
-  } else {
-    saved.search = { ...saved.search, [section]: { ...saved.search?.[section], ...values } };
+  const current = resolveModel(saved);
+  const nextBaseURL = values.baseURL ?? current.baseURL;
+  const nextProvider = values.provider ?? current.provider;
+  if (current.apiKey && !values.apiKey && (nextBaseURL !== current.baseURL || nextProvider !== current.provider)) {
+    throw new GeoSettingsError('切换模型服务或 API 地址时，请填写该服务的新 API Key；原设置尚未改变。');
   }
+  if (current.source === 'vane' && !values.apiKey && !current.apiKey) {
+    throw new GeoSettingsError('切换到 OpenGEO 模型设置时，请填写 API Key；原连接尚未改变。');
+  }
+  saved.model = { ...saved.model, ...values };
+  // A supported legacy OpenAI connection can be adopted without erasing its
+  // existing key. Other legacy provider types stay on their original path.
+  if (current.source === 'vane') saved.model = { provider: current.provider, baseURL: current.baseURL,
+    model: current.model, apiKey: current.apiKey, ...saved.model };
   const file = dataPath('geo-settings.json');
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {

@@ -18,7 +18,7 @@ function completeComparableRun(task: GeoTask, run: GeoRun, phase: 'baseline' | '
       !run.completedAt || !Number.isFinite(time(run.completedAt)) || time(run.completedAt) < time(run.at) ||
       time(run.measurementAt) < time(run.at) || time(run.measurementAt) > time(run.completedAt)) return false;
   return workflow.questions.every(question => run.questions.some(result => result.id === question.id && result.query === question.query &&
-    result.language === question.language && result.provider === (workflow.collection?.label || 'DeepSeek Search API') && (workflow.collection?.metric !== 'answer_target_citation' || (result.answer?.searchPerformed === true && result.aiCited === result.projectHit && result.rank === null)) && Boolean(result.evidencePath) &&
+    result.language === question.language && result.provider === (workflow.collection?.label || 'ChatGPT') && (workflow.collection?.metric !== 'answer_target_citation' || (result.answer?.searchPerformed === true && result.aiCited === result.projectHit && result.rank === null)) && Boolean(result.evidencePath) &&
     Number.isFinite(time(result.measurementAt)) && time(result.measurementAt) >= time(run.at) && time(result.measurementAt) <= time(run.completedAt!) &&
     sameStrings(result.matchingAssetIds || [], question.assetIds)));
 }

@@ -1,10 +1,4 @@
-export type GeoProviderId =
-  | 'chatgpt'
-  | 'google'
-  | 'gemini'
-  | 'deepseek'
-  | 'doubao'
-  | 'qwen';
+export type GeoProviderId = 'chatgpt' | 'google';
 
 export interface GeoVisibilitySource {
   title: string;

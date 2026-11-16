@@ -9,7 +9,7 @@ import './tracking.css';
 export const trackingDate = (value: string | null | undefined) =>
   value && Number.isFinite(Date.parse(value))
     ? new Date(value).toLocaleString('zh-CN', {
-        timeZone: 'Asia/Shanghai',
+        timeZone: 'UTC',
         month: 'numeric',
         day: 'numeric',
         hour: '2-digit',

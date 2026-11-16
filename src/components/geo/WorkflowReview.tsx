@@ -25,7 +25,7 @@ const stopLabels: Record<QualityLoop['stopReason'], string> = {
 };
 const date = (value: string) =>
   new Date(value).toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
+    timeZone: 'UTC',
     month: 'numeric',
     day: 'numeric',
     hour: '2-digit',

@@ -68,7 +68,7 @@ const timestamp = (value: string) =>
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: 'Asia/Shanghai',
+    timeZone: 'UTC',
   });
 const asText = (value: string | string[] | null) =>
   Array.isArray(value)

@@ -5,7 +5,7 @@ import { getCompetitorProgress } from './competitor-progress';
 
 const row = (questionId: string, own = false, target = true, extra: Partial<CompetitorRow> = {}): CompetitorRow => ({
   id: questionId, questionId, question: questionId, query: questionId, observationIndex: 0,
-  engine: 'qwen', entryType: 'api_answer', language: 'zh', recordedAt: '2026-10-28T00:00:00Z',
+  engine: 'google', entryType: 'web_answer', language: 'zh', recordedAt: '2026-10-28T00:00:00Z',
   conditions: 'model-A · 联网', evidencePath: questionId, answerAvailable: true, sourcesAvailable: true,
   ownMention: { status: own ? 'matched' : 'not_seen', names: [], excerpts: [] },
   targetMention: { status: target ? 'matched' : 'not_seen', names: [], excerpts: [] }, sources: [], ...extra,
@@ -59,7 +59,7 @@ test('new questions do not change the frozen denominator for progress', () => {
 test('scope keeps language and source-only search separate', () => {
   const baseline = [row('q1'), row('q1', false, true, { language: 'en' }), row('q2', true, true, { entryType: 'api_search' })];
   const current = [row('q1', true, true, newer), baseline[1], baseline[2]];
-  const result = getCompetitorProgress(comparison(current), selection(baseline), { language: 'zh', engine: 'qwen' });
+  const result = getCompetitorProgress(comparison(current), selection(baseline), { language: 'zh', engine: 'google' });
   assert.equal(result.current.own.total, 1);
   assert.equal(result.ownChange, 100);
 });

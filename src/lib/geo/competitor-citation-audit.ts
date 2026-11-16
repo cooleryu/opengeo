@@ -6,8 +6,6 @@ import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel, { type ChatGPTInferenceMetadata } from './chatgpt-model';
 import { loadLegacyAnswerAudit } from './project-data';
 import { readCompetitorEvidence, readCompetitorObservationAnswer } from './competitors';
-import { parseQwenAnswer } from './providers/qwen';
-import { parseDoubaoAnswer } from './providers/doubao';
 import type { CollectedAnswer, AnswerCitation } from './providers/types';
 import type { CompetitorCandidate } from './competitor-types';
 import type { ResearchBatch, ResearchObservation } from './research-types';
@@ -79,20 +77,13 @@ export function readCollectedCompetitorAnswer(
   read: (file: string) => string | null = readCompetitorEvidence,
 ): Capture {
   if (observation.entryType === 'web_search' || observation.entryType === 'api_search' ||
-      (!observation.entryType && ['google', 'deepseek'].includes(observation.engine))) {
+      (!observation.entryType && observation.engine === 'google')) {
     return { issue: '此观测只有网页搜索来源，没有可审核的平台 AI 原生引用。', notApplicable: true };
   }
   const raw = read(observation.evidencePath);
   const data = json(raw);
   if (data && (data.complete === false || data.captureComplete === false || data.partial === true || data.truncated === true ||
       object(data.capture)?.complete === false)) return { issue: '已保存采集明确标记为不完整或截断，不能确认完整原生引用。' };
-  if (observation.entryType === 'api_answer' && ['qwen', 'doubao'].includes(observation.engine)) {
-    if (!data) return { issue: '该 API 回答的已保存原始响应缺失或无法解析。' };
-    try {
-      const answer = observation.engine === 'qwen' ? parseQwenAnswer(data) : parseDoubaoAnswer(data);
-      return { answer, capturePath: observation.evidencePath, issue: evidenceIssue(answer) };
-    } catch { return { issue: '该 API 原始响应未正常完成或原生引用结构无效，不能复原可靠回答。', capturePath: observation.evidencePath }; }
-  }
   // A normalized capture may carry acquisition flags. They come from collection, never the reviewer.
   if (data && typeof data.text === 'string' && object(data.evidence) && Array.isArray(data.citations)) {
     const answer = data as unknown as CollectedAnswer;
@@ -169,7 +160,7 @@ export async function auditCompetitorCitations(
     const { questionId, observation } = sample;
     if (!observationExists(batch, questionId, observation)) throw new Error('引用审核只能使用指定批次中唯一的已存观测。');
     const searchOnly = observation.entryType === 'web_search' || observation.entryType === 'api_search' ||
-      (!observation.entryType && ['google', 'deepseek'].includes(observation.engine));
+      (!observation.entryType && observation.engine === 'google');
     const capture: Capture = sampleIndex >= parameters.maxObservations
       ? { issue: `超出本次 ${parameters.maxObservations} 条观测审核上限。` }
       : sample.answer && !searchOnly

@@ -244,7 +244,7 @@ export function readRelationalResearchBatch(
       const obsRows = db
         .prepare(
           `SELECT * FROM opengeo_observations
-           WHERE project_id = ? AND batch_id = ?
+           WHERE project_id = ? AND batch_id = ? AND engine IN ('chatgpt', 'google')
            ORDER BY seq ASC`,
         )
         .all(id, batchId) as RelationalObservationRow[];
@@ -330,7 +330,7 @@ export function readRelationalCurrentAudits(
           FROM opengeo_answer_audits a
           JOIN opengeo_observations o
             ON o.project_id = a.project_id AND o.id = a.observation_id
-          WHERE a.project_id = ? AND o.batch_id = ? AND a.is_current = 1
+          WHERE a.project_id = ? AND o.batch_id = ? AND a.is_current = 1 AND o.engine IN ('chatgpt', 'google')
           ORDER BY a.id ASC`,
         )
         .all(id, targetBatchId) as JoinedAuditRow[];
@@ -691,7 +691,7 @@ export function getRelationalIntegrityReport(
           id,
         ),
         observations: scalar(
-          'SELECT COUNT(*) AS n FROM opengeo_observations WHERE project_id = ?',
+          "SELECT COUNT(*) AS n FROM opengeo_observations WHERE project_id = ? AND engine IN ('chatgpt', 'google')",
           id,
         ),
         auditsCurrent: scalar(
@@ -749,7 +749,7 @@ export function getRelationalIntegrityReport(
 
       const obsPaths = db
         .prepare(
-          'SELECT evidence_path, answer_path FROM opengeo_observations WHERE project_id = ? ORDER BY seq ASC',
+          "SELECT evidence_path, answer_path FROM opengeo_observations WHERE project_id = ? AND engine IN ('chatgpt', 'google') ORDER BY seq ASC",
         )
         .all(id) as { evidence_path: string; answer_path: string | null }[];
 

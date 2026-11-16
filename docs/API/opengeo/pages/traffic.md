@@ -10,7 +10,7 @@
 
 ## 两个接口共用的查询参数
 
-`GET /api/geo/traffic` 和 `GET /api/geo/conversions`：`project` 必填非空；`startDate/endDate` 要么同时省略（近30天），要么同时给 `YYYY-MM-DD` 真实日期；起点不晚于终点，终点不晚于北京时间今天。服务端固定 Asia/Shanghai，今天截止当前时刻，过去日期包含全天。
+`GET /api/geo/traffic` 和 `GET /api/geo/conversions`：`project` 必填非空；`startDate/endDate` 要么同时省略（近30天），要么同时给 `YYYY-MM-DD` 真实日期；起点不晚于终点，终点不晚于 UTC 今天。服务端固定 UTC，今天截止当前时刻，过去日期包含全天。
 
 共用返回：`projectId,provider:'umami',status,range:{startDate,endDate,startAt,endAt,timezone},fetchedAt,error?`。startAt/endAt 为毫秒。请求参数错为 HTTP400、项目未知404；上游失败通常 HTTP200 + `status:error`，`error={code,message}`，code 为 configuration/authorization/upstream/invalid_response/timeout。no-store。
 

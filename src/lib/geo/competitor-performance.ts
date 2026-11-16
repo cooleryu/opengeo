@@ -10,8 +10,6 @@ import {
 import { RESEARCH_ENGINES } from './research-engines';
 import type { ResearchBatch } from './research-types';
 import { getResearchMetrics, getResearchRows, observationTime, type ResearchRow } from './research-view';
-import { parseQwenAnswer } from './providers/qwen';
-import { parseDoubaoAnswer } from './providers/doubao';
 import {
   competitorCitationIdentityKey, competitorCitationMatchesObservation, readCompetitorCitationAuditData,
   type CompetitorCitationAuditRecord,
@@ -44,13 +42,7 @@ function completeAnswer(row: AuditedResearchRow, raw: string | null): boolean {
   // auditRows has already required exact project/batch/time/path identity.
   if (row.audit?.answerComplete) return true;
   const data = capture(raw);
-  if (object(data?.evidence)?.answerComplete === true) return true;
-  if (row.observation?.entryType !== 'api_answer' || !data) return false;
-  try {
-    const answer = row.engine === 'qwen' ? parseQwenAnswer(data)
-      : row.engine === 'doubao' ? parseDoubaoAnswer(data) : undefined;
-    return answer?.evidence?.answerComplete === true;
-  } catch { return false; }
+  return object(data?.evidence)?.answerComplete === true;
 }
 
 function targetMention(row: AuditedResearchRow, target: CompetitorTarget, read: ReadEvidence): Verdict {
@@ -83,13 +75,6 @@ function targetSource(row: ResearchRow, target: CompetitorTarget, read: ReadEvid
   if (sources.some((source) => target.officialUrls.some((url) => matchesOfficialUrl(source.url, url)))) return 'yes';
   const data = capture(raw);
   if (data?.sourcesComplete === true || object(data?.evidence)?.sourcesComplete === true) return 'no';
-  // A persisted DeepSeek response contains the whole returned result array.
-  // Verify that the observation retained that array before declaring absence.
-  if (observation.engine === 'deepseek' && Array.isArray(data?.results)) {
-    const urls = data.results.map((item: unknown) => object(item)?.url);
-    if (urls.every((url) => typeof url === 'string') && urls.length === sources.length &&
-        urls.every((url, index) => url === sources[index].url)) return 'no';
-  }
   return 'unknown';
 }
 
@@ -197,9 +182,9 @@ export function buildCompetitorPerformance(
         }
       }
       for (const platform of platforms) {
-        if (platform.ai || !['google', 'deepseek'].includes(platform.platform)) continue;
+        if (platform.ai || platform.platform !== 'google') continue;
         metrics.push({
-          id: platform.platform, label: platform.platform === 'google' ? 'Google 搜索命中' : 'DeepSeek 来源命中',
+          id: platform.platform, label: 'Google 搜索命中',
           own: ownSources(platform.rows),
           target: summarizeMetricVerdicts(platform.rows.map((row) => ({
             questionId: row.question.id, verdict: row.observation ? targetSource(row, target, read) : null,

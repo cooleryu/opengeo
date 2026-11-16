@@ -406,7 +406,7 @@ export default function ChatGPTConnection({
                       {verification.inference?.usage
                         ? `输入 ${verification.inference.usage.inputTokens} / 输出 ${verification.inference.usage.outputTokens} tokens · `
                         : ''}
-                      使用 ChatGPT 订阅授权，未调用 DeepSeek。
+                      使用 ChatGPT 订阅授权。
                     </p>
                     <details>
                       <summary>查看判断依据</summary>

@@ -111,7 +111,7 @@ export function captureBaselineObservationIds(projectId: string): string[] {
         `SELECT o.id, o.question_id, o.engine, o.language
          FROM opengeo_observations o
          JOIN opengeo_questions q ON q.project_id = o.project_id AND q.id = o.question_id
-         WHERE o.project_id = ? AND q.status = 'active'
+         WHERE o.project_id = ? AND q.status = 'active' AND o.engine IN ('chatgpt', 'google')
          ORDER BY o.seq DESC`,
       )
       .all(id) as Array<{ id: string; question_id: string; engine: string; language: string }>;
@@ -205,6 +205,47 @@ export function listOptimizationRuns(projectId: string): OptimizationRun[] {
       .prepare('SELECT id FROM opengeo_optimization_runs WHERE project_id = ? ORDER BY created_at DESC, rowid DESC')
       .all(id) as Array<{ id: string }>;
     return rows.map((r) => getOptimizationRun(id, r.id, db)!).filter(Boolean);
+  });
+}
+
+/** Delete an unapplied optimization run cleanly on cancellation without tripping DB status constraints. */
+export function deleteDiscardableOptimizationRun(
+  projectId: string,
+  runId?: string,
+): { deletedRunId: string | null } {
+  return withProjectDb(projectId, (db, id) => {
+    ensureProjectRelationalData(id, db);
+    const resolvedRunId =
+      runId ??
+      (
+        db
+          .prepare(
+            'SELECT id FROM opengeo_optimization_runs WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1',
+          )
+          .get(id) as { id: string } | undefined
+      )?.id;
+    const target = resolvedRunId ? getOptimizationRun(id, resolvedRunId, db) : null;
+    if (!target) return { deletedRunId: null };
+
+    if (
+      target.deliverables.some((d) => d.status === 'applied') ||
+      ['implementing', 'awaiting_retest', 'remeasuring', 'completed'].includes(target.status)
+    ) {
+      throw new OptimizationStateError('该方案已有上线内容，不能直接清除。', 409);
+    }
+
+    db.transaction(() => {
+      db.prepare('DELETE FROM opengeo_deliverables WHERE project_id = ? AND run_id = ?').run(
+        id,
+        target.id,
+      );
+      db.prepare('DELETE FROM opengeo_optimization_runs WHERE project_id = ? AND id = ?').run(
+        id,
+        target.id,
+      );
+    })();
+
+    return { deletedRunId: target.id };
   });
 }
 
@@ -412,7 +453,7 @@ export function computeRetestComparison(
          FROM opengeo_observations o
          LEFT JOIN opengeo_answer_audits a
            ON a.project_id = o.project_id AND a.observation_id = o.id AND a.is_current = 1
-         WHERE o.project_id = ? AND o.id = ?`,
+         WHERE o.project_id = ? AND o.id = ? AND o.engine IN ('chatgpt', 'google')`,
       );
       for (const oid of obsIds) {
         const row = stmt.get(id, oid) as

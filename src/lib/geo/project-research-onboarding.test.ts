@@ -119,8 +119,8 @@ test('entry research follows a real link and one search, preserves quotes in SQL
       assert.equal(query, 'authors source-backed note reuse needs');
       const savedSearch = projectResearch(projectId)?.searches?.[0];
       assert.equal(savedSearch?.status, 'pending', 'the request is recorded before the search starts');
-      assert.equal(savedSearch?.confirmedCostCny, null);
-      return { results: [{ title: 'Authors discuss reuse needs', url: external }], confirmedCostCny: 0.005, reservedCostCny: 0 };
+      assert.equal(savedSearch?.confirmedCostUsd, null);
+      return { results: [{ title: 'Authors discuss reuse needs', url: external }], confirmedCostUsd: 0.005, reservedCostUsd: 0 };
     } },
     questionGeneration: { generate: async (seed, positioning, runtime) => {
       generationCalls++;
@@ -148,8 +148,8 @@ test('entry research follows a real link and one search, preserves quotes in SQL
   assert.deepEqual([discoveryCalls, relationCalls, understandingCalls, searchCalls, generationCalls], [2, 1, 1, 1, 1]);
   const saved = projectResearch(projectId)!;
   assert.equal(saved.status, 'completed');
-  assert.equal(saved.searches?.[0].confirmedCostCny, 0.005);
-  assert.equal(saved.searches?.[0].reservedCostCny, 0);
+  assert.equal(saved.searches?.[0].confirmedCostUsd, 0.005);
+  assert.equal(saved.searches?.[0].reservedCostUsd, 0);
   assert.deepEqual(saved.documents.map(document => document.ownership), ['owned', 'owned', 'external']);
   assert.deepEqual(history(projectId).find(run => run.runId === firstRead!.runId), firstRead);
   assert.equal(fs.readFileSync(runtimeProjectsFile(), 'utf8').includes('Keep source passages with their original links'), false);
@@ -162,7 +162,7 @@ test('failed supplemental search stays partial with its original history and can
   await analyzeProjectOnboarding(firstId, {
     questionGeneration: false,
     readSource: async url => source(url, firstText),
-    research: { search: async () => ({ results: [], confirmedCostCny: null, reservedCostCny: 0.005, error: 'Synthetic unavailable search' }) },
+    research: { search: async () => ({ results: [], confirmedCostUsd: null, reservedCostUsd: 0.005, error: 'Synthetic unavailable search' }) },
     model: { generateObject: async input => {
       const payload = JSON.parse(String(input.messages[1].content));
       if ('allowedReadUrls' in payload) return { readUrls: [], searchQueries: ['author reuse needs'], done: true };
@@ -176,7 +176,7 @@ test('failed supplemental search stays partial with its original history and can
   const firstHistory = history(firstId);
   const firstLatest = projectResearch(firstId)!;
   assert.equal(firstLatest.status, 'partial');
-  assert.deepEqual(firstLatest.searches?.map(search => ({ status: search.status, confirmed: search.confirmedCostCny, reserved: search.reservedCostCny })),
+  assert.deepEqual(firstLatest.searches?.map(search => ({ status: search.status, confirmed: search.confirmedCostUsd, reserved: search.reservedCostUsd })),
     [{ status: 'failed', confirmed: null, reserved: 0.005 }]);
   assert.ok(firstHistory.some(run => run.searches?.[0]?.status === 'pending'));
   assert.ok(firstHistory.every(run => run.documents[0].markdown === firstText));

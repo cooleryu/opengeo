@@ -6,7 +6,7 @@
 
 ### See how AI search answers for your product — then turn the gaps into better content.
 
-**ChatGPT recommends a competitor and never mentions you. DeepSeek gets your features wrong. The answer cites three roundup posts and never links your site.**<br>
+**ChatGPT recommends a competitor and never mentions you. Google AI Overviews gets your features wrong. The answer cites three roundup posts and never links your site.**<br>
 Run the questions your customers actually type, keep the full answers and every page they cite,<br>
 find the gaps, draft the rewrite, and re-run the same questions after you ship.
 
@@ -40,7 +40,7 @@ OpenGEO is built for indie SaaS teams, docs owners, and open-source maintainers 
 
 **1 · Launch the workbench.** Send the repository URL `https://github.com/cooleryu/opengeo` to the AI coding assistant you already use — Claude Code, Cursor, Codex, and Antigravity all work — and ask it to follow the repo's instructions, start the app locally, and open it for you; it handles the setup steps along the way. Prefer to do it yourself, or want to know what each screen is for first? Read [Quick Start](docs/getting-started.md).
 
-**2 · Create a project and a question list.** First launch opens the new-project screen: pick a project type, paste your public homepage, add a couple of notes. Once OpenGEO understands the product, it proposes the question categories customers usually ask, and you can add your own in English or Chinese.
+**2 · Create a project and a question list.** First launch opens the new-project screen: pick a project type, paste your public homepage, add a couple of notes. Once OpenGEO understands the product, it proposes the question categories customers usually ask, and you can refine or add the exact English prompts buyers actually ask.
 
 **3 · Capture a round, pick drafts, re-test.** After the first round, see which questions leave you out. Review each draft and adopt only the ones that fit. Once a draft is live, register it in the workbench (or push repo docs straight from the studio) and re-run the same question later — both records sit on one timeline, so the change is visible.
 
@@ -65,7 +65,7 @@ flowchart LR
 
 ### Question monitoring with the source evidence attached
 
-English and Chinese questions live in one list. Pick your platforms, run a round, and the answer detail shows the question as phrased, the full answer text, and every page it cited, with your domain flagged in that list. Set a primary competitor and compare the same question, same language, same platform line by line.
+Track your core buyer questions across ChatGPT and Google in one list. Run a round, and the answer detail shows the question as phrased, the full answer text, and every page it cited, with your domain flagged in that list. Set a primary competitor and compare the same question and platform line by line.
 
 | On the answer detail screen | What it settles |
 | --- | --- |
@@ -90,10 +90,10 @@ When a question misses you, OpenGEO first reads the pages AI cited for it — th
 
 | Platform | How OpenGEO gets the answer | What you can verify |
 | --- | --- | --- |
-| ChatGPT, Google AI Overviews | Runs your question list inside your own logged-in browser session at a slow, human-like pace; you can also save an answer by hand from a private window | The answer a real logged-in user sees, plus every cited page and URL. If Google throws a human-verification check mid-batch, you clear it yourself and the run continues |
-| DeepSeek, Qwen, Doubao | Add your own API key; OpenGEO asks online and stores the raw response | The full answer text plus whatever citations the provider returns |
+| ChatGPT, Google AI Overviews | Runs your question list one-click inside your own local browser session at a slow, human-like pace | The answer a real logged-in user sees, plus every cited page and URL. If Google throws a human-verification check mid-batch, it pauses for you to clear it and resumes cleanly |
+| Private / incognito window (manual fallback) | Ask the exact prompt in an incognito window and paste the full answer plus cited URLs | Preserves the exact wording and cited references in the same project library for auditing and before/after comparison |
 
-API answers can differ from what you see in the mobile app, and Google AI Overviews don't appear for every query. OpenGEO judges on the copy you actually captured, so a round reflects what was really served that day instead of a normalized average.
+Different browser sessions can surface slightly different answers, and Google AI Overviews don't appear for every query. OpenGEO judges on the copy you actually captured, so a round reflects what was really served that day instead of a normalized average.
 
 ## Documentation
 

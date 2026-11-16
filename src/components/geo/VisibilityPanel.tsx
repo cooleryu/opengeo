@@ -25,7 +25,7 @@ type Props = {
 function dateLabel(value: string | null) {
   if (!value) return '未测';
   return new Date(value).toLocaleDateString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
+    timeZone: 'UTC',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -447,7 +447,7 @@ export default function VisibilityPanel({
                 key={question.id}
                 open={question.results.some(
                   (result) =>
-                    ['qwen', 'doubao'].includes(result.providerId) &&
+                    ['chatgpt', 'google'].includes(result.providerId) &&
                     result.status !== 'unmeasured',
                 )}
               >

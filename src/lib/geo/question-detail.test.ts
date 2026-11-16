@@ -63,15 +63,14 @@ test('detail isolates project, language and engine; absent records have null cou
       engine: 'google',
       query: 'English actual query',
     }),
-    observation({ engine: 'qwen', entryType: 'api_answer' }),
   ]);
   const before = structuredClone(source);
   const detail = buildQuestionDetail(source, 'sample-project', 'C01', filters)!;
   assert.equal(detail.title, '中文问题');
-  assert.equal(detail.platforms.length, 5);
+  assert.equal(detail.platforms.length, 2);
   assert.deepEqual(
     detail.platforms.map((item) => item.status),
-    ['found', 'unmeasured', 'unmeasured', 'found', 'unmeasured'],
+    ['found', 'unmeasured'],
   );
   for (const item of detail.platforms.filter(
     (item) => item.status === 'unmeasured',
@@ -171,8 +170,8 @@ test('Google deduplicates URLs and counts only saved web positions; API keeps na
   const source = batch([
     observation({ engine: 'google', sources }),
     observation({
-      engine: 'qwen',
-      entryType: 'api_answer',
+      engine: 'chatgpt',
+      entryType: 'web_answer',
       sources: sources.filter((s) => s.position === undefined),
       answerPath: 'answer.md',
     }),
@@ -199,14 +198,14 @@ test('Google deduplicates URLs and counts only saved web positions; API keeps na
       .position,
     undefined,
   );
-  const qwen = detail.platforms.find((item) => item.engine === 'qwen')!;
+  const chatgpt = detail.platforms.find((item) => item.engine === 'chatgpt')!;
   assert.deepEqual(
-    [qwen.officialCount, qwen.otherCount, qwen.totalSources],
+    [chatgpt.officialCount, chatgpt.otherCount, chatgpt.totalSources],
     [1, 1, 2],
   );
-  assert.equal(qwen.entryLabel, 'API 回答');
-  assert.equal(qwen.answerPath, 'answer.md');
-  assert.ok(qwen.sources.every((item) => item.position === undefined));
+  assert.equal(chatgpt.entryLabel, '网页回答');
+  assert.equal(chatgpt.answerPath, 'answer.md');
+  assert.ok(chatgpt.sources.every((item) => item.position === undefined));
   const attachedOfficial = batch([
     observation({
       engine: 'google',
@@ -299,7 +298,7 @@ test('latest/history preserve original record keys and reject malformed query pa
   );
   assert.equal(
     parseQuestionDetailFilters(
-      new URLSearchParams('language=en&engine=doubao&history=1'),
+      new URLSearchParams('language=en&engine=google&history=1'),
     ).includeHistory,
     true,
   );
@@ -371,12 +370,17 @@ test('AI answer platforms surface audited mention verdicts when batch answerAudi
   const detail = buildQuestionDetail(source, 'sample-project', 'C01', filters)!;
   const chatgpt = detail.platforms.find((p) => p.engine === 'chatgpt')!;
   const google = detail.platforms.find((p) => p.engine === 'google')!;
-  const qwen = detail.platforms.find((p) => p.engine === 'qwen')!;
   assert.equal(chatgpt.mention, 'no');
   assert.equal(chatgpt.officialCount, 0);
   assert.equal(chatgpt.totalSources, 1);
   assert.equal(google.mention, 'yes');
   assert.equal(google.officialCount, 0);
   assert.equal(google.totalSources, 1);
-  assert.equal(qwen.mention, undefined);
+  const webSearchOnly = buildQuestionDetail(
+    batch([observation({ engine: 'google', entryType: 'web_search', answerPath: 'google-serp.md' })]),
+    'sample-project',
+    'C01',
+    filters,
+  )!.platforms.find((p) => p.engine === 'google')!;
+  assert.equal(webSearchOnly.mention, undefined);
 });

@@ -36,8 +36,8 @@
 |`governanceRecords,claimReviews,strategies`|类型可选数组；当前组装函数返回对应列表。|
 |`settings`|见下列字段表，不包含采集 API key 原值。|
 
-`settings.collectionProviders` 为 `{id,label,configured,missing:string[],model:string|null,costNote}[]`，id 为 `deepseek|doubao|qwen`。
-`settings.liveSearchConfigured:boolean` 仅指 `DEEPSEEK_API_KEY` 非空，不代表联网、余额或请求成功。
+`settings.collectionProviders` 为 `{id,label,configured,missing:string[],model:string|null,costNote}[]`，id 范围为 `chatgpt|google`（当前由本地浏览器采集能力提供，服务端 `settings.collectionProviders` 可返回空数组）。
+`settings.liveSearchConfigured:boolean` 为历史兼容字段（当前固定 `false`，不再使用外部搜索 API key）。
 `settings.modelConfigured:boolean`、`modelName:string|null` 是配置存在性判断；`mode` 固定为 `'demo'`，不是本次任务真实/回放模式。
 `settings.schedulerRunning:boolean` 来自服务端进程内全局 scheduler 标志，不代表未来一定准时完成。
 `questions/observations` 合并 seed、导入数据和符合旧完整固定题约束的 live run；失败/不完整 run 不替换为零命中。
@@ -89,7 +89,7 @@ GEO POST 若带 Origin，须与请求协议和 Host 一致；不带 Origin 不�
 | 问题详情图表及概览提及/引用汇总由后端提供；来源、目录、竞品配对仍有前端派生 | 不能宣称所有展示统计已统一为服务端指标接口 |
 | 研究采集逐条持久化观测，并尝试生成提及/引用审核；证据不足保存unknown | 不代表自动生成了新的需求依据、资产正文、人工事实核查或问题AI诊断 |
 | 缺失/失败/未知与已测未见不同 | 空数组/null/未测不能一律补0；200不等于业务成功 |
-| 搜索预算、任务采集预算、诊断模型费用不同 | 新页面DeepSeek搜索上限不覆盖其他模型调用；其他回答入口预留不等于账单实扣 |
+| 浏览器采集与诊断模型费用边界不同 | 浏览器本地采集不消耗搜索 API 预算；模型分析与改稿仅在配置了分析模型密钥或订阅授权时计费 |
 | 项目业务数据隔离；模型配置应用级 | 切项目不能宣称也换了一套Key；内部记录的展示层过滤不构成新的权限域 |
 
 修改接口时，同步对应页面协议、涉及的共享协议、请求分支、返回类型和消费组件；新增枚举要定义空值/未知状态、收费触发及兼容行为。文档给出当前契约，未列出的改造不自动获得实施授权。

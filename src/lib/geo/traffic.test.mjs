@@ -8,7 +8,7 @@ import { getTrafficRange, getTrafficSnapshot } from './traffic.ts';
 // All configurations and responses are synthetic. No live analytics are read or written.
 const temporary = await mkdtemp(path.join(os.tmpdir(), 'opengeo-traffic-'));
 after(() => rm(temporary, { recursive: true, force: true }));
-const now = Date.parse('2026-10-27T10:00:00+08:00');
+const now = Date.parse('2026-10-27T10:00:00Z');
 const range = getTrafficRange('2026-10-21', '2026-10-27', now);
 const contextId = '11111111-1111-4111-8111-111111111111';
 const replayId = '22222222-2222-4222-8222-222222222222';
@@ -17,7 +17,7 @@ const env = {
   DATA_DIR: temporary,
   OPENGEO_UMAMI_URL: 'https://analytics.example.test',
   OPENGEO_UMAMI_TOKEN: fakeToken,
-  OPENGEO_UMAMI_WEBSITE_IDS: JSON.stringify({ sample-project: contextId }),
+  OPENGEO_UMAMI_WEBSITE_IDS: JSON.stringify({ 'sample-project': contextId }),
 };
 const noNetwork = async () => {
   throw new Error('Unexpected network request');
@@ -48,18 +48,18 @@ function mockTraffic(overrides = {}) {
   return { calls, fetch: mockFetch };
 }
 
-test('date windows use inclusive Beijing calendar days with today capped at now', () => {
+test('date windows use inclusive UTC calendar days with today capped at now', () => {
   assert.deepEqual(range, {
     startDate: '2026-10-21',
     endDate: '2026-10-27',
-    startAt: Date.parse('2026-10-21T00:00:00+08:00'),
+    startAt: Date.parse('2026-10-21T00:00:00Z'),
     endAt: now,
-    timezone: 'Asia/Shanghai',
+    timezone: 'UTC',
   });
   assert.equal(getTrafficRange(null, null, now).startDate, '2026-09-28');
   assert.equal(
     getTrafficRange('2026-10-20', '2026-10-21', now).endAt,
-    Date.parse('2026-10-21T23:59:59.999+08:00'),
+    Date.parse('2026-10-21T23:59:59.999Z'),
   );
   for (const dates of [
     ['2026-02-30', '2026-03-01'],
@@ -108,7 +108,7 @@ test('v3 totals and ranked rows use one project, date window, and pageview scope
     assert.ok(url.pathname.startsWith(`/api/websites/${contextId}/`));
     assert.equal(url.searchParams.get('startAt'), String(range.startAt));
     assert.equal(url.searchParams.get('endAt'), String(range.endAt));
-    assert.equal(url.searchParams.get('timezone'), 'Asia/Shanghai');
+    assert.equal(url.searchParams.get('timezone'), 'UTC');
     assert.equal(url.searchParams.get('eventType'), '1');
     assert.equal(options.headers.Authorization, `Bearer ${fakeToken}`);
     assert.equal(options.cache, 'no-store');
@@ -182,7 +182,7 @@ test('concurrent project reads keep their explicit website bindings', async () =
   const configured = {
     ...env,
     OPENGEO_UMAMI_WEBSITE_IDS: JSON.stringify({
-      sample-project: contextId,
+      'sample-project': contextId,
       'sample-project-two': replayId,
     }),
   };
@@ -216,7 +216,7 @@ test('private JSON is reread on demand and environment fields take precedence', 
   const saved = {
     url: env.OPENGEO_UMAMI_URL,
     token: fakeToken,
-    websiteIds: { sample-project: contextId },
+    websiteIds: { 'sample-project': contextId },
     apiVersion: 3,
   };
   await writeFile(filename, JSON.stringify(saved), { mode: 0o600 });

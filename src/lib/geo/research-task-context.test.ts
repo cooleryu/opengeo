@@ -2,7 +2,7 @@ import './test-fixtures';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { getLatestResearch } from './research';
-import { getCollectionConfig } from './providers/config';
+import type { LegacyCollectionConfig } from './workflow-types';
 import {
   freezeResearchTaskContext,
   resolveResearchTaskContext,
@@ -24,7 +24,18 @@ const context: ResearchTaskContext = {
   language: 'zh',
   engine: 'chatgpt',
 };
-const collection = getCollectionConfig('deepseek');
+const collection: LegacyCollectionConfig = {
+  provider: 'chatgpt',
+  label: 'ChatGPT',
+  parameters: {},
+  metric: 'answer_target_citation',
+};
+const googleCollection: LegacyCollectionConfig = {
+  provider: 'google',
+  label: 'Google',
+  parameters: {},
+  metric: 'web_target_hit',
+};
 const freeze = (input = context) =>
   freezeResearchTaskContext(
     input,
@@ -162,10 +173,10 @@ test('freeze contains exactly the selected language of one reviewed question and
   );
   assert.equal(chinese.baseline, undefined);
   assert.equal(chinese.diagnosis, undefined);
-  assert.equal(chinese.collection!.provider, 'deepseek');
+  assert.equal(chinese.collection!.provider, 'chatgpt');
 });
 
-test('reference engine does not substitute a consumer observation for the new API protocol', () => {
+test('reference engine does not substitute a consumer observation for the frozen protocol', () => {
   const fromChatGPT = freeze();
   const fromGoogle = freeze({ ...context, engine: 'google' });
   assert.equal(fromChatGPT.protocolKey, fromGoogle.protocolKey);
@@ -181,7 +192,7 @@ test('reference engine does not substitute a consumer observation for the new AP
   assert.equal(question.evidencePath, '');
 });
 
-test('long English original is rejected for DeepSeek without truncation and fits an answer provider', () => {
+test('over-limit query is rejected without truncation while normal English original fits Google collection', () => {
   const replay = getLatestResearch('sample-project-two')!;
   const input: ResearchTaskContext = {
     batchId: replay.id,
@@ -190,26 +201,28 @@ test('long English original is rejected for DeepSeek without truncation and fits
     engine: 'chatgpt',
   };
   const original = replay.questions.find((item) => item.id === 'R02')!.en;
+  const oversized = structuredClone(replay);
+  oversized.questions.find((item) => item.id === 'R02')!.en = 'x'.repeat(2001);
   assert.throws(
     () =>
       freezeResearchTaskContext(
         input,
-        replay,
+        oversized,
         replay.projectId,
-        collection,
+        googleCollection,
         '',
       ),
-    /128 字符上限/,
+    /2000 字符上限/,
   );
   const workflow = freezeResearchTaskContext(
     input,
     replay,
     replay.projectId,
-    getCollectionConfig('qwen'),
+    googleCollection,
     '2026-10-26T00:00:00Z',
   );
   assert.equal(workflow.questions[0].query, original);
-  assert.equal(workflow.collection!.provider, 'qwen');
+  assert.equal(workflow.collection!.provider, 'google');
   assert.equal(workflow.baseline, undefined);
   const preview = freezeResearchTaskContext(
     input,

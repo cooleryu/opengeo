@@ -1,12 +1,12 @@
+import type Database from 'better-sqlite3';
 import { readLatestResearch } from './research-store';
 import type { ResearchBatch } from './research-types';
 import { readLocalProjectFile } from './project-data';
 export { appendResearchObservation, getResearchBatch, getResearchRun, listResearchRuns, saveResearchRun, listResearchBatches } from './research-store';
 export type { ResearchRunRecord } from './research-store';
-export { claimResearchRun, heartbeatResearchRun } from './research-store';
 
-export function getLatestResearch(projectId: string): ResearchBatch | null {
-  return readLatestResearch(projectId);
+export function getLatestResearch(projectId: string, connection?: Database.Database): ResearchBatch | null {
+  return readLatestResearch(projectId, connection);
 }
 
 export function researchEvidencePaths(batch: ResearchBatch | null): string[] {

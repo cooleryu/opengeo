@@ -335,6 +335,68 @@ test('textarea collection uses the ready composer and retains the page when the 
   assert.ok(document.querySelector('[data-markdown-text-style="assistant-message"]'), 'the answer remains available for citation inspection');
 });
 
+test('ProseMirror composer without id fills text, enables submit button, and collects answer cleanly', async () => {
+  mount();
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'opengeo-browser-prosemirror-'));
+  temporaryRoots.push(root);
+  let sent = 0;
+  let submitted;
+  const page = {
+    ...pageForWait(),
+    async goto(url) {
+      dom.reconfigure({ url });
+      document.body.innerHTML = '<header>临时聊天</header><main></main><button>不个性化</button><form><div contenteditable="true" aria-label="询问 ChatGPT" class="ProseMirror"></div><button type="submit" aria-label="发送" disabled></button></form>';
+    },
+    async url() { return document.location.href; },
+    async waitForSelector(selector) { assert.ok(document.querySelector(selector), 'ProseMirror composer must be ready'); },
+    async fill(selector, value) {
+      const composer = document.querySelector(selector);
+      assert.ok(composer?.classList.contains('ProseMirror'), 'fill must match the ProseMirror editor');
+      composer.textContent = value;
+      document.querySelector('button[aria-label="发送"]').disabled = false;
+    },
+    async click(selector) {
+      assert.ok(selector.includes('button[aria-label="发送"]'));
+      assert.equal(document.querySelector('form .ProseMirror').textContent, query);
+      sent += 1;
+      appendChatGPTTurn();
+    },
+  };
+  globalThis.fetch = async (_url, options) => {
+    submitted = JSON.parse(options.body);
+    return new Response(JSON.stringify({ status: 'completed', audit: { analysisStatus: 'completed', mention: 'yes', citation: 'no' } }), { status: 200 });
+  };
+  const input = { root, base: 'http://127.0.0.1:4327', projectId: 'synthetic-project', batchId: 'synthetic-batch',
+    questionId: 'synthetic-question', captureId: 'synthetic-prosemirror', query, language: 'zh', engine: 'chatgpt' };
+  const result = await collectBrowserQuestion({ page: () => page }, input);
+  assert.equal(sent, 1);
+  assert.equal(result.status, 'completed');
+  assert.equal(submitted.answerText, answer);
+  assert.equal(submitted.conditions.mode, 'temporary_chat');
+});
+
+test('signed-out ChatGPT page rejects immediately before attempting submit', async () => {
+  mount();
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'opengeo-browser-signedout-'));
+  temporaryRoots.push(root);
+  let clicked = false;
+  const page = {
+    ...pageForWait(),
+    async goto(url) {
+      dom.reconfigure({ url });
+      document.body.innerHTML = '<main></main><button>登录</button><form><div contenteditable="true" aria-label="询问 ChatGPT" class="ProseMirror"></div><button type="submit" aria-label="发送" disabled></button></form>';
+    },
+    async url() { return document.location.href; },
+    async waitForSelector(selector) { assert.ok(document.querySelector(selector)); },
+    async fill() { assert.fail('must not fill when signed out'); },
+    async click() { clicked = true; },
+  };
+  const input = { root, base: 'http://127.0.0.1:4327', projectId: 'synthetic-project', batchId: 'synthetic-batch',
+    questionId: 'synthetic-question', captureId: 'synthetic-signedout', query, language: 'zh', engine: 'chatgpt' };
+  await assert.rejects(collectBrowserQuestion({ page: () => page }, input), /需要先登录/);
+  assert.equal(clicked, false);
+});
+
 const googleBody = `${answer} <a href="https://github.com/example/sample-project">查看仓库</a>`;
 const googleSources = `侧栏来源说明不能作为答案。
   <a href="https://research.example/source">侧栏来源</a>

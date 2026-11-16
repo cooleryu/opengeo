@@ -46,11 +46,11 @@ test('research isolates projects, keeps immutable history and partial runs, and 
   otherProject.documents.push({ ...otherProject.documents[0], id: 'source-2', ownership: 'unknown' });
   otherProject.searches = [
     { query: 'project user needs', requestedAt: '2026-11-11T00:00:01Z', status: 'completed',
-      confirmedCostCny: 0.005, reservedCostCny: 0, results: [{ title: 'A relevant source', url: 'https://example.org/source' }] },
+      confirmedCostUsd: 0.005, reservedCostUsd: 0, results: [{ title: 'A relevant source', url: 'https://example.org/source' }] },
     { query: 'additional source', requestedAt: '2026-11-11T00:00:02Z', status: 'pending',
-      confirmedCostCny: null, reservedCostCny: 0.005, results: [] },
+      confirmedCostUsd: null, reservedCostUsd: 0.005, results: [] },
     { query: 'unavailable source', requestedAt: '2026-11-11T00:00:03Z', status: 'failed',
-      confirmedCostCny: 0, reservedCostCny: 0, results: [] },
+      confirmedCostUsd: 0, reservedCostUsd: 0, results: [] },
   ];
   appendProjectResearch(directory, first);
   // Older databases remain readable without altering their schema on a read.

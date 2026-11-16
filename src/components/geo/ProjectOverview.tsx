@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
   ChevronDown,
@@ -9,10 +10,15 @@ import {
   ChevronUp,
   Copy,
   Layers3,
+  Loader2,
   Minus,
+  Play,
+  RefreshCw,
+  Square,
   Terminal,
   X,
 } from 'lucide-react';
+import type { BrowserCollectJobSnapshot } from '@/lib/geo/browser-collect-types';
 import { resolveProjectTargetLanguage } from '@/lib/geo/i18n';
 import type { QuestionCategory } from '@/lib/geo/question-types';
 import type {
@@ -24,6 +30,7 @@ import type {
 import {
   getResearchMetrics,
   getResearchRows,
+  isBrandPrompt,
   type ResearchFilter,
   type ResearchRow,
 } from '@/lib/geo/research-view';
@@ -34,7 +41,11 @@ import {
   type AuditedResearchRow,
   type MetricSummary,
 } from '@/lib/geo/overview-metrics';
-import { getBatchResearchEngines, RESEARCH_ENGINES } from '@/lib/geo/research-engines';
+import {
+  CONSUMER_RESEARCH_ENGINES,
+  getBatchResearchEngines,
+  RESEARCH_ENGINES,
+} from '@/lib/geo/research-engines';
 import type { GeoProject } from '@/lib/geo/types';
 import CompetitorCandidates from './CompetitorCandidates';
 import ResearchEngineIcon from './ResearchEngineIcon';
@@ -53,16 +64,13 @@ const unavailableMetric: MetricSummary = {
 };
 
 const verdictLabels = {
-  zh: { yes: '已提及', no: '未提及', unknown: '待核实' },
-  en: { yes: 'Mentioned', no: 'Not mentioned', unknown: 'Pending' },
+  zh: { yes: '已提及', no: '未提及', unknown: '分析中' },
+  en: { yes: 'Mentioned', no: 'Not mentioned', unknown: 'Analyzing' },
 } as const;
 
-function getPlatformName(engine: ResearchEngine, isEn: boolean): string {
+function getPlatformName(engine: ResearchEngine, _isEn = false): string {
   if (engine === 'chatgpt') return 'ChatGPT';
-  if (engine === 'google') return 'Google';
-  if (engine === 'deepseek') return 'DeepSeek';
-  if (engine === 'qwen') return isEn ? 'Qwen' : '千问';
-  return isEn ? 'Doubao' : '豆包';
+  return 'Google';
 }
 
 const categoryMessageKeys = {
@@ -132,13 +140,13 @@ function humanizeAuditEvidence(
   if (/(?:nativeCitations|citationSource|citationsComplete|observedSourceHints|\bevidence\.)/i.test(trimmed)) {
     if (kind === 'citation' && verdict === 'unknown') {
       return isEn
-        ? 'Only visible links were captured in this run; full platform citation metadata is not yet verified.'
-        : '本次采集仅保存了页面可见链接，尚未获取可确证的平台原生引用清单，是否附上你的官网链接暂待核实。';
+        ? 'Checking captured source links against your project pages.'
+        : '正在核对采集到的来源链接归属。';
     }
     if (kind === 'citation' && verdict === 'no') {
       return isEn
-        ? 'Verified full platform citation list: no link pointing to your site or repository was found.'
-        : '已核对完整平台原生引用清单，未发现指向你官网或仓库的链接。';
+        ? 'Verified captured links: none point to your site, repository, or owned articles.'
+        : '已核对回答附带的来源链接，未发现指向本项目网站、仓库或自有文章的链接。';
     }
   }
   if (isEn && /[\u4e00-\u9fff]/.test(trimmed)) {
@@ -154,15 +162,15 @@ function humanizeAuditEvidence(
       if (verdict === 'yes') {
         return 'Verified direct mention of your project in the captured answer.';
       }
-      return 'Brand mention verification is still pending for this answer.';
+      return 'Analyzing brand mention in this captured answer.';
     }
     if (verdict === 'no') {
-      return 'Verified full platform citation list: no link pointing to your site or repository was found.';
+      return 'Verified captured links: none point to your site, repository, or owned articles.';
     }
     if (verdict === 'yes') {
-      return 'Confirmed a direct citation link pointing to your official site or repository.';
+      return 'Confirmed a citation link pointing to your official site, repository, or authored article.';
     }
-    return 'Only visible links were captured in this run; full platform citation metadata is not yet verified.';
+    return 'Checking captured source links against your project pages.';
   }
   return trimmed
     .replace(/[（(]\s*(?:citationSource|citationsComplete)\s*=[^）)]+[）)]/gi, '')
@@ -197,7 +205,7 @@ export function OverviewAudit({
             ? (isEn ? 'Cited' : '已确认')
             : citation === 'no'
               ? (isEn ? 'Not cited' : '未引用')
-              : (isEn ? 'Pending' : '待核实')}
+              : (isEn ? 'Analyzing' : '分析中')}
         </strong>
         <p>{humanizeAuditEvidence(audit?.citationEvidence, 'citation', citation, isEn)}</p>
       </div>
@@ -336,8 +344,8 @@ function formatDirectMetric(
       qualifier: isEn ? 'At least' : '至少',
       primary: `${directPct}%`,
       subline: isEn
-        ? `${metric.yes} of ${metric.completed} ${positiveVerb} (${metric.unknown} pending)`
-        : `${metric.completed} 条回答里 ${metric.yes} 条${positiveVerb}（${metric.unknown} 条待核实）`,
+        ? `${metric.yes} of ${metric.completed} ${positiveVerb} (${metric.unknown} analyzing)`
+        : `${metric.completed} 条回答里 ${metric.yes} 条${positiveVerb}（${metric.unknown} 条分析中）`,
       ringCenter: `${metric.yes}/${metric.completed}`,
     };
   }
@@ -345,22 +353,22 @@ function formatDirectMetric(
   if (verifiedNo === 0) {
     const unknownReason = isEn
       ? metricKind === 'citation'
-        ? `${metric.unknown} answers pending source link verification`
-        : `${metric.unknown} answers pending verification`
+        ? `Analyzing citation links in ${metric.unknown} answers`
+        : `Analyzing mentions in ${metric.unknown} answers`
       : metricKind === 'citation'
-        ? `${metric.unknown} 条回答尚未核实原生引用`
-        : `${metric.unknown} 条回答尚未完成审核`;
+        ? `正在核对 ${metric.unknown} 条回答的链接归属`
+        : `正在核对 ${metric.unknown} 条回答的品牌提及`;
     return {
-      primary: isEn ? 'Pending' : '待核实',
+      primary: isEn ? 'Analyzing' : '分析中',
       subline: unknownReason,
-      ringCenter: isEn ? 'Pend' : '待核',
+      ringCenter: isEn ? '…' : '分析',
     };
   }
   return {
     primary: '0%',
     subline: isEn
-      ? `${verifiedNo} verified not found · ${metric.unknown} pending`
-      : `${verifiedNo} 条确认未见 · ${metric.unknown} 条待核实`,
+      ? `${verifiedNo} verified not found · ${metric.unknown} analyzing`
+      : `${verifiedNo} 条确认未见 · ${metric.unknown} 条分析中`,
     ringCenter: `0/${metric.completed}`,
   };
 }
@@ -399,12 +407,14 @@ function describeTileStatus(
   if (mention === 'no') {
     return { state: 'absent', statusText: isEn ? 'Not mentioned in answer' : '回答未提及你', dateText: rawDate };
   }
-  return { state: 'pending', statusText: isEn ? 'Pending answer review' : '待核实回答内容', dateText: rawDate };
+  return { state: 'pending', statusText: isEn ? 'Analyzing answer' : '正在分析回答', dateText: rawDate };
 }
 
 type Props = {
   projectOptimization?: ReactNode;
-  project?: Pick<GeoProject, 'siteUrl' | 'repositoryUrl' | 'targetLanguage'>;
+  project?: Pick<GeoProject, 'siteUrl' | 'repositoryUrl' | 'targetLanguage'> & {
+    name?: string;
+  };
   previewOnly?: boolean;
   previewComparison?: ReactNode;
   batch: ResearchBatch;
@@ -419,6 +429,7 @@ type Props = {
   onEvidence: (path: string) => void;
   onCompetitor: () => void;
   onQuestions: () => void;
+  onRefresh?: () => void;
   onAssets?: () => void;
   onPlan?: (
     question: ResearchQuestion,
@@ -427,7 +438,13 @@ type Props = {
   ) => Promise<void>;
 };
 
-type FocusFilter = 'all' | 'missed' | 'mentioned' | 'cited' | 'uncertain';
+type FocusFilter =
+  | 'all'
+  | 'missed'
+  | 'mentioned'
+  | 'cited'
+  | 'uncertain'
+  | 'brand';
 const DEFAULT_VISIBLE_QUESTIONS = 3;
 
 export default function ProjectOverview({
@@ -441,10 +458,159 @@ export default function ProjectOverview({
   onQuestion,
   onCompetitor,
   onQuestions,
+  onRefresh,
 }: Props) {
   const { uiLanguage, t } = useUiLanguage();
   const isEn = uiLanguage === 'en';
   const [copiedCmd, setCopiedCmd] = useState(false);
+  const [collectJob, setCollectJob] = useState<BrowserCollectJobSnapshot | null>(null);
+  const [startingCollect, setStartingCollect] = useState(false);
+  const [collectActionError, setCollectActionError] = useState('');
+  const prevCompletedRef = useRef<number>(0);
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+
+  useEffect(() => {
+    if (previewOnly) return;
+    let active = true;
+    const syncCollectJob = () => {
+      fetch(`/api/geo/browser-collect?project=${encodeURIComponent(batch.projectId)}`, {
+        cache: 'no-store',
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((payload: { job?: BrowserCollectJobSnapshot } | null) => {
+          if (!active || !payload?.job) return;
+          prevCompletedRef.current = payload.job.completedCount;
+          setCollectJob(payload.job);
+        })
+        .catch(() => {});
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') syncCollectJob();
+    };
+    syncCollectJob();
+    window.addEventListener('focus', syncCollectJob);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', syncCollectJob);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [batch.projectId, previewOnly]);
+
+  useEffect(() => {
+    if (previewOnly || collectJob?.status !== 'running') return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `/api/geo/browser-collect?project=${encodeURIComponent(batch.projectId)}`,
+          { cache: 'no-store' },
+        );
+        if (!res.ok || cancelled) return;
+        const payload = (await res.json()) as { job?: BrowserCollectJobSnapshot };
+        if (!payload.job || cancelled) return;
+        const prevDone = prevCompletedRef.current;
+        prevCompletedRef.current = payload.job.completedCount;
+        setCollectJob(payload.job);
+        if (
+          payload.job.completedCount > prevDone ||
+          payload.job.status === 'completed'
+        ) {
+          onRefreshRef.current?.();
+        }
+      } catch {
+        // Keep last state on transient polling errors
+      }
+    };
+    const timer = setInterval(() => {
+      void poll();
+    }, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [batch.projectId, collectJob?.status, previewOnly]);
+
+  const startCollect = async (opts?: {
+    engine?: 'all' | 'chatgpt' | 'google';
+    spaceId?: number;
+    force?: boolean;
+    since?: string;
+  }) => {
+    if (previewOnly || startingCollect) return;
+    setStartingCollect(true);
+    setCollectActionError('');
+    try {
+      const res = await fetch('/api/geo/browser-collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'start',
+          projectId: batch.projectId,
+          engine: opts?.engine ?? 'all',
+          ...(opts?.force ? { force: true } : {}),
+          ...(opts?.since ? { since: opts.since } : {}),
+          ...(opts?.spaceId ? { spaceId: opts.spaceId } : {}),
+        }),
+      });
+      const payload = (await res.json()) as {
+        error?: string;
+        job?: BrowserCollectJobSnapshot;
+      };
+      if (!res.ok) {
+        throw new Error(
+          payload.error ||
+            (isEn
+              ? 'Could not start local browser collection.'
+              : '未能启动本地浏览器采集。'),
+        );
+      }
+      if (payload.job) {
+        prevCompletedRef.current = payload.job.completedCount;
+        setCollectJob(payload.job);
+      }
+    } catch (err) {
+      setCollectActionError(
+        err instanceof Error
+          ? err.message
+          : isEn
+            ? 'Failed to start local browser collection.'
+            : '启动本地浏览器采集失败。',
+      );
+    } finally {
+      setStartingCollect(false);
+    }
+  };
+
+  const stopCollect = async () => {
+    if (previewOnly) return;
+    try {
+      const res = await fetch('/api/geo/browser-collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'stop',
+          projectId: batch.projectId,
+        }),
+      });
+      const payload = (await res.json()) as { job?: BrowserCollectJobSnapshot };
+      if (res.ok && payload.job) setCollectJob(payload.job);
+    } catch {
+      // Ignore transient stop errors
+    }
+  };
+
+  const resumeCollect = (job: BrowserCollectJobSnapshot) => {
+    void startCollect({
+      engine: job.engine,
+      spaceId: job.spaceId ?? undefined,
+      force: job.force,
+      since: job.force
+        ? (job.batchStartedAt ?? job.startedAt ?? undefined)
+        : undefined,
+    });
+  };
   const hasLangObs = (lang: 'zh' | 'en') =>
     batch.questions.some((q) =>
       q.observations.some((obs) => obs.language === lang),
@@ -623,6 +789,25 @@ export default function ProjectOverview({
           r.audit.citation === 'unknown'),
     );
 
+  const splitCounts = (subset: ResearchRow[]) => {
+    if (sourceOnly) {
+      const m = getResearchMetrics(subset);
+      return { yes: m.found, total: m.completed };
+    }
+    const m = summarizeMetric(subset, 'mention');
+    return { yes: m.yes, total: m.completed };
+  };
+  const brandLabel = project?.name?.trim() || (isEn ? 'your brand' : '品牌名');
+  const discoverySplit = splitCounts(
+    rows.filter((r) => !isBrandPrompt(r.question, project?.name)),
+  );
+  const brandSplit = splitCounts(
+    rows.filter((r) => isBrandPrompt(r.question, project?.name)),
+  );
+  const brandQuestionCount = allQuestions.filter((q) =>
+    isBrandPrompt(q, project?.name),
+  ).length;
+
   const missedCount = allQuestions.filter(questionHasMiss).length;
   const mentionedCount = allQuestions.filter(questionHasMention).length;
   const citedCount = allQuestions.filter(questionHasCitation).length;
@@ -633,6 +818,7 @@ export default function ProjectOverview({
       if (focus === 'mentioned') return questionHasMention(q);
       if (focus === 'cited') return questionHasCitation(q);
       if (focus === 'uncertain') return questionHasUncertain(q);
+      if (focus === 'brand') return isBrandPrompt(q, project?.name);
       return true;
     })
     .sort((a, b) => Number(questionHasMiss(b)) - Number(questionHasMiss(a)));
@@ -665,8 +851,100 @@ export default function ProjectOverview({
     );
   };
 
+  const collectCommand = `npm run collect -- --project ${batch.projectId}`;
+  const renderBrowserCollectStatus = () => {
+    if (!collectJob || collectJob.status === 'idle') return null;
+    if (collectJob.status === 'running') {
+      return (
+        <div className="pov-collect-status is-running" role="status">
+          <div className="pov-collect-status-main">
+            <Loader2 size={16} className="spin" />
+            <div>
+              <strong>{t('overview.collectingTitle')}</strong>
+              <p>
+                {collectJob.totalCount > 0 && collectJob.currentQuestionId
+                  ? t('overview.collectingStep', {
+                      done: collectJob.completedCount,
+                      total: collectJob.totalCount,
+                      message:
+                        collectJob.message ||
+                        `${collectJob.currentEngine === 'chatgpt' ? 'ChatGPT' : 'Google'} · ${collectJob.currentQuestionId}`,
+                    })
+                  : collectJob.message}
+              </p>
+              {collectJob.currentQuery && (
+                <p style={{ marginTop: 2, opacity: 0.85 }}>{collectJob.currentQuery}</p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="pov-secondary-btn"
+            onClick={() => void stopCollect()}
+          >
+            <Square size={13} />
+            {t('overview.stopCollectBtn')}
+          </button>
+        </div>
+      );
+    }
+    if (collectJob.status === 'needs_handoff') {
+      return (
+        <div className="pov-collect-status is-handoff" role="alert">
+          <div className="pov-collect-status-main">
+            <AlertTriangle size={16} />
+            <div>
+              <strong>{t('overview.handoffTitle')}</strong>
+              <p>{collectJob.error || t('overview.handoffDesc')}</p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="pov-primary-btn"
+              disabled={startingCollect}
+              onClick={() => resumeCollect(collectJob)}
+            >
+              <RefreshCw size={14} />
+              {t('overview.resumeCollectBtn')}
+            </button>
+            <button
+              type="button"
+              className="pov-secondary-btn"
+              onClick={() => void stopCollect()}
+            >
+              <Square size={13} />
+              {t('overview.stopCollectBtn')}
+            </button>
+          </div>
+        </div>
+      );
+    }
+    if (collectJob.status === 'failed' && collectJob.error) {
+      return (
+        <div className="pov-collect-status is-error" role="alert">
+          <div className="pov-collect-status-main">
+            <AlertTriangle size={16} />
+            <div>
+              <strong>{collectJob.error}</strong>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="pov-secondary-btn"
+            disabled={startingCollect}
+            onClick={() => resumeCollect(collectJob)}
+          >
+            <RefreshCw size={14} />
+            {isEn ? 'Retry' : '重试采集'}
+          </button>
+        </div>
+      );
+    }
+    return null;
+  };
+
   if (!availableEngines.length) {
-    const collectCommand = `npm run collect -- --project ${batch.projectId}`;
     const langLabel = t(
       activeLanguage === 'en'
         ? 'overview.targetLangEnLabel'
@@ -701,28 +979,78 @@ export default function ProjectOverview({
               {t('overview.reviewQuestionsBtn')} <ArrowRight size={14} />
             </button>
           </div>
-          <div className="pov-command-box">
-            <div className="pov-command-code">
-              <Terminal size={15} aria-hidden="true" />
-              <code>{collectCommand}</code>
+          {collectActionError && (
+            <div className="pov-collect-status is-error" role="alert">
+              <div className="pov-collect-status-main">
+                <AlertTriangle size={16} />
+                <div>
+                  <strong>{collectActionError}</strong>
+                </div>
+              </div>
             </div>
-            <button
-              type="button"
-              className="pov-primary-btn"
-              onClick={copyCollectCommand}
-            >
-              {copiedCmd ? <Check size={15} /> : <Copy size={15} />}
-              {copiedCmd
-                ? t('overview.copiedCommand')
-                : t('overview.copyCommand')}
-            </button>
+          )}
+          {renderBrowserCollectStatus()}
+          <div className="pov-empty-actions">
+            {collectJob?.status === 'needs_handoff' ? (
+              <button
+                type="button"
+                className="pov-primary-btn"
+                disabled={startingCollect}
+                onClick={() => resumeCollect(collectJob)}
+              >
+                <RefreshCw size={15} />
+                {t('overview.resumeCollectBtn')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="pov-primary-btn"
+                disabled={startingCollect || collectJob?.status === 'running'}
+                onClick={() => void startCollect({ engine: 'all' })}
+              >
+                {startingCollect || collectJob?.status === 'running' ? (
+                  <>
+                    <Loader2 size={15} className="spin" />
+                    {t('overview.startingBrowserCollectBtn')}
+                  </>
+                ) : (
+                  <>
+                    <Play size={15} />
+                    {t('overview.startBrowserCollectBtn')}
+                  </>
+                )}
+              </button>
+            )}
           </div>
+          <details className="pov-cli-fallback">
+            <summary>{t('overview.cliFallbackSummary')}</summary>
+            <div className="pov-command-box">
+              <div className="pov-command-code">
+                <Terminal size={15} aria-hidden="true" />
+                <code>{collectCommand}</code>
+              </div>
+              <button
+                type="button"
+                className="pov-secondary-btn"
+                onClick={copyCollectCommand}
+              >
+                {copiedCmd ? <Check size={14} /> : <Copy size={14} />}
+                {copiedCmd
+                  ? t('overview.copiedCommand')
+                  : t('overview.copyCommand')}
+              </button>
+            </div>
+          </details>
           {batch.questions.length > 0 && (
             <ol className="pov-empty-questions">
               {batch.questions.slice(0, 8).map((q) => (
                 <li key={q.id}>
                   <span className="pov-q-cat">
-                    {q.category ? t(categoryMessageKeys[q.category]) : t('overview.catProblem')}
+                    {isBrandPrompt(q, project?.name)
+                      ? t('overview.catBrand')
+                      : q.category
+                        ? t(categoryMessageKeys[q.category])
+                        : t('overview.catProblem')}
                   </span>
                   <span>
                     {q[activeLanguage] || q.en || q.zh}
@@ -751,8 +1079,23 @@ export default function ProjectOverview({
 
   const citationDisplay = formatDirectMetric(citation, 'citation', isEn);
 
+  const unmeasuredConsumerEngines = CONSUMER_RESEARCH_ENGINES.filter(
+    (e) => !availableEngines.includes(e),
+  );
+
   return (
     <div className="pov-shell">
+      {collectActionError && (
+        <div className="pov-collect-status is-error" role="alert">
+          <div className="pov-collect-status-main">
+            <AlertTriangle size={16} />
+            <div>
+              <strong>{collectActionError}</strong>
+            </div>
+          </div>
+        </div>
+      )}
+      {renderBrowserCollectStatus()}
       {/* Top Bar */}
       <header className="pov-topbar">
         <div className="pov-title-group">
@@ -767,6 +1110,42 @@ export default function ProjectOverview({
         </div>
 
         <div className="pov-controls">
+          {!previewOnly && allQuestions.length > 0 && (
+            <button
+              type="button"
+              className="pov-secondary-btn pov-rerun-btn"
+              disabled={startingCollect || collectJob?.status === 'running'}
+              onClick={() =>
+                void startCollect({
+                  engine:
+                    selectedEngine === 'chatgpt' || selectedEngine === 'google'
+                      ? selectedEngine
+                      : 'all',
+                  force: true,
+                })
+              }
+            >
+              {startingCollect || collectJob?.status === 'running' ? (
+                <>
+                  <Loader2 size={14} className="spin" />
+                  <span>{isEn ? 'Measuring…' : '正在实测…'}</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={14} />
+                  <span>
+                    {selectedEngine === 'chatgpt' || selectedEngine === 'google'
+                      ? isEn
+                        ? `Re-run ${getPlatformName(selectedEngine, isEn)}`
+                        : `重新实测 ${getPlatformName(selectedEngine, isEn)}`
+                      : isEn
+                        ? `Re-run all (${allQuestions.length})`
+                        : `重新实测全部 (${allQuestions.length}题)`}
+                  </span>
+                </>
+              )}
+            </button>
+          )}
           <div
             className="pov-segmented"
             role="group"
@@ -804,38 +1183,49 @@ export default function ProjectOverview({
       {/* Row 1: 3-Card Bento Scoreboard with Symmetric Donut Rings */}
       <section className="pov-bento" aria-label={isEn ? 'Key performance' : '核心表现'}>
         {/* Card 1: AI Mention */}
-        <button
-          type="button"
-          className={`pov-metric-card ${focus === 'missed' || focus === 'mentioned' ? 'is-focused' : ''}`}
-          onClick={() =>
-            jumpFocus(
-              (sourceOnly ? officialMetrics.found : mention.yes) > 0
-                ? 'mentioned'
-                : 'missed',
-            )
-          }
+        <div
+          className={`pov-metric-card ${focus === 'missed' || focus === 'mentioned' || focus === 'brand' ? 'is-focused' : ''}`}
         >
-          <div className="pov-metric-head">
-            <span>
-              {sourceOnly ? t('overview.searchAppear') : t('overview.aiMention')}
-            </span>
-          </div>
+          <div
+            role="button"
+            tabIndex={0}
+            className="pov-metric-card-click"
+            onClick={() =>
+              jumpFocus(
+                (sourceOnly ? officialMetrics.found : mention.yes) > 0
+                  ? 'mentioned'
+                  : 'missed',
+              )
+            }
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.currentTarget.click();
+              }
+            }}
+          >
+            <div className="pov-metric-head">
+              <span>
+                {sourceOnly ? t('overview.searchAppear') : t('overview.aiMention')}
+              </span>
+            </div>
 
-          <div className="pov-gauge-row">
-            <DonutRing
-              yes={sourceOnly ? officialMetrics.found : mention.yes}
-              unknown={sourceOnly ? 0 : mention.unknown}
-              total={sourceOnly ? officialMetrics.completed : mention.completed}
-              centerText={mentionDisplay.ringCenter}
-            />
-            <div className="pov-gauge-copy">
-              <div className="pov-metric-value">
-                {mentionDisplay.qualifier && (
-                  <em className="pov-qualifier">{mentionDisplay.qualifier}</em>
-                )}
-                <strong>{mentionDisplay.primary}</strong>
+            <div className="pov-gauge-row">
+              <DonutRing
+                yes={sourceOnly ? officialMetrics.found : mention.yes}
+                unknown={sourceOnly ? 0 : mention.unknown}
+                total={sourceOnly ? officialMetrics.completed : mention.completed}
+                centerText={mentionDisplay.ringCenter}
+              />
+              <div className="pov-gauge-copy">
+                <div className="pov-metric-value">
+                  {mentionDisplay.qualifier && (
+                    <em className="pov-qualifier">{mentionDisplay.qualifier}</em>
+                  )}
+                  <strong>{mentionDisplay.primary}</strong>
+                </div>
+                <p className="pov-metric-sub">{mentionDisplay.subline}</p>
               </div>
-              <p className="pov-metric-sub">{mentionDisplay.subline}</p>
             </div>
           </div>
 
@@ -850,33 +1240,33 @@ export default function ProjectOverview({
               unknown={sourceOnly ? 0 : mention.unknown}
             />
             <div className="pov-metric-chips">
-              {sourceOnly ? (
-                <>
-                  <span className={officialMetrics.found > 0 ? 'is-yes' : ''}>
-                    {officialMetrics.found} {isEn ? 'found' : '已出现'}
-                  </span>
-                  <span>
-                    {officialMetrics.completed - officialMetrics.found} {isEn ? 'absent' : '未出现'}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className={mention.yes > 0 ? 'is-yes' : ''}>
-                    {mention.yes} {isEn ? 'mentioned' : '已提及'}
-                  </span>
-                  <span>
-                    {mention.no} {isEn ? 'missed' : '未提及'}
-                  </span>
-                  {mention.unknown > 0 && (
-                    <span className="is-amber">
-                      {mention.unknown} {isEn ? 'pending' : '待核实'}
-                    </span>
-                  )}
-                </>
+              {brandSplit.total > 0 && (
+                <button
+                  type="button"
+                  className={`${mention.yes > 0 && discoverySplit.yes > 0 && brandSplit.yes > 0 ? 'is-yes' : 'is-amber'} ${focus === 'brand' ? 'is-active' : ''}`.trim()}
+                  onClick={() => jumpFocus(focus === 'brand' ? 'all' : 'brand')}
+                >
+                  {mention.yes === 0
+                    ? isEn
+                      ? `Even "${brandLabel}" wasn't recognized`
+                      : `直接搜「${brandLabel}」也未认出`
+                    : discoverySplit.yes === 0
+                      ? isEn
+                        ? `Only on "${brandLabel}" (${brandSplit.yes}/${brandSplit.total})`
+                        : `仅在搜「${brandLabel}」时提及 (${brandSplit.yes}/${brandSplit.total})`
+                      : isEn
+                        ? `Incl. "${brandLabel}" ${brandSplit.yes}/${brandSplit.total}`
+                        : `其中直接搜「${brandLabel}」提及 ${brandSplit.yes}/${brandSplit.total}`}
+                </button>
+              )}
+              {!sourceOnly && mention.unknown > 0 && (
+                <span className="is-amber">
+                  {mention.unknown} {isEn ? 'analyzing' : '分析中'}
+                </span>
               )}
             </div>
           </div>
-        </button>
+        </div>
 
         {/* Card 2: Official Citation */}
         <button
@@ -946,7 +1336,7 @@ export default function ProjectOverview({
                   </span>
                   {citation.unknown > 0 && (
                     <span className="is-amber">
-                      {citation.unknown} {isEn ? 'pending' : '待核实'}
+                      {citation.unknown} {isEn ? 'analyzing' : '分析中'}
                     </span>
                   )}
                 </>
@@ -1013,17 +1403,23 @@ export default function ProjectOverview({
               );
             })}
           </div>
-          {availableEngines.length < RESEARCH_ENGINES.length && (
+          {unmeasuredConsumerEngines.length > 0 && (
             <button
               type="button"
               className="pov-unmeasured-note"
-              onClick={onQuestions}
+              disabled={startingCollect || collectJob?.status === 'running'}
+              onClick={() =>
+                void startCollect({
+                  engine:
+                    unmeasuredConsumerEngines.length === 1
+                      ? unmeasuredConsumerEngines[0]
+                      : 'all',
+                })
+              }
             >
               <span>
                 {t('overview.unmeasuredPlatforms', {
-                  platforms: RESEARCH_ENGINES.filter(
-                    (e) => !availableEngines.includes(e),
-                  )
+                  platforms: unmeasuredConsumerEngines
                     .map((e) => getPlatformName(e, isEn))
                     .join(' · '),
                 })}
@@ -1109,6 +1505,16 @@ export default function ProjectOverview({
                   {t('overview.filterCited')} <span>{citedCount}</span>
                 </button>
               )}
+              {brandQuestionCount > 0 && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={focus === 'brand'}
+                  onClick={() => setFocus('brand')}
+                >
+                  {isEn ? 'Brand' : `搜「${brandLabel}」`} <span>{brandQuestionCount}</span>
+                </button>
+              )}
             </div>
 
             <button
@@ -1132,9 +1538,11 @@ export default function ProjectOverview({
           <>
             <div className="pov-matrix">
               {displayedQuestions.map((question) => {
-                const categoryLabel = question.category
-                  ? t(categoryMessageKeys[question.category])
-                  : null;
+                const categoryLabel = isBrandPrompt(question, project?.name)
+                  ? t('overview.catBrand')
+                  : question.category
+                    ? t(categoryMessageKeys[question.category])
+                    : null;
 
                 const tileItems = matrixEngines.map((engine) => {
                   const cellRow = allEngineRows.find(

@@ -58,11 +58,11 @@ test('latest observations replace history without dropping a newly unreadable an
   assert.equal(formatCompetitorMention(summary), '待核实');
 });
 
-test('search sources never become AI mentions, including API search from a vendor with answer APIs', () => {
+test('search sources never become AI mentions, including web_search on a platform with AI answers', () => {
   const summary = summarizeCompetitorMentions(
     [
       row('q1', 'matched', { engine: 'google' }),
-      row('q1', 'matched', { engine: 'qwen', entryType: 'api_search' }),
+      row('q1', 'matched', { engine: 'google', entryType: 'web_search' }),
     ],
     'target',
   );
@@ -72,8 +72,8 @@ test('search sources never become AI mentions, including API search from a vendo
 
 test('a later search record never removes the same platforms answer from the denominator', () => {
   const summary = summarizeCompetitorMentions([
-    row('q1', 'not_seen', { engine: 'qwen', entryType: 'api_answer' }),
-    row('q1', 'matched', { engine: 'qwen', entryType: 'api_search', recordedAt: '2026-10-30T00:00:00Z' }),
+    row('q1', 'not_seen', { engine: 'google', entryType: 'web_answer' }),
+    row('q1', 'matched', { engine: 'google', entryType: 'web_search', recordedAt: '2026-10-30T00:00:00Z' }),
     row('q2', 'matched'),
   ], 'target');
   assert.equal(summary.total, 2);
@@ -85,7 +85,7 @@ test('multiple platforms within one question do not outweigh another question', 
   const summary = summarizeCompetitorMentions(
     [
       row('q1', 'matched'),
-      row('q1', 'matched', { engine: 'qwen' }),
+      row('q1', 'matched', { engine: 'google', entryType: 'web_answer' }),
       row('q2', 'not_seen'),
     ],
     'target',
@@ -105,7 +105,7 @@ test('latest record uses actual time and collection time, consistent with the ov
   const summary = summarizeCompetitorMentions(
     [
       row('q1', 'matched', { recordedAt: '2026-10-29T01:00:00Z' }),
-      row('q1', 'not_seen', { recordedAt: '2026-10-29T08:30:00+08:00' }),
+      row('q1', 'not_seen', { recordedAt: '2026-10-29T00:30:00Z' }),
       row('q2', 'matched', { collectedAt: '2026-10-29T02:00:00Z' }),
       row('q2', 'not_seen', { recordedAt: '2026-10-29T01:30:00Z' }),
     ],

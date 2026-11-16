@@ -25,7 +25,7 @@ const rateFormat = new Intl.NumberFormat('zh-CN', {
   maximumFractionDigits: 1,
 });
 const timeFormat = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
+  timeZone: 'UTC',
   month: '2-digit',
   day: '2-digit',
   hour: '2-digit',
@@ -258,7 +258,7 @@ export default function ConversionPanel({
                 <time dateTime={snapshot?.fetchedAt || undefined}>
                   {updatedAt}
                 </time>
-                （北京时间）。
+                （UTC）。
               </p>
             )}
           </div>

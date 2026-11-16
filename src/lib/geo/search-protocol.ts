@@ -1,25 +1,23 @@
 import { createHash } from 'node:crypto';
 import type { GeoQuestion, GeoSeed } from './types';
 import { resolveAssetOwnership } from './asset-ownership';
-import type { WorkflowQuestion } from './workflow-types';
-import type { CollectionConfig } from './providers/types';
+import type { LegacyCollectionConfig, WorkflowQuestion } from './workflow-types';
 
-export const DEEPSEEK_SEARCH_ENDPOINT = 'https://api.deepseek.com/v1/tools/search';
 export const WORKFLOW_SEARCH_PARAMETERS = { count: 50, need_content: true } as const;
 export const LEGACY_SEARCH_PARAMETERS = { count: 50, need_content: false } as const;
 
 /** A protocol identifies the actual query, target, and request parameters, not a display label. */
-export function buildSearchProtocolKey(questions: WorkflowQuestion[], collection?: CollectionConfig): string {
+export function buildSearchProtocolKey(questions: WorkflowQuestion[], collection?: LegacyCollectionConfig): string {
   const normalized = questions.map(question => ({
     id: question.id, query: question.query, language: question.language,
     target: question.target, assetIds: [...question.assetIds].sort(),
     exploratory: question.exploratory,
   })).sort((left, right) => left.id.localeCompare(right.id));
-  if (collection && collection.provider !== 'deepseek') return `answer-v1:${createHash('sha256').update(JSON.stringify({
+  if (collection) return `answer-v1:${createHash('sha256').update(JSON.stringify({
     collection, matching: 'native-citation-project-descendant-or-exact-article-v1', questions: normalized,
   })).digest('hex')}`;
-  return `deepseek-search-v2:${createHash('sha256').update(JSON.stringify({
-    endpoint: DEEPSEEK_SEARCH_ENDPOINT, parameters: WORKFLOW_SEARCH_PARAMETERS,
+  return `search-v2:${createHash('sha256').update(JSON.stringify({
+    parameters: WORKFLOW_SEARCH_PARAMETERS,
     matching: 'project-descendant-or-exact-article-v1', questions: normalized,
   })).digest('hex')}`;
 }
@@ -57,7 +55,7 @@ export function frozenQuestion(question: WorkflowQuestion): GeoQuestion {
   return {
     id: question.id, query: question.query, language: question.language,
     tier: question.category, matchingAssetIds: [...question.assetIds],
-    measurementAt: '', provider: 'DeepSeek Search API', resultCount: 0,
+    measurementAt: '', provider: 'ChatGPT', resultCount: 0,
     projectHit: false, rank: null, aiCited: null, topSources: [], evidencePath: '',
   };
 }

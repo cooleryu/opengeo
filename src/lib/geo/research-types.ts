@@ -3,10 +3,7 @@ import type { AnswerAuditRecord, OverviewMetricScopes } from './overview-metrics
 
 export type ResearchEngine =
   | 'chatgpt'
-  | 'google'
-  | 'deepseek'
-  | 'qwen'
-  | 'doubao';
+  | 'google';
 
 export interface ResearchSource {
   title: string;

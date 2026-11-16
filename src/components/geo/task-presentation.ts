@@ -11,9 +11,8 @@ export type TaskPresentation = {
 export function taskProviderLabel(task: GeoTask): string {
   const provider =
     task.workflow?.collection?.provider ??
-    task.collectionProvider ??
-    'deepseek';
-  return { deepseek: 'DeepSeek', qwen: '千问', doubao: '豆包' }[provider];
+    task.collectionProvider;
+  return provider === 'google' ? 'Google' : 'ChatGPT';
 }
 
 const paragraphs = (text: string) =>
@@ -81,10 +80,10 @@ function baselineObservation(task: GeoTask): string | null {
     const cited = questions.filter(
       (question) => question.aiCited === true,
     ).length;
-    return `本次 ${count} 个问题中，${provider}联网回答 API 有 ${cited} 个回答引用了本项目。`;
+    return `本次 ${count} 个问题中，${provider} 有 ${cited} 个回答引用了本项目。`;
   }
   const found = questions.filter((question) => question.projectHit).length;
-  return `本次用 ${provider} 搜索 API 查询 ${count} 个问题，${found} 个问题的结果中找到本项目。`;
+  return `本次用 ${provider} 查询 ${count} 个问题，${found} 个问题的结果中找到本项目。`;
 }
 
 export function taskPresentation(

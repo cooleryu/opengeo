@@ -8,17 +8,17 @@
 
 ## OpenGEO 设置接口
 
-配置应用级共用，所有项目读取同一连接；本批观测数量仍按当前项目计算。设置页区分默认 AI 模型和搜索采集配置。ChatGPT 网页回答、Google 网页搜索展示当前批次已保存记录与查看入口，标明未接自动采集；它们不等于 OpenAI API 或 Gemini 连接。
+配置应用级共用，所有项目读取同一连接；本批观测数量仍按当前项目计算。设置页仅维护分析与改稿 AI 模型连接（`model`）；ChatGPT 网页回答、Google 网页搜索与 AI 概览通过应用内或本地真实浏览器采集，并展示当前批次已保存记录与查看入口，不依赖搜索 API。
 
 | 接口 | 请求与结果 |
 | --- | --- |
-| GET `/api/geo/settings` | 返回 `model` 与 `search`，含服务商、地址、模型、`configured`、`keyConfigured`、配置来源；不返回 Key。只读取，不调用供应商。 |
-| PUT `/api/geo/settings` | `{section:'model'\|'deepseek'\|'qwen'\|'doubao', values:{provider?,baseURL?,model?,apiKey?}}`；按分区校验允许字段，返回同一公开对象。空或省略 Key 保留原值；换模型服务商/地址必须显式提供对应 Key。保存不发网络请求。 |
-| POST `/api/geo/settings/test` | `{section,acknowledgeCost:true}`，只测试已保存的有效配置；用户确认后发送一次小请求，可能计费。成功 `{ok:true,message,testedAt}`；失败返回安全的 `error`。模型检查结构化结果，搜索检查对应采集响应，不写业务观测。 |
+| GET `/api/geo/settings` | 返回 `model`，含服务商（`gemini\|deepseek\|openai\|custom`）、地址、模型、`configured`、`keyConfigured`、配置来源；不返回 Key。只读取，不调用供应商。 |
+| PUT `/api/geo/settings` | `{section:'model', values:{provider?,baseURL?,model?,apiKey?}}`；按模型分区校验允许字段，返回同一公开对象。空或省略 Key 保留原值；换模型服务商/地址必须显式提供对应 Key。保存不发网络请求。 |
+| POST `/api/geo/settings/test` | `{section:'model',acknowledgeCost:true}`，只测试已保存的有效模型配置；用户确认后发送一次小请求，可能计费。成功 `{ok:true,message,testedAt}`；失败返回安全的 `error`，不写业务观测。 |
 
 设置保存至 `DATA_DIR/data/geo-settings.json`（未设置 DATA_DIR 则使用应用目录），文件权限 `0600`，原子替换；原 `.env` 不改。字段优先取已保存值，否则继续读取原环境配置；未被修改的连接保留。密钥文件已排除版本控制和容器构建上下文。
 
-拟题、分析、改稿和审核通过 `loadGeoModel()` 在新操作开始时读取设置；搜索 Key 在发送时读取。新搜索/新任务使用保存的采集模型，已有跟测继续使用冻结的模型与协议，避免修改可比条件。保存或读取到配置不等于连接已验证。
+拟题、分析、改稿和审核通过 `loadGeoModel()` 在新操作开始时读取设置。已有跟测继续使用冻结的协议与条件，避免修改可比条件。保存或读取到配置不等于连接已验证。
 
 测试有 45 秒总时限，不自动重试；错误不回显 Key 或供应商完整响应。既有 Vane provider 配置继续兼容实际调用，但测试按钮会说明该旧连接暂不支持单次测试。修改为直连需有效配置，不能静默清空原连接。
 
@@ -75,9 +75,8 @@ server 的 search 仅 SearXNG URL，key=`search.searxngURL`，初始默认空，
 没有界面保存值时，OpenGEO 模型仍读取 `OPENGEO_LLM_MODEL`，并要求 `OPENGEO_LLM_API_KEY` 或 `OPENGEO_VANE_PROVIDER_ID` 存在；可用 `OPENGEO_LLM_BASE_URL`。
 尚未在新设置页保存模型且设置了 `OPENGEO_VANE_PROVIDER_ID` 时，服务端继续用 Vane registry 的对应 provider；否则构造兼容 OpenAI 的模型连接。
 旧 Vane 聊天模型选择不会改变 OpenGEO 设置；新的配置保存通过上方 `/api/geo/settings` 接入实际调用。
-采集密钥未保存时从环境回退：DeepSeek=`DEEPSEEK_API_KEY`；豆包=`ARK_API_KEY || DOUBAO_API_KEY`；千问=`DASHSCOPE_API_KEY || QWEN_API_KEY`。
-采集模型环境项为 `OPENGEO_DOUBAO_MODEL`、`OPENGEO_QWEN_MODEL`；默认分别为 `doubao-seed-2-0-lite-260428`、`qwen-plus-2025-07-14`。
-任务冻结 `CollectionConfig` 含 provider/endpoint/model/parameters/metric，不含 credentials；GeoState 只给配置状态。
+模型密钥未保存时可从环境变量回退：Gemini=`GEMINI_API_KEY`；DeepSeek=`DEEPSEEK_API_KEY`（模型 `deepseek-flash`，地址 `https://api.deepseek.com`）；自定义 OpenAI 兼容端点使用 `OPENGEO_LLM_MODEL`、`OPENGEO_LLM_API_KEY`、`OPENGEO_LLM_BASE_URL`。
+GeoState 中的 `settings.collectionProviders`、`liveSearchConfigured` 不再返回搜索 API 密钥状态。
 Vane configManager 将配置（含 provider config）序列化到本地 `data/config.json`，环境导入的 provider config 也可能写入此文件。
 但遗留 GET `/api/config` 与 provider POST/PATCH 响应没有密钥脱敏，`config` 原值会返回浏览器；新的 OpenGEO 设置页不调用这些接口，但本次没有重构或移除其兼容能力。
 遗留 route 也未见用户鉴权/同源显式检查；新设置写入执行同源检查，但本次没有实现远程多用户鉴权，不能推断已具备多用户隔离。

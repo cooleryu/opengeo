@@ -1,6 +1,6 @@
 import { getLatestResearch, getResearchBatch, getResearchRun, saveResearchRun, appendResearchObservation } from './research';
 import { currentGeoProject } from './projects';
-import { observationFromResult } from './research-observation';
+import type { ResearchObservation } from './research-types';
 import type { GeoRun, GeoTask } from './types';
 import { analyzeResearchObservation } from './answer-audit';
 import { listAnswerAudits } from './answer-audit-store';
@@ -14,10 +14,11 @@ export function importTaskResearchRuns(task: GeoTask) {
   const runs = [...task.runs, ...[task.workflow, ...(task.workflowHistory || [])].flatMap(w => w?.baseline ? [w.baseline] : [])];
   for (const run of runs) {
     if (run.mode !== 'live') continue;
-    const provider = run.questions[0]?.providerId || task.workflow?.collection?.provider || task.collectionProvider || 'deepseek';
+    const provider = run.questions[0]?.providerId || task.workflow?.collection?.provider || task.collectionProvider;
+    if (provider !== 'chatgpt' && provider !== 'google') continue;
     const frozen = run.questions.length ? run.questions : (task.workflow?.questions || []);
     const languages = [...new Set(frozen.map(q => q.language.startsWith('zh') ? 'zh' as const : 'en' as const))];
-    for (const language of languages.length ? languages : ['zh' as const]) {
+    for (const language of languages.length ? languages : ['en' as const]) {
       const id = `task-${run.id}-${language}`;
       if (getResearchRun(projectId, id)) continue;
       const measured = run.questions.filter(q => (q.language.startsWith('zh') ? 'zh' : 'en') === language);
@@ -33,16 +34,32 @@ export function importTaskResearchRuns(task: GeoTask) {
         budgetLimit: Math.max(task.monitor.budgetLimit, run.cost), completedCount: measured.length,
         taskId: task.id, imported: true, importedRun: run as GeoRun,
         evidencePath: `data/geo-evidence/${run.id}/run.json`, error: run.error,
-        entryType: provider === 'deepseek' ? 'api_search' : 'api_answer',
+        entryType: provider === 'chatgpt' ? 'web_answer' : 'web_search',
         matchedQuestionIds: questions.filter(q => [...batch.questions, ...batch.deferredQuestions].some(candidate => candidate.id === q.questionId && candidate[language] === q.query)).map(q => q.questionId),
       });
       for (const result of measured) {
         const match = [...batch.questions, ...batch.deferredQuestions].find(q => q[language] === result.query);
-        if (!match) continue;
-        // Incomplete historical raw files remain in the run archive, not zero-hit observations.
-        let observation;
-        try { observation = observationFromResult(result, id, provider); } catch { continue; }
-        appendResearchObservation(projectId, batch.id, match.id, observation);
+        if (!match || !result.measurementAt || !result.evidencePath) continue;
+        const observation: ResearchObservation = {
+          runId: id,
+          engine: provider,
+          language,
+          entryType: provider === 'chatgpt' ? 'web_answer' : 'web_search',
+          query: result.query,
+          recordedAt: result.measurementAt,
+          collectedAt: result.measurementAt,
+          status: result.projectHit ? 'found' : 'not_observed',
+          summary: result.answer?.text?.slice(0, 180) || '',
+          conditions: 'Task import',
+          sources: result.topSources.map((s) => ({
+            title: s.title,
+            url: s.url,
+            kind: 'other' as const,
+            ...(s.position ? { position: s.position } : {}),
+          })),
+          evidencePath: result.evidencePath,
+        };
+        try { appendResearchObservation(projectId, batch.id, match.id, observation); } catch { continue; }
       }
     }
   }

@@ -4,8 +4,7 @@ import type {
   ResearchQuestion,
 } from './research-types';
 import type { GeoAsset, ResearchTaskContext } from './types';
-import type { GeoWorkflow, WorkflowQuestion } from './workflow-types';
-import type { CollectionConfig } from './providers/types';
+import type { GeoWorkflow, LegacyCollectionConfig, WorkflowQuestion } from './workflow-types';
 import { isBrandQuestion } from './research-view';
 import { buildSearchProtocolKey } from './search-protocol';
 import { isResearchEngine } from './research-engines';
@@ -263,7 +262,7 @@ export function freezeResearchTaskContext(
   context: ResearchTaskContext,
   batch: ResearchBatch | null,
   projectId: string,
-  collection: CollectionConfig,
+  collection: LegacyCollectionConfig,
   frozenAt: string,
   mode: 'live' | 'replay' = 'live',
   assets: GeoAsset[] = [],
@@ -273,7 +272,7 @@ export function freezeResearchTaskContext(
     : resolveResearchTaskContext(context, batch, projectId, assets).context;
   const question = researchTaskQuestion(saved, projectId);
   assertResearchTaskSearchEligible(saved);
-  const limit = collection.provider === 'deepseek' ? 128 : 2000;
+  const limit = 2000;
   if (mode === 'live' && [...question.query].length > limit)
     throw new Error(
       `这道原题有 ${[...question.query].length} 个字符，超过 ${collection.label} 的 ${limit} 字符上限。请新建任务并选择能承接原题的采集入口；原题不会截短。`,

@@ -70,9 +70,9 @@ test('AI recommendations are limited to three, reused, isolated, and never chang
       assert.ok(selected.comparison?.rows.length);
       const baseline = JSON.stringify(getCompetitorSelection());
       const chinese = getCompetitorCandidates(batch.id, undefined, { language: 'zh', engine: 'chatgpt' });
-      const english = getCompetitorCandidates(batch.id, undefined, { language: 'en', engine: 'qwen' });
+      const english = getCompetitorCandidates(batch.id, undefined, { language: 'en', engine: 'google' });
       assert.deepEqual(chinese.ranking?.scope, { language: 'zh', engine: 'chatgpt' });
-      assert.deepEqual(english.ranking?.scope, { language: 'en', engine: 'qwen' });
+      assert.deepEqual(english.ranking?.scope, { language: 'en', engine: 'google' });
       assert.equal(JSON.stringify(getCompetitorSelection()), baseline);
       assert.equal(counter.calls, 1);
       updateCompetitorCandidate('select', id, batch.id);
@@ -227,7 +227,7 @@ test('all reviewed candidates are ranked by scoped observations before the three
   const candidates = [1, 2, 3, 4].map((index) => rankedFixture(`candidate-${index}`, index === 4 ? 1 : 100, {
     'zh:chatgpt': { mention: observedMetric(index, 4 - index) },
     'en:chatgpt': { mention: observedMetric(5 - index, index - 1) },
-    'zh:qwen': { mention: observedMetric(5 - index, index - 1) },
+    'zh:google': { mention: observedMetric(5 - index, index - 1) },
   }));
   const original = JSON.stringify(candidates);
   const chinese = rankTestCandidates(candidates, { language: 'zh', engine: 'chatgpt' });
@@ -239,9 +239,9 @@ test('all reviewed candidates are ranked by scoped observations before the three
   assert.match(chinese.candidates[0].reason, /ChatGPT.*Which tool.*明确提及 candidate-4/);
   assert.equal(chinese.candidates[0].recommendation?.evidence?.questionId, 'Q1');
   const english = rankTestCandidates(candidates, { language: 'en', engine: 'chatgpt' });
-  const qwen = rankTestCandidates(candidates, { language: 'zh', engine: 'qwen' });
+  const google = rankTestCandidates(candidates, { language: 'zh', engine: 'google' });
   assert.equal(english.ranking.leaderId, 'candidate-1');
-  assert.equal(qwen.ranking.leaderId, 'candidate-1');
+  assert.equal(google.ranking.leaderId, 'candidate-1');
   assert.equal(JSON.stringify(candidates), original);
 });
 
@@ -343,7 +343,7 @@ test('legacy fallback with rejected identities retains references but cannot dec
 });
 
 test('one opportunity cannot combine different engines or languages even for the same question', () => {
-  for (const variant of [{ engine: 'qwen' as const }, { language: 'zh' as const }]) {
+  for (const variant of [{ engine: 'google' as const }, { language: 'zh' as const }]) {
     const base = preparedFixture();
     const candidate = structuredClone(base.candidates[0]);
     candidate.questions.push({ ...candidate.questions[0], ...variant, evidenceId: 'evidence-2', observationIndex: 1 });

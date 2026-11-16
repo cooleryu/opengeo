@@ -64,21 +64,18 @@ Open **Settings** and fill in what you already have. Two separate things live th
 
 | What you want to collect | How OpenGEO gets it | What you can check afterwards |
 | --- | --- | --- |
-| ChatGPT answers | Capture from your own browser session, one question at a time at a human pace; or ask in a private window and paste the answer text plus the links shown under it | The full answer, every link it listed, and whether your domain is among them |
+| ChatGPT answers | Launch collection one-click inside your own browser session at a human pace, or ask in a private window and paste the answer text plus cited links | The full answer, every link it listed, and whether your domain is among them |
 | Google AI Overviews | Same two paths, recorded against the same question list | Whether the overview names you, and which sites the source panel points to |
-| DeepSeek / Qwen / Doubao (optional) | Add the provider key, then run questions from the list with one click | The full answer plus the cited pages the provider returns |
 
 Browser capture works inside your own logged-in session, so the answer you save is the answer a real person gets — not a server-side approximation. When a platform shows a verification prompt, capture stops and hands control back to you instead of trying to slip past it; nothing in the workbench works around those checks. If you would rather not run capture at all, ask the question in a private window and paste the full answer and its links into the matching record. Both paths land in the same project library.
 
 ```mermaid
 flowchart TD
-    A["ChatGPT or Google AI Overviews in your browser"] --> B["Capture question by question at a human pace"]
+    A["ChatGPT or Google AI Overviews in your browser"] --> B["1-click capture question by question at a human pace"]
     B --> C["Verification prompt: pause and hand control back"]
     A --> D["Or ask in a private window and paste answer plus links"]
-    E["DeepSeek / Qwen / Doubao with an API key"] --> F["One-click online question"]
     C --> G["Same project library: full text plus citation links"]
     D --> G
-    F --> G
     G --> H["Overview counts mentions and citations separately"]
 ```
 
@@ -149,7 +146,7 @@ They overlap on watching, and diverge on what happens after you see the number. 
 | --- | --- | --- | --- | --- |
 | Cost | Free, costs your time | Monthly subscription, usually scaled by questions and engines | Free software, you host and maintain it | Open source and free; you pay only your own model and search usage |
 | Who runs collection | You, by hand, whenever you remember | The vendor, on a schedule, while your laptop is closed | Your server or CLI | Your machine, whenever you start the service |
-| What gets captured | Whatever you bothered to paste | ChatGPT, Google AI Overviews, AI Mode, Gemini, Claude, Perplexity, Copilot and more, where supported | Scheduled prompts across several engines, with citations and mentions captured | ChatGPT and Google AI Overviews from your own browser; DeepSeek, Qwen and Doubao through their APIs |
+| What gets captured | Whatever you bothered to paste | ChatGPT, Google AI Overviews, AI Mode, Gemini, Claude, Perplexity, Copilot and more, where supported | Scheduled prompts across several engines, with citations and mentions captured | ChatGPT and Google AI Overviews from your own browser session, plus manual incognito paste |
 | What you get out | A pile of rows and your own judgement | Dashboards, share of voice, trend lines, weekly reports | Mention and citation counts in a hosted dashboard | Full answer text with citation links, a winner breakdown, a draft per gap, and a same-question retest |
 | Where the data lives | Your laptop | The vendor's servers | Your own infrastructure | Your own laptop |
 | Best fit | A first rough gut check | Teams that need scheduled reports and wide engine coverage | Teams that want raw tracking data on infrastructure they control | Teams that want to know which page to fix next week and get the draft written along the way |

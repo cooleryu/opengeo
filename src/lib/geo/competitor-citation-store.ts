@@ -19,7 +19,7 @@ const url = text.refine((value) => {
 const recordSchema = z.object({
   schemaVersion: z.literal(1), projectId: text, batchId: text, questionId: text,
   candidateId: text, candidateName: text, candidateAliases: z.array(text), candidateOfficialUrls: z.array(url),
-  identityKey: text, engine: z.enum(['chatgpt', 'google', 'deepseek', 'qwen', 'doubao']),
+  identityKey: text, engine: z.enum(['chatgpt', 'google']),
   language: z.enum(['zh', 'en']), recordedAt: text, evidencePath: text, answerPath: text,
   capturePath: text.optional(), citation: z.enum(['yes', 'no', 'unknown']), citationEvidence: text,
   officialUrls: z.array(url), nativeCitationUrls: z.array(url), answerComplete: z.boolean(),

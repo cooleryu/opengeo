@@ -64,6 +64,7 @@ type Props = {
   hideHeader?: boolean;
   onEvidence: (path: string) => void;
   onQuestions: () => void;
+  onRefresh?: () => void;
   onOverview: () => void;
   onReview: () => void;
   onImprove: (
@@ -281,6 +282,7 @@ export default function ResearchPanel({
   hideHeader = false,
   onEvidence,
   onQuestions,
+  onRefresh,
   onImprove,
   projectOptimization,
   onPlan,
@@ -792,6 +794,7 @@ export default function ResearchPanel({
             onQuestion={openQuestion}
             onPlan={onPlan}
             onQuestions={onQuestions}
+            onRefresh={onRefresh}
             onAssets={onAssets}
             onEvidence={onEvidence}
             onCompetitor={onCompetitor ?? (() => {})}
@@ -1086,9 +1089,7 @@ export default function ResearchPanel({
                                 ? isAiAnswerRow(row)
                                   ? (isEn ? 'AI Overview' : 'AI 概览')
                                   : (isEn ? 'Web Search' : '网页搜索')
-                                : row.engine === 'deepseek'
-                                  ? (isEn ? 'Search API' : '搜索 API')
-                                  : (isEn ? 'AI Answer' : 'AI 回答')}
+                                : (isEn ? 'AI Answer' : 'AI 回答')}
                             </span>
                           </span>
                           {view === 'overview' && isAiAnswerRow(row) ? (

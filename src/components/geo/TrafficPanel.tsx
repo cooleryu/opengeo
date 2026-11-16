@@ -15,7 +15,7 @@ type RequestState = {
 
 const numberFormat = new Intl.NumberFormat('zh-CN');
 const timeFormat = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'Asia/Shanghai',
+  timeZone: 'UTC',
   month: '2-digit',
   day: '2-digit',
   hour: '2-digit',
@@ -26,7 +26,7 @@ const timeFormat = new Intl.DateTimeFormat('zh-CN', {
 
 function recentRange(days: number) {
   const parts = new Intl.DateTimeFormat('en', {
-    timeZone: 'Asia/Shanghai',
+    timeZone: 'UTC',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -142,7 +142,7 @@ function TrafficWorkspace({ projectId }: { projectId: string }) {
       <div className="tp-meta">
         <span>
           {displayedRange.startDate} — {displayedRange.endDate}
-          <span className="tp-timezone">北京时间</span>
+          <span className="tp-timezone">UTC</span>
         </span>
         <span>
           Umami

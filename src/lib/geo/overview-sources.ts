@@ -24,14 +24,9 @@ const GENERIC_NAV_RE =
 const BARE_DOMAIN_RE = /^(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/i;
 
 const PUBLISHER_DOMAIN_HINTS: Array<[RegExp, string]> = [
-  [/知乎/, 'zhihu.com'],
-  [/CSDN/i, 'csdn.net'],
   [/Reddit/i, 'reddit.com'],
   [/YouTube/i, 'youtube.com'],
   [/LinkedIn/i, 'linkedin.com'],
-  [/阿里云/, 'aliyun.com'],
-  [/腾讯云|Tencent/i, 'cloud.tencent.com'],
-  [/搜狐/, 'sohu.com'],
   [/Ahrefs/i, 'ahrefs.com'],
   [/Similarweb/i, 'similarweb.com'],
   [/Semrush/i, 'semrush.com'],
@@ -52,20 +47,13 @@ const PAPER_DOMAINS = new Set(['arxiv.org', 'paper.dou.ac', 'openreview.net']);
 
 const COMMUNITY_DOMAINS = new Set([
   'reddit.com',
-  'zhihu.com',
-  'zhuanlan.zhihu.com',
-  'csdn.net',
-  'blog.csdn.net',
   'dev.to',
   'medium.com',
-  'juejin.cn',
-  'v2ex.com',
   'linkedin.com',
   'x.com',
   'twitter.com',
   'youtube.com',
   'instagram.com',
-  'douyin.com',
 ]);
 
 export const OPAQUE_GOOGLE_SOURCE_LABEL = 'Google AI 引用源';

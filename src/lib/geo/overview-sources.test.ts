@@ -31,7 +31,7 @@ function makeRow(
   engine: AuditedResearchRow['engine'],
   mention: 'yes' | 'no',
   sources: Array<{ title: string; url: string; kind?: 'official' | 'other' }>,
-  entryType: 'web_answer' | 'api_search' = 'web_answer',
+  entryType: 'web_answer' | 'web_search' = 'web_answer',
 ): AuditedResearchRow {
   const question = makeQuestion(id, `问题 ${id}`);
   return {
@@ -110,8 +110,8 @@ test('buildOverviewSources filters scraper noise, classifies owned vs external, 
     ]),
     makeRow('q3', 'google', 'no', [
       {
-        title: '品牌在AI大模型里“隐形”了？\n\n知乎专栏\nhttps://zhuanlan.zhihu.com › p',
-        url: 'https://www.google.com/goto?url=CAES_ZHIHU_1',
+        title: 'Invisible in AI Search?\n\nReddit\nhttps://www.reddit.com › r › MachineLearning',
+        url: 'https://www.google.com/goto?url=CAES_REDDIT_1',
       },
       {
         title: '当AI搜索开始抢走客户',
@@ -120,10 +120,10 @@ test('buildOverviewSources filters scraper noise, classifies owned vs external, 
     ]),
     makeRow(
       'q4',
-      'deepseek',
+      'google',
       'no',
       [{ title: 'Raw SERP Result', url: 'https://serp-only.example.com/doc#1' }],
-      'api_search',
+      'web_search',
     ),
   ];
 
@@ -134,7 +134,7 @@ test('buildOverviewSources filters scraper noise, classifies owned vs external, 
   });
 
   assert.equal(bundle.effectiveSourceOnly, false);
-  // Noise and raw api_search rows should be excluded in AI mode
+  // Noise and raw web_search rows should be excluded in AI mode
   assert.equal(bundle.pages.some((p) => p.openUrl.includes('example.com/noise')), false);
   assert.equal(bundle.pages.some((p) => p.openUrl.includes('serp-only.example.com')), false);
 
@@ -155,9 +155,9 @@ test('buildOverviewSources filters scraper noise, classifies owned vs external, 
   const opengeoWork = bundle.pages.find((p) => p.displayDomain === 'opengeo.work');
   assert.equal(opengeoWork?.isOwned, false);
 
-  // Google redirect extracts Zhihu domain from breadcrumb, falls back cleanly without claiming google.com
-  const zhihu = bundle.pages.find((p) => p.displayDomain === 'zhuanlan.zhihu.com');
-  assert.equal(zhihu?.displayTitle, '品牌在AI大模型里“隐形”了？');
+  // Google redirect extracts Reddit domain from breadcrumb, falls back cleanly without claiming google.com
+  const reddit = bundle.pages.find((p) => p.displayDomain === 'reddit.com');
+  assert.equal(reddit?.displayTitle, 'Invisible in AI Search?');
   const opaque = bundle.pages.find((p) => p.displayDomain === OPAQUE_GOOGLE_SOURCE_LABEL);
   assert.ok(opaque);
   assert.equal(bundle.domains.some((d) => d.domain === 'google.com'), false);
@@ -166,12 +166,12 @@ test('buildOverviewSources filters scraper noise, classifies owned vs external, 
   );
   assert.equal(opaqueDomainIndex, bundle.domains.length - 1);
 
-  // Source-only view surfaces api_search sources cleanly
-  const deepseekBundle = buildOverviewSources(
-    rows.filter((r) => r.engine === 'deepseek'),
+  // Source-only view surfaces web_search SERP sources cleanly
+  const searchBundle = buildOverviewSources(
+    rows.filter((r) => r.observation?.entryType === 'web_search'),
     { sourceOnly: true, language: 'zh', project },
   );
-  assert.equal(deepseekBundle.effectiveSourceOnly, true);
-  assert.equal(deepseekBundle.pages.length, 1);
-  assert.equal(deepseekBundle.pages[0].displayDomain, 'serp-only.example.com');
+  assert.equal(searchBundle.effectiveSourceOnly, true);
+  assert.equal(searchBundle.pages.length, 1);
+  assert.equal(searchBundle.pages[0].displayDomain, 'serp-only.example.com');
 });

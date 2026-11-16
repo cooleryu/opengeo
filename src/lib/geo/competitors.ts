@@ -11,8 +11,6 @@ import { getCompetitorSelection, persistCompetitorTarget, readStoredTarget } fro
 export { getCompetitorSelection } from './competitor-store';
 import type { GeoProject } from './types';
 import type { ResearchBatch, ResearchObservation } from './research-types';
-import { parseQwenAnswer } from './providers/qwen';
-import { parseDoubaoAnswer } from './providers/doubao';
 import type {
   CompetitorComparison,
   CompetitorMatch,
@@ -173,10 +171,6 @@ export function extractCompetitorAnswer(raw: string | null): string | null {
         parsed.rendered_answer ??
         parsed.renderedAnswer;
       if (typeof direct === 'string') return answerBody(direct);
-      if (parsed.output?.choices)
-        return answerBody(parseQwenAnswer(parsed).text);
-      if (Array.isArray(parsed.output))
-        return answerBody(parseDoubaoAnswer(parsed).text);
       return null;
     } catch {
       return null;

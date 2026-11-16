@@ -97,7 +97,7 @@ test('an audit must match one existing observation in every identity field', () 
   const item = review();
   for (const changed of [
     { projectId: 'sample-project-two' }, { batchId: 'other-batch' }, { questionId: 'missing-question' },
-    { language: 'en' }, { engine: 'qwen' }, { recordedAt: '2026-10-28T20:00:00Z' },
+    { language: 'en' }, { engine: 'google' }, { recordedAt: '2026-10-28T20:00:00Z' },
     { evidencePath: 'some-other-answer.md' },
   ]) {
     assert.throws(() => saveAnswerAudit({ ...item, ...changed } as AnswerAuditRecord), /唯一的既有观测/);
@@ -136,21 +136,21 @@ test('appended API observations can be reviewed while another project stays unch
   const other = readLatestResearch('sample-project-two')!;
   const question = batch.questions[0];
   saveResearchRun(batch.projectId, {
-    id: 'audit-test-run', projectId: batch.projectId, batchId: batch.id, provider: 'qwen', language: 'zh',
+    id: 'audit-test-run', projectId: batch.projectId, batchId: batch.id, provider: 'google', language: 'zh',
     questions: [{ questionId: question.id, query: question.zh }], status: 'running',
     startedAt: '2026-10-28T01:00:00Z', updatedAt: '2026-10-28T01:00:00Z', budgetLimit: 0.01, spent: 0,
   });
   const observation = {
-    runId: 'audit-test-run', engine: 'qwen' as const, language: 'zh' as const, entryType: 'api_answer' as const,
+    runId: 'audit-test-run', engine: 'google' as const, language: 'zh' as const, entryType: 'web_answer' as const,
     query: question.zh, recordedAt: '2026-10-28T01:01:00Z', status: 'not_observed' as const,
     summary: 'Synthetic observation.', conditions: 'No network.', sources: [],
     evidencePath: 'data/geo-evidence/audit-test-run/raw.json', answerPath: 'data/geo-evidence/audit-test-run/answer.md',
   };
   appendResearchObservation(batch.projectId, batch.id, question.id, observation);
-  saveAnswerAudit(review({ engine: 'qwen', recordedAt: observation.recordedAt, evidencePath: observation.answerPath }));
+  saveAnswerAudit(review({ engine: 'google', recordedAt: observation.recordedAt, evidencePath: observation.answerPath }));
   const result = readAnswerAuditData(batch.projectId, batch.id);
-  assert.equal(result.records.filter((record) => record.engine === 'qwen').length, 1);
+  assert.equal(result.records.filter((record) => record.engine === 'google').length, 1);
   assert.ok(Date.parse(result.updatedAt!) > Date.parse(legacyAudit.reviewedAt));
   assert.deepEqual(getResearchBatch(other.projectId, other.id), other);
-  assert.equal(listAnswerAudits(other.projectId, other.id).some((record) => record.engine === 'qwen'), false);
+  assert.equal(listAnswerAudits(other.projectId, other.id).some((record) => record.engine === 'google'), false);
 });

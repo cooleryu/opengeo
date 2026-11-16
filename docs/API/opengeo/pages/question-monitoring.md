@@ -15,11 +15,11 @@
 | 消费端浏览器接入 | [浏览器逐题入库](../browser-observations.md) 已提供原文保存、自动分析和概览更新接口；浏览器采集器另行运行，不是页面搜索按钮或定时任务。 | 不能把 ChatGPT API 当作消费端网页；真实浏览器适配的验证范围见采集文档。 |
 | 部分页面仍有独立刷新依赖 | 搜索页有请求结束刷新与计划轮询；概览已通过可见时的小版本检查更新。指定历史批次及独立竞品页面仍有各自的读取依赖。 | 边界见[共享刷新审计](../shared.md#数据生产与更新审计)。 |
 
-当前主搜索 UI 支持 DeepSeek 搜索、Qwen/Doubao 联网回答，按服务配置状态启用选项；每日研究跟踪目前仅接受 DeepSeek。本次公开发布未进行收费调用或每日计划真实时间验证。题单人工确认、保留旧问法、原文文件与 SQLite 分存均不是自动化缺陷。
+当前工作台仅支持 **ChatGPT** 与 **Google**（浏览器采集 `/api/geo/browser-collect` 或手动导入），旧版搜索 API 与每日 API 自动跟踪计划已下线；时间统一按 UTC，费用字段统一使用 USD（`$`）。题单人工确认、保留旧问法、原文文件与 SQLite 分存均不是自动化缺陷。
 
-[题目和题单的编辑](#题目和题单的编辑) · [读取列表、详情、图表与原文](#读取列表详情图表与原文) · [单题、勾选批量、搜索全部](#单题勾选批量搜索全部) · [每日问题跟踪](#每日问题跟踪) · [源码与落库](#源码与落库) · [回答里的人工事实核查](#回答里的人工事实核查)
+[题目和题单的编辑](#题目和题单的编辑) · [读取列表、详情、图表与原文](#读取列表详情图表与原文) · [研究运行与停止接口](#研究运行与停止接口) · [源码与落库](#源码与落库) · [回答里的人工事实核查](#回答里的人工事实核查)
 
-唯一问题列表入口为 `view=question-plan`。旧 `view=questions` 链接会转入新版列表，保留搜索筛选、语言、平台及具体回答定位；每题的历史回答仍在详情中查看。页面中的“搜索问题”输入框仅过滤列表；“搜索全部/搜索”按钮才调用采集接口。
+唯一问题列表入口为 `view=question-plan`。旧 `view=questions` 链接会转入新版列表，保留筛选、语言、平台及具体回答定位；每题的历史回答仍在详情中查看。页面中的“搜索问题”输入框仅过滤当前问题清单。
 
 ## 题目和题单的编辑
 
@@ -61,7 +61,7 @@ AI 审核分别返回争取价值与当前承接程度，缺材料不自动等�
 | `batch` | 可选，默认当前项目最新入库批次 | 读取旧批次时必传；未知批次 404 |
 | `question` | 可选 | 指定题目详情；可来自核心或候补；未知题目 404 |
 | `language` | `zh`，只允许 `zh/en` | 详情使用的问法及观测语言 |
-| `engine` | `all`；或 `chatgpt/google/deepseek/qwen/doubao` | 详情平台范围 |
+| `engine` | `all`；或 `chatgpt/google` | 详情平台范围 |
 | `history` | `0`；或 `1` | 同题同语言同平台的最新一条 / 全部已存观测 |
 
 这些已知参数重复或显式传空字符串返回 400。**`language/engine/history` 约束 `detail`，不裁剪返回的整个 `batch`。** 列表仍通过前端 `getResearchRows` 等函数做过滤；目前没有独立的分页列表 API。
@@ -98,93 +98,22 @@ AI 审核分别返回争取价值与当前承接程度，缺材料不自动等�
 
 前端 `QuestionDetailVisual` 校验 `version/projectId/batchId/questionId/language`，按返回的数字画来源构成；不解析摘要里的数字，不把来源数当“用户数/回答率”。完整回答用 [共享原文接口](../shared.md#原回答与证据文件) 读取，不能直接把文件路径当公网 URL。
 
-## 单题、勾选批量、搜索全部
+## 研究运行与停止接口
 
-三种选择方式共用 **`POST /api/geo/research`**；不是三个后端执行器。全搜发送本批所有核心题 ID，不受列表搜索/结果筛选影响。费用上限默认关闭；用户可主动开启并设置金额。
+旧版搜索 API 采集已下线，请使用应用内或命令行 Google / ChatGPT 浏览器采集（`POST /api/geo/browser-collect`）；每日 API 自动搜索计划路由 `/api/geo/research/tracking` 已移除。
 
-```json
-{
-  "projectId": "example-project",
-  "batchId": "example-batch",
-  "questionIds": ["Q1", "Q2"],
-  "language": "zh",
-  "provider": "deepseek",
-  "budgetEnabled": false,
-  "requestId": "example-search-request-0001"
-}
-```
+`POST /api/geo/research` 当前仅保留：
+- **`{ action: "stop", projectId, runId }` → `{ run }`**：针对历史兼容运行的幂等停止接口；按项目隔离并持久化 `stopRequestedAt`，当前项目不存在的 run 返回 `404`。
+- 其他搜索 API 启动请求一律返回 **HTTP 410**，提示改用 `/api/geo/browser-collect`。
 
-示例中的 ID 仅为格式示意，调用时必须从当前响应取真实 ID。
-
-| body 字段 | 必选 / 默认及约束 |
-| --- | --- |
-| `projectId` | 前端必传；服务端省略时兼容默认项目 |
-| `batchId` | 前端必传以冻结本次范围；服务端省略时取最新批次 |
-| `questionIds` | 1–8 个不重复 ID，必须为该批 `search_now` 核心题 |
-| `language` | 必填 `zh/en`；对应原文必须存在 |
-| `provider` | API 默认 `deepseek`，也接受 `qwen/doubao`；各平台真实可用性仍取决于配置与验证 |
-| `budgetEnabled` | 新页面默认传 `false`，明确不设置上限；`true` 启用严格上限。省略时兼容旧预算语义，每日跟踪继续沿用原逻辑 |
-| `budget` | 开启时必填费用对象；关闭时不需要，后台不使用该值。兼容旧 `budgetLimit` 数字（人民币，上限 2 元） |
-| `requestId` | 16–80 位字母、数字、下划线或连字符；同一次意图重试复用，不因网络不确定重新造 ID |
-| `scheduleId` | 客户端不得提交；仅保存的每日计划由内部调度关联 |
-
-`MoneyBudget={currency:'CNY'|'USD',amount:number,cnyPerUsd?:number}`：美元必须显式给换算率；人民币按 1。折合人民币向下取到 0.001，必须在 ¥0.005–¥100；这不是实时汇率。DeepSeek 按每题 ¥0.005 预留；问法最多 128 个 Unicode 字符，超长拒绝、不截断。其他回答入口最多 2000 字符，模型/工具按预留处理，不保证预留等于账单。
-
-显式开启上限时，目前仅允许有固定单次费用的 DeepSeek 搜索；所选题目费用超过上限会在发送前拒绝。千问和豆包尚无可确认的请求费用上界，开启上限会拒绝并提示关闭上限或切换 DeepSeek。严格模式不启动额外模型审核或竞品分析，已完成的搜索照常保存，run 标为 `analysisStatus:pending_budget` 并说明原因。关闭上限不再套用隐含金额或预留上限，仍记录已知费用与预留，继续原搜索和分析流程。
-
-关闭上限或兼容旧请求时的后台顺序：校验项目/题目/语言/预算和凭据 → 保存运行 → 复用 `collectLive` → 每题完成在同一事务追加观测、更新费用及完成数 → `analyzeResearchObservation` 校验并追加该条审核 → 本批竞品分析与汇总 → 返回 `{run,batch}`，其中 batch 附带审核与服务端汇总。严格模式跳过上述分析步骤。一个项目只允许一个 running 研究采集，直到已启动的搜索与分析步骤结束才进入终态。原始响应仍落文件，SQLite 保存结构化观测和审核。
-
-审核模型仅在完整正文及原生引用证据就绪时调用；缺证据、模型失败或校验失败保存 unknown，搜索记录仍保留。正常分析流程中的 DeepSeek 纯搜索保存 `not_applicable`，不调用审核模型；严格上限模式不启动该分析流程。审核是否成功看 `answerAudits[].analysisStatus`，不能仅凭 `run.status:completed` 判断；审核持久化异常仍会传回执行器。分析模型费用不包含在研究搜索的 `spent/confirmedSpentCny` 中。
-
-| `run` 关键字段 | 含义 |
-| --- | --- |
-| `id, projectId, batchId, provider, language, questions[]` | 本次不可变条件，`questions=[{questionId,query}]` |
-| `status` | `running/completed/partial/failed/interrupted`；`interrupted` 表示已停止。HTTP 200 也可能返回非完成终态，必须读这里及 error |
-| `startedAt, updatedAt, completedAt?, completedCount?, error?` | 执行时间、完成题数和失败原因 |
-| `currentQuestionId?, phase?` | 当前题及阶段；`phase=searching\|analyzing\|finalizing` 分别为采集、单条回答审核、本批整理；终态清空，旧运行可缺省 |
-| `stopRequestedAt?` | 持久化停止请求的时间；字段存在而 status 仍为 running 时，正在等待当前步骤结束 |
-| `budgetEnabled?, budgetEnforcement?` | 新运行明确记录上限开关及 `strict/legacy/disabled`；旧记录可缺省，不回写历史 |
-| `budget?, budgetLimit, spent, confirmedSpentCny?, reservedCny?` | 关闭时 budget 缺省且 budgetLimit 为 null；其余 limit/spent 统一人民币。spent 包含不确定费用预留，不能全部标为供应商确认实扣，也不包含分析模型费用 |
-| `analysisStatus?, analysisNote?` | `pending_budget` 表示严格上限下搜索结果已保存，额外分析未启动；不代表审核成功 |
-| `entryType, evidencePath?, scheduleId?, taskId?` | 入口类型、完整运行原文、计划或导入任务的关联 |
-
-前端运行期间每 1.5 秒通过 `GET /api/geo/research` 读取 runs 与已保存观测，展示当前题、阶段和完成数；返回后更新 batch、显示已保存数与费用，再刷新概览。失败不删除已保存记录；项目切换后忽略迟到响应。相同 requestId+相同条件返回已有 run；条件不同或同项目其他采集在跑为 409。403 为不同 Origin，400 为大部分输入校验，配置/普通异常当前可能返回 500；统一显示 `error`，不自动重发收费请求。
-
-**停止本轮：`POST /api/geo/research`，`{action:"stop",projectId,runId}` → `{run}`。** 停止请求按项目隔离并持久化；重复停止幂等，已结束的运行原样返回，当前项目不存在的 run 返回 404。当前已发出的请求或已启动的分析允许结束，随后不再派发后续问题或启动后续分析；等待期间保持 running 占用，结束后为 interrupted。已完成观测、原始返回和费用记录保留，停止不表示当前请求已撤回或已退费。进度写回不会覆盖并发保存的停止标记。
-
-## 搜索中断与恢复
-
-- 新搜索沿用同一运行 ID，在项目 SQLite 保存冻结的平台参数、逐题进度、费用和停止意图；密钥仍在发送时从本地连接读取，不存进运行记录。
-- 执行者定期更新心跳。租约到期后，现有后台调度器原子接手，新的执行身份才可继续发送与写入；恢复不要求用户打开问题页。
-- 恢复时跳过已经入库的题，先将完整留存的返回补入库，再继续确定未发送的题。可能已发送、但没有可靠返回的请求保留结果待确认及费用预留，不自动重发；中断的付费分析也不隐式重跑。
-- 恢复继续使用原问法、语言、平台条件及剩余预算；停止请求和计划暂停继续生效。已经结束的历史记录不改写。老运行缺少恢复所需的冻结信息时，只识别并结束已中断的运行，保留已有结果与费用，不猜测条件重搜。
-- 前端继续读取原运行的 `status/completedCount/phase/error` 与已保存观测，不另建一条搜索。心跳和逐题状态属于后台恢复信息，页面不新增操作流程。
-
-## 每日问题跟踪
-
-**`GET /api/geo/research/tracking?project=…` → `{plans:ResearchSchedule[]}`**。
-
-**`POST /api/geo/research/tracking`**：
-
-| action | body（还须含 `projectId,action`） | 后端结果 |
-| --- | --- | --- |
-| `create` | `requestId, questionIds, language, provider:'deepseek', budget`；可选 `batchId,timeOfDay` | 冻结当前批次问法和累计预算；时间默认 `09:00`、北京时间，从明天开始，不立即搜索 |
-| `pause` | `planId` | 停止派发下一题/下一次；已发出的请求不保证能取消，结果和费用保留 |
-| `resume` | `planId` | 核对剩余预算与未结运行；从明天开始，不补跑漏掉日期 |
-| `stop` | `planId` | 永久停止该计划；不能 resume，需要另建计划 |
-
-每次成功都返回当前项目全部 `{plans}`，不是单个 plan。创建时若显式 batchId 已过期返回 409；计划只能使用 1–8 道已审问题和现有对应语言。当前没有修改计划参数的 action，调整题目/预算/时间应停旧建新。
-
-计划字段：`id,requestId,projectId,batchId,questionIds,questions[],language,provider,timeOfDay,timeZone,budget,limitCny,spentCny,reservedCny,status,nextRunAt,lastRunAt,lastRunId,createdAt,updatedAt,error?`。`status=active|paused|stopped|budget_exhausted|failed`；`activeRunId/activeRunReservationCny/activeRunConfirmedCny/ownerPid?` 是执行占用信息，页面不把它当效果数据。
-
-预算是**计划累计上限**，不是每天可重新花一次的额度。后台领取到期计划后调用同一个采集执行器；预算不足停止，未知费用保留预留。应用服务要运行；不是浏览器定时器或云端保证执行。前端有活跃计划且页面可见时每 30 秒读取计划，`updatedAt/lastRunId` 变化后刷新问题结果；隐藏/卸载后停止页面轮询，不影响后台计划。
+历史研究运行记录 `ResearchRunRecord` 仍可在只读列表接口中读取，关键字段包括 `id, projectId, batchId, provider ('chatgpt' | 'google'), language, questions[], status ('running'|'completed'|'partial'|'failed'|'interrupted'), startedAt, updatedAt, completedAt?, completedCount?, error?, stopRequestedAt?, spent, confirmedSpentUsd?, reservedUsd?, entryType?, evidencePath?, scheduleId?, taskId?`，金额字段统一以 USD 计价。
 
 ## 源码与落库
 
-- 页面：[QuestionManagementPanel](../../../../src/components/geo/QuestionManagementPanel.tsx)、[ResearchSearchControls](../../../../src/components/geo/ResearchSearchControls.tsx)、[ResearchPanel](../../../../src/components/geo/ResearchPanel.tsx)、[QuestionDetailVisual](../../../../src/components/geo/QuestionDetailVisual.tsx)。
-- 路由：[research](../../../../src/app/api/geo/research/route.ts)、[tracking](../../../../src/app/api/geo/research/tracking/route.ts)；执行：[research-collection](../../../../src/lib/geo/research-collection.ts)、[research-tracking](../../../../src/lib/geo/research-tracking.ts)。
-- 类型：[question-types](../../../../src/lib/geo/question-types.ts)、[research-types](../../../../src/lib/geo/research-types.ts)、[question-detail-types](../../../../src/lib/geo/question-detail-types.ts)、[research-store 的 ResearchRunRecord](../../../../src/lib/geo/research-store.ts)、[research-tracking-types](../../../../src/lib/geo/research-tracking-types.ts)。
-- 题单修订存 `geo_question_plans`；确认批次存 `geo_research_batches`；追加观测存 `geo_research_observations`；执行存 `geo_research_runs`；每日计划存 `geo_research_schedules`。完整响应经已有原文文件引用读取；首次初始化会导入仓库历史种子，之后不是每次由 AI 手工整理文件。
+- 页面：[QuestionManagementPanel](../../../../src/components/geo/QuestionManagementPanel.tsx)、[ResearchPanel](../../../../src/components/geo/ResearchPanel.tsx)、[QuestionDetailVisual](../../../../src/components/geo/QuestionDetailVisual.tsx)。
+- 路由：[research](../../../../src/app/api/geo/research/route.ts)、[browser-collect](../../../../src/app/api/geo/browser-collect/route.ts)；浏览器采集库：[browser-collection](../../../../src/lib/geo/browser-collection.ts)。
+- 类型：[question-types](../../../../src/lib/geo/question-types.ts)、[research-types](../../../../src/lib/geo/research-types.ts)、[question-detail-types](../../../../src/lib/geo/question-detail-types.ts)、[research-store 的 ResearchRunRecord](../../../../src/lib/geo/research-store.ts)。
+- 题单修订存 `geo_question_plans`；确认批次存 `geo_research_batches`；追加观测存 `geo_research_observations`；执行记录存 `geo_research_runs`。完整响应经已有原文文件引用读取；首次初始化会导入仓库历史种子，之后不从历史种子或失效平台覆盖当前库。
 
 ## 回答里的人工事实核查
 

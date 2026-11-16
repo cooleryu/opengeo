@@ -68,6 +68,8 @@ export interface StrategistInput {
   mode: 'focus' | 'deep';
   targetLanguage?: 'en' | 'zh';
   uiLanguage?: 'en' | 'zh';
+  onlyNewContent?: boolean;
+  angleBrief?: string;
 }
 
 const plannedDeliverableSchema = z.object({
@@ -127,16 +129,28 @@ export const optimizationStrategistAgent: AgentSpec<StrategistInput, StrategistO
       `控制台展示语言（uiLanguage）= "${uiLang}"：summary 与 audienceAndGoal 必须使用 ${uiLang === 'en' ? 'English' : '简体中文'} 撰写。`,
       `对外推广成稿语言（targetLanguage）= "${targetLang}"：若为 "en"，deliverables 的 title、writingBrief 与建议 destination 必须面向英文开发者市场撰写。`,
     ].join('\n');
+    const singleArticleRules: string[] = [];
+    if (input.onlyNewContent) {
+      singleArticleRules.push(
+        '本次任务由用户指定只新写 1 篇独立公开获客文章：deliverables 数组长度必须严格为 1，且唯一一项的 kind 必须为 "new_content"（建议 destination 为 docs/blog/<english-kebab-slug>.md，不得与现有文章重名），严禁规划 kind="update_asset" 重改现有 README 或入门文档。标题必须站在目标读者解决自身问题的视角撰写，严禁写成自测日记。',
+      );
+    }
+    if (input.angleBrief?.trim()) {
+      singleArticleRules.push(`用户选定的文章切入角度与方向要求：${input.angleBrief.trim()}`);
+    }
     return {
       system: [
         strategistSystem,
-        `当前运行模式：${input.mode}，最多规划 ${maxItems} 份互补交付物（服从实际短板，不凑数）。`,
+        `当前运行模式：${input.mode}，最多规划 ${input.onlyNewContent ? 1 : maxItems} 份互补交付物（服从实际短板，不凑数）。`,
         langInstruction,
+        ...singleArticleRules,
       ].join('\n\n'),
       user: JSON.stringify({
         mode: input.mode,
         uiLanguage: uiLang,
         targetLanguage: targetLang,
+        onlyNewContent: Boolean(input.onlyNewContent),
+        ...(input.angleBrief?.trim() ? { angleBrief: input.angleBrief.trim() } : {}),
         project: {
           name: seed.project.name,
           owner: seed.project.owner,
@@ -148,9 +162,14 @@ export const optimizationStrategistAgent: AgentSpec<StrategistInput, StrategistO
     };
   },
   validate(output, input, ctx) {
-    const maxAllowed = input.mode === 'focus' ? 2 : 3;
+    const maxAllowed = input.onlyNewContent ? 1 : input.mode === 'focus' ? 2 : 3;
     if (output.deliverables.length > maxAllowed) {
       return `${input.mode} 模式下最多规划 ${maxAllowed} 份交付物，请精简聚焦最核心的内容。`;
+    }
+    if (input.onlyNewContent) {
+      if (output.deliverables.length !== 1 || output.deliverables[0].kind !== 'new_content') {
+        return '单篇新角度文章模式下，必须严格只规划 1 份 kind="new_content" 的独立公开文章，不要修改已有仓库文档。';
+      }
     }
     const maxSummaryLen = input.uiLanguage === 'en' ? 380 : 160;
     if (output.summary.trim().length > maxSummaryLen) {
@@ -508,7 +527,7 @@ export const chineseCompanionAgent: AgentSpec<ChineseCompanionInput, ChineseComp
       captionHint: m.captionHint,
     }));
     const systemPrompt = [
-      '你是 OpenGEO 的双语产品编辑，负责把已通过审核的英文交付稿重写成地道、克制、可直接阅读或发布到国内技术社区（如知乎、掘金、公众号）或中文仓库文档的简体中文版。',
+      '你是 OpenGEO 的双语产品编辑，负责把已通过审核的英文交付稿重写成地道、克制、可直接阅读或发布到中文技术博客及中文仓库文档的简体中文版。',
       '要求：',
       '1. 忠实保留英文原稿的事实、数据、表格结构、Mermaid 流程图、仓库链接与真实产品能力，绝不编造新数字、未实现的命令行参数、虚假承诺或 AI 套话。',
       '2. 用真人程序员/独立开发者的自然中文表达，避免生硬机翻腔；专有名词（如 OpenGEO、ChatGPT、Google AI Overviews、Markdown、SQLite）保留英文原称。',

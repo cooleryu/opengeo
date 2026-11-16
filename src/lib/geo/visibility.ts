@@ -1,9 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import type { GeoObservation, GeoQuestion, GeoSeed, GeoTask } from './types';
-import type { WorkflowQuestion } from './workflow-types';
-import { frozenQuestion, matchesQuestionTarget } from './search-protocol';
+import type { GeoQuestion, GeoSeed, GeoTask } from './types';
 import { evidenceLocation } from './projects';
 import { readLocalProjectFile } from './project-data';
 import type {
@@ -15,19 +13,11 @@ import type {
 
 const visibilityImport = z.object({
   evidencePaths: z.array(z.string()),
-  deepSeek: z.object({
-    summaryPath: z.string(),
-    rawDirectory: z.string(),
-    observationId: z.string(),
-    comparableGroup: z.string(),
-    comparabilityNote: z.string(),
-    homonymPattern: z.string().optional(),
-  }).optional(),
   brand: z.object({
     questionId: z.string(),
     id: z.string(),
     title: z.string(),
-    evidencePaths: z.object({ chatgpt: z.string(), google: z.string(), gemini: z.string() }),
+    evidencePaths: z.object({ chatgpt: z.string(), google: z.string() }),
   }).optional(),
 });
 
@@ -48,23 +38,6 @@ export function visibilityEvidencePaths(projectId: string): string[] {
 const timestamp = z
   .string()
   .refine((value) => Number.isFinite(Date.parse(value)));
-const webSource = z.object({ title: z.string().optional(), url: z.string() });
-const rawSearch = z.object({ results: z.array(webSource) });
-const deepSeekSummary = z.object({
-  measured_at_utc_first: timestamp,
-  observations: z.array(
-    z.object({
-      query_id: z.string(),
-      query: z.string(),
-      http_status: z.literal(200),
-      result_count: z.number().int().nonnegative(),
-      project_hit: z.boolean(),
-      top3: z.array(webSource),
-      evidence_file: z.string(),
-      measured_at_utc: timestamp,
-    }),
-  ),
-});
 const answerRecord = z.object({
   recorded_at_utc: timestamp,
   exact_prompt: z.string().min(1),
@@ -167,95 +140,8 @@ function unmeasured(
   };
 }
 
-export function readImportedDeepSeek(seed: GeoSeed): {
-  questions: GeoQuestion[];
-  observation: GeoObservation;
-} | null {
-  const imported = readVisibilityImport(seed.project.id)?.deepSeek;
-  if (!imported) return null;
-  const { summaryPath } = imported;
-  const homonym = imported.homonymPattern ? new RegExp(imported.homonymPattern, 'i') : null;
-  const parsed = deepSeekSummary.safeParse(readEvidence(summaryPath));
-  if (
-    !parsed.success ||
-    parsed.data.observations.length !== seed.questions.length
-  )
-    return null;
-  const observations = parsed.data.observations;
-  if (
-    new Set(observations.map((item) => item.query_id)).size !==
-    seed.questions.length
-  )
-    return null;
-  if (
-    !seed.questions.every((question) =>
-      observations.some(
-        (item) =>
-          item.query_id === question.id && item.query === question.query,
-      ),
-    )
-  )
-    return null;
-
-  const questions = seed.questions.map((question) => {
-    const record = observations.find((item) => item.query_id === question.id)!;
-    const expectedPath = `${imported.rawDirectory}/${question.id}.json`;
-    if (record.evidence_file !== expectedPath) return null;
-    const raw = rawSearch.safeParse(readEvidence(expectedPath));
-    const firstHit = raw.success
-      ? raw.data.results.findIndex((result) => isProjectURL(result.url, seed))
-      : -1;
-    return {
-      ...question,
-      measurementAt: record.measured_at_utc,
-      provider: 'DeepSeek Search API',
-      resultCount: record.result_count,
-      projectHit: record.project_hit,
-      rank: firstHit >= 0 ? firstHit + 1 : null,
-      aiCited: null,
-      topSources: record.top3.map((source, index) => {
-        let domain = '';
-        try {
-          domain = new URL(source.url).hostname;
-        } catch {
-          /* Invalid source remains visible in local evidence only. */
-        }
-        return {
-          position: index + 1,
-          title: source.title || domain || '未提供标题',
-          url: source.url,
-          domain,
-          isHomonym: homonym?.test(`${source.url} ${source.title || ''}`) ?? false,
-        };
-      }),
-      evidencePath: expectedPath,
-    } satisfies GeoQuestion;
-  });
-  if (questions.some((question) => question === null)) return null;
-  const complete = questions as GeoQuestion[];
-  return {
-    questions: complete,
-    observation: {
-      id: imported.observationId,
-      measurementAt: parsed.data.measured_at_utc_first,
-      provider: 'DeepSeek Search API',
-      comparableGroup: imported.comparableGroup,
-      queryCount: complete.length,
-      hitCount: complete.filter((question) => question.projectHit).length,
-      resultCount: complete.reduce(
-        (sum, question) => sum + question.resultCount,
-        0,
-      ),
-      rank: null,
-      aiCited: null,
-      sourcePath: summaryPath,
-      comparabilityNote: imported.comparabilityNote,
-    },
-  };
-}
-
 function answerResult(
-  providerId: 'chatgpt' | 'gemini',
+  providerId: 'chatgpt',
   seed: GeoSeed,
   evidencePath: string,
 ): GeoVisibilityResult {
@@ -265,9 +151,7 @@ function answerResult(
   const sampleCount = record.sample_count_completed || record.sample_count;
   if (!sampleCount) return unmeasured(providerId, true);
   const attribution =
-    providerId === 'chatgpt' && record.inline_target_citations_visible
-      ? 'citation'
-      : 'link';
+    record.inline_target_citations_visible ? 'citation' : 'link';
   const sources = [...new Set(record.target_links_in_answer)]
     .filter((url) => isProjectURL(url, seed))
     .map((url) => sourceFor(url, seed, attribution));
@@ -287,9 +171,7 @@ function answerResult(
     sampleCount,
     mode: record.mode_shown_before_submission || record.mode_shown,
     caveat:
-      providerId === 'chatgpt'
-        ? '临时对话中的一次品牌提问；记录可见引用，未取得检索排名。不能据此推断不带项目名时也能发现项目。'
-        : '临时对话中的一次品牌提问；记录回答内的链接，未验证后台引用轨迹或检索排名。',
+      '临时对话中的一次品牌提问；记录可见引用，未取得检索排名。不能据此推断不带项目名时也能发现项目。',
   };
 }
 
@@ -324,177 +206,21 @@ function googleResult(seed: GeoSeed, evidencePath: string): GeoVisibilityResult 
   };
 }
 
-function deepSeekResult(
-  question: GeoQuestion,
-  seed: GeoSeed,
-): GeoVisibilityResult {
-  const raw = rawSearch.safeParse(readEvidence(question.evidencePath));
-  if (!raw.success) return unmeasured('deepseek', true);
-  const sources = raw.data.results.flatMap((source, index) =>
-    isProjectURL(source.url, seed)
-      ? [sourceFor(source.url, seed, 'web_result', index + 1, source.title)]
-      : [],
-  );
-  return {
-    providerId: 'deepseek',
-    status: sources.length > 0 ? 'found' : 'not_found',
-    query: question.query,
-    recordedAt: question.measurementAt,
-    summary:
-      sources.length > 0
-        ? `本次网页结果找到 ${sources.length} 个项目来源`
-        : `本次返回的 ${raw.data.results.length} 条网页结果中未找到项目`,
-    sources,
-    evidencePath: question.evidencePath,
-    sampleCount: 1,
-    searchResultCount: raw.data.results.length,
-    caveat:
-      'DeepSeek 搜索 API 返回的网页列表，未测 DeepSeek 聊天回答；未返回项目不证明没有收录。',
-  };
-}
-
 const questionKey = (question: { id: string; query: string }) =>
   JSON.stringify([question.id, question.query]);
-type AnswerObservation = {
-  question: GeoQuestion;
-  target: WorkflowQuestion;
-  provider: 'doubao' | 'qwen';
-};
-
-function answerObservations(tasks: GeoTask[]): Map<string, AnswerObservation> {
-  const observations: AnswerObservation[] = [];
-  for (const task of tasks) {
-    const workflow = task.workflow;
-    const provider = workflow?.collection?.provider;
-    if (!workflow || (provider !== 'doubao' && provider !== 'qwen')) continue;
-    const runs = [
-      ...(workflow.baseline ? [workflow.baseline] : []),
-      ...task.runs,
-    ];
-    for (const run of runs) {
-      if (
-        run.mode !== 'live' ||
-        run.status !== 'completed' ||
-        run.protocolKey !== workflow.protocolKey ||
-        !run.queryCount ||
-        run.queryCount !== workflow.questions.length ||
-        run.completedCount !== run.queryCount ||
-        run.questions.length !== run.queryCount ||
-        new Set(run.questions.map(questionKey)).size !== run.queryCount ||
-        !workflow.questions.every((target) =>
-          run.questions.some(
-            (question) =>
-              questionKey(question) === questionKey(target) &&
-              question.providerId === provider &&
-              question.answer?.searchPerformed &&
-              question.answer.text.trim() &&
-              Number.isFinite(Date.parse(question.measurementAt)),
-          ),
-        )
-      )
-        continue;
-      for (const question of run.questions) {
-        const target = workflow.questions.find(
-          (item) => questionKey(item) === questionKey(question),
-        )!;
-        observations.push({ question, target, provider });
-      }
-    }
-  }
-  observations.sort(
-    (a, b) =>
-      Date.parse(b.question.measurementAt) -
-      Date.parse(a.question.measurementAt),
-  );
-  const latest = new Map<string, AnswerObservation>();
-  for (const observation of observations) {
-    const key = `${observation.provider}:${questionKey(observation.question)}`;
-    if (!latest.has(key)) latest.set(key, observation);
-  }
-  return latest;
-}
-
-function apiAnswerResult(
-  providerId: 'doubao' | 'qwen',
-  observation: AnswerObservation | undefined,
-  seed: GeoSeed,
-): GeoVisibilityResult {
-  if (!observation)
-    return { ...unmeasured(providerId), metric: 'answer_target_citation' };
-  const { question, target } = observation;
-  const sources = [
-    ...new Map(
-      question
-        .answer!.citations.filter((citation) =>
-          matchesQuestionTarget(citation.url, target, seed),
-        )
-        .map((citation) => [
-          citation.url,
-          sourceFor(citation.url, seed, 'citation', null, citation.title),
-        ]),
-    ).values(),
-  ];
-  return {
-    providerId,
-    status: sources.length ? 'found' : 'not_found',
-    query: question.query,
-    recordedAt: question.measurementAt,
-    summary: sources.length
-      ? `本次联网回答原生引用了 ${sources.length} 个目标页面`
-      : '本次完整联网回答没有原生引用目标页面',
-    sources,
-    evidencePath: question.evidencePath,
-    sampleCount: 1,
-    mode: 'API 联网回答',
-    metric: 'answer_target_citation',
-    caveat: `仅代表该 API 的这次回答，不代表消费者 App。目标为${target.target === 'article' ? '任务指定文章' : '项目网站或仓库'}；只统计回答中的原生引用，搜索参考来源不算引用，引用次序也不是搜索排名。`,
-  };
-}
 
 export function buildVisibility(
   seed: GeoSeed,
   currentQuestions: GeoQuestion[],
-  tasks: GeoTask[] = [],
+  _tasks: GeoTask[] = [],
 ): GeoVisibility {
   const providers: GeoVisibility['providers'] = [
     { id: 'chatgpt', label: 'ChatGPT', kind: 'answer' },
     { id: 'google', label: 'Google', kind: 'web' },
-    { id: 'gemini', label: 'Gemini', kind: 'answer' },
-    { id: 'deepseek', label: 'DeepSeek', kind: 'web' },
-    { id: 'doubao', label: '豆包 API', kind: 'answer' },
-    { id: 'qwen', label: '千问 API', kind: 'answer' },
   ];
-  const latestAnswers = answerObservations(tasks);
   const merged = new Map(
     currentQuestions.map((question) => [questionKey(question), question]),
   );
-  const currentKeys = new Set(merged.keys());
-  for (const task of tasks) {
-    if (
-      !['doubao', 'qwen'].includes(
-        task.workflow?.collection?.provider ?? task.collectionProvider ?? '',
-      )
-    )
-      continue;
-    for (const question of task.workflow?.questions ?? []) {
-      const key = questionKey(question);
-      const existing = merged.get(key);
-      merged.set(
-        key,
-        existing
-          ? {
-              ...existing,
-              matchingAssetIds: [
-                ...new Set([
-                  ...(existing.matchingAssetIds || []),
-                  ...question.assetIds,
-                ]),
-              ],
-            }
-          : frozenQuestion(question),
-      );
-    }
-  }
   const brand = readVisibilityImport(seed.project.id)?.brand;
   const mainBrand = brand ? seed.questions.find((question) => question.id === brand.questionId) : undefined;
   const questions = [...merged.values()].map((question) => {
@@ -511,21 +237,11 @@ export function buildVisibility(
         : ('scenario' as const),
       relatedAssetIds: question.matchingAssetIds || [],
       results: providers.map((provider) =>
-        provider.id === 'doubao' || provider.id === 'qwen'
-          ? apiAnswerResult(
-              provider.id,
-              latestAnswers.get(`${provider.id}:${questionKey(question)}`),
-              seed,
-            )
-          : provider.id === 'deepseek'
-            ? currentKeys.has(questionKey(question))
-              ? deepSeekResult(question, seed)
-              : unmeasured('deepseek')
-            : !isMainBrand || !brand
-              ? unmeasured(provider.id)
-              : provider.id === 'google'
-                ? googleResult(seed, brand.evidencePaths.google)
-                : answerResult(provider.id, seed, brand.evidencePaths[provider.id]),
+        !isMainBrand || !brand
+          ? unmeasured(provider.id)
+          : provider.id === 'google'
+            ? googleResult(seed, brand.evidencePaths.google)
+            : answerResult(provider.id, seed, brand.evidencePaths.chatgpt),
       ),
     };
   });

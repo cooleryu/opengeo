@@ -75,8 +75,8 @@ function validateSnapshot(snapshot: ProjectResearchSnapshot): void {
   if (snapshot.searches !== undefined && (!Array.isArray(snapshot.searches) || snapshot.searches.some(search =>
     !nonempty(search.query) || !Number.isFinite(Date.parse(search.requestedAt))
     || !['pending', 'completed', 'failed'].includes(search.status)
-    || (search.confirmedCostCny !== null && (!Number.isFinite(search.confirmedCostCny) || search.confirmedCostCny < 0))
-    || !Number.isFinite(search.reservedCostCny) || search.reservedCostCny < 0
+    || (search.confirmedCostUsd !== null && (!Number.isFinite(search.confirmedCostUsd) || search.confirmedCostUsd < 0))
+    || !Number.isFinite(search.reservedCostUsd) || search.reservedCostUsd < 0
     || !Array.isArray(search.results) || search.results.some(result => typeof result.title !== 'string' || typeof result.url !== 'string')))) {
     throw new Error('项目资料的搜索记录或费用无效。');
   }
@@ -127,8 +127,20 @@ function readSnapshot(db: Database.Database, row: RunRow): ProjectResearchSnapsh
     FROM geo_project_research_relations WHERE project_id = ? AND run_id = ? ORDER BY position`)
     .all(row.projectId, row.runId) as RelationRow[]).map(relation => ({ ...relation, evidence: JSON.parse(relation.evidence) }));
   const { searches, ...metadata } = row;
+  const parsedSearches = searches === null
+    ? undefined
+    : (JSON.parse(searches) as Array<Record<string, unknown>>).map((item) => ({
+        query: typeof item.query === 'string' ? item.query : '',
+        requestedAt: typeof item.requestedAt === 'string' ? item.requestedAt : row.createdAt,
+        status: (item.status === 'pending' || item.status === 'completed' || item.status === 'failed'
+          ? item.status
+          : 'completed') as 'pending' | 'completed' | 'failed',
+        confirmedCostUsd: typeof item.confirmedCostUsd === 'number' ? item.confirmedCostUsd : null,
+        reservedCostUsd: typeof item.reservedCostUsd === 'number' ? item.reservedCostUsd : 0,
+        results: Array.isArray(item.results) ? (item.results as { title: string; url: string }[]) : [],
+      }));
   return { ...metadata, limitations: JSON.parse(row.limitations), documents, relations,
-    ...(searches === null ? {} : { searches: JSON.parse(searches) }) };
+    ...(parsedSearches === undefined ? {} : { searches: parsedSearches }) };
 }
 
 /** Append one immutable research run to the existing project's data directory. */

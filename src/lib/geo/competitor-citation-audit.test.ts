@@ -129,21 +129,24 @@ test('malformed output and provider failure remain saved unknowns, without retri
   assert.match(malformed.citationEvidence, /返回/);
 });
 
-test('saved provider raw responses preserve native markers rather than promoting all search results', async () => {
-  const item = observation({ engine: 'qwen', entryType: 'api_answer' });
+test('saved normalized captures preserve native citations rather than promoting all search sources', async () => {
+  const item = observation({ engine: 'google', entryType: 'web_answer' });
   const value = batch(item);
-  const qwen = { output: { choices: [{ finish_reason: 'stop', message: { content: 'A different tool [ref_2]' } }],
-    search_info: { search_results: [{ index: 1, url: official, title: 'Tool' }, { index: 2, url: 'https://elsewhere.example/', title: 'Other' }] } } };
-  const capture = readCollectedCompetitorAnswer(value, 'Q1', item, () => JSON.stringify(qwen));
+  const collected: CollectedAnswer = {
+    ...answer(['https://elsewhere.example/']),
+    text: 'A different tool.',
+    sources: [{ url: official, title: 'Tool' }, { url: 'https://elsewhere.example/', title: 'Other' }],
+  };
+  const capture = readCollectedCompetitorAnswer(value, 'Q1', item, () => JSON.stringify(collected));
   assert.equal(capture.issue, undefined);
   assert.equal(capture.answer!.sources.length, 2);
   assert.equal(capture.answer!.citations.length, 1);
-  const records = await auditCompetitorCitations(value, [candidate()], { persist: () => {}, existingRecords: [], readEvidence: () => JSON.stringify(qwen) });
+  const records = await auditCompetitorCitations(value, [candidate()], { persist: () => {}, existingRecords: [], readEvidence: () => JSON.stringify(collected) });
   assert.equal(records[0].citation, 'no');
-  qwen.output.choices[0].message.content = 'Broken marker [ref_3]';
-  const broken = readCollectedCompetitorAnswer(value, 'Q1', item, () => JSON.stringify(qwen));
+  const incompleteCitations = { ...collected, evidence: { ...collected.evidence!, citationsComplete: false } };
+  const broken = readCollectedCompetitorAnswer(value, 'Q1', item, () => JSON.stringify(incompleteCitations));
   assert.match(broken.issue!, /引用清单不完整/);
-  const searchOnly = observation({ engine: 'deepseek', entryType: 'api_search' });
+  const searchOnly = observation({ engine: 'google', entryType: 'web_search' });
   assert.equal(readCollectedCompetitorAnswer(batch(searchOnly), 'Q1', searchOnly, () => JSON.stringify({ results: [{ url: official }] })).notApplicable, true);
 });
 

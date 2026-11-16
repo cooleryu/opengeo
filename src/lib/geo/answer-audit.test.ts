@@ -15,8 +15,8 @@ import { withGeoProject } from './projects';
 const official = 'https://github.com/example/sample-project';
 const text = 'SampleProject 是 example 的编码 Agent 证据管理项目。';
 const observation = (changes: Partial<ResearchObservation> = {}): ResearchObservation => ({
-  engine: 'qwen', entryType: 'api_answer', language: 'zh', query: '有哪些编码 Agent 证据管理项目？',
-  recordedAt: '2026-10-28T08:00:00.000Z', status: 'found', summary: '已采集', conditions: 'API',
+  engine: 'chatgpt', entryType: 'web_answer', language: 'zh', query: '有哪些编码 Agent 证据管理项目？',
+  recordedAt: '2026-10-28T08:00:00.000Z', status: 'found', summary: '已采集', conditions: 'ChatGPT web',
   sources: [], evidencePath: 'data/geo-evidence/answer-run/raw.json',
   answerPath: 'data/geo-evidence/answer-run/answer.json', ...changes,
 });
@@ -96,7 +96,7 @@ test('valid positive and negative audits bind to the exact observation and remai
   assert.equal(yes.projectId, 'sample-project');
   assert.equal(yes.batchId, 'audit-test-batch');
   assert.equal(yes.questionId, 'q1');
-  assert.equal(yes.engine, 'qwen');
+  assert.equal(yes.engine, 'chatgpt');
   assert.equal(yes.language, 'zh');
   assert.equal(yes.schemaVersion, 1);
   assert.ok(Number.isFinite(Date.parse(yes.reviewedAt!)));
@@ -118,7 +118,7 @@ test('valid positive and negative audits bind to the exact observation and remai
   assert.equal(citationOnly.citation, 'yes');
 });
 
-test('a Qwen answer that cannot identify the named project saves a confirmed non-mention', async () => {
+test('a ChatGPT answer that cannot identify the named project saves a confirmed non-mention', async () => {
   const unrecognized = '由于 "SampleProject" 未在任何参考资料中被定义，无法提供其官方仓库和使用文档。';
   const record = await review({ ...negative(), identity: 'unrecognized', mentionQuote: unrecognized,
     mentionEvidence: '回答只是复述名称，并明确无法识别项目或提供其官方资料。' },
@@ -281,6 +281,16 @@ test('a model-confirmed different homonym need not appear in the predefined excl
   }
 });
 
+test('accepts hyphenated near-homonym exclusion when exact project name is absent from answer text', async () => {
+  const variant = 'Sample-Project (sample-project CLI) is a separate analytics tool built by Pupok462.';
+  const result = { ...negative(), identity: 'excluded', mentionQuote: variant,
+    mentionEvidence: '回答介绍的是带连字符的同名工具 Sample-Project（Pupok462），并非本项目。' };
+  const record = await review(result, answer({ text: variant, citations: [] }));
+  assert.equal(record.analysisStatus, 'complete');
+  assert.equal(record.mention, 'no');
+  assert.equal(record.citation, 'no');
+});
+
 test('an excluded homonym quote includes its adjacent brand heading and identity prose verbatim', async () => {
   const heading = '1. SampleProject (医学影像工具)';
   const body = '是什么：它是 Acme Vision 的影像分析工具。';
@@ -351,7 +361,7 @@ test('complete browser answers retain independent mention verdicts when native c
   }
 });
 
-test('partial native citations can confirm an observed own URL but cannot confirm absence', async () => {
+test('partial native citations can confirm an observed own URL and confirm absence when unlinked', async () => {
   const evidence = { answerComplete: true, citationsComplete: false, citationSource: 'native' as const };
   const confirmed = await review(positive(), answer({ evidence }), observation({ entryType: 'web_answer' }));
   assert.equal(confirmed.analysisStatus, 'complete');
@@ -359,13 +369,19 @@ test('partial native citations can confirm an observed own URL but cannot confir
   assert.equal(confirmed.citation, 'yes');
   assert.deepEqual(confirmed.officialUrls, [official]);
 
-  const rejected = await review({ ...positive(), citation: 'no', officialUrls: [],
-    citationEvidence: '没有在已采集引用中找到自有内容。' },
+  const noOwned = await review({ ...positive(), citation: 'no', officialUrls: [],
+    citationEvidence: '已核对采集到的引用清单，未包含本项目自有内容。' },
   answer({ citations: [], evidence }), observation({ entryType: 'web_answer' }));
-  assert.equal(rejected.analysisStatus, 'failed');
-  assert.equal(rejected.mention, 'unknown');
-  assert.equal(rejected.citation, 'unknown');
-  assert.match(rejected.citationEvidence, /引用清单不完整/);
+  assert.equal(noOwned.analysisStatus, 'complete');
+  assert.equal(noOwned.mention, 'yes');
+  assert.equal(noOwned.citation, 'no');
+
+  const contradictingNo = await review({ ...positive(), citation: 'no', officialUrls: [],
+    citationEvidence: '没有找到自有链接。' },
+  answer({ citations: [{ url: official, title: 'SampleProject' }], evidence }), observation({ entryType: 'web_answer' }));
+  assert.equal(contradictingNo.analysisStatus, 'failed');
+  assert.equal(contradictingNo.mention, 'unknown');
+  assert.equal(contradictingNo.citation, 'unknown');
 });
 
 test('unknown or absent citation provenance preserves independent mention decisions', async () => {
@@ -387,18 +403,63 @@ test('unknown or absent citation provenance preserves independent mention decisi
   }
 });
 
-test('unknown or absent citation provenance cannot establish a positive or negative citation verdict', async () => {
+test('non-native candidate links support owned, author-handle, and negative citations while blocking homonym repos', async () => {
+  const devtoByOwner = { title: 'Dev.to Article', url: 'https://dev.to/example/sample-project-launch' };
+  const homonymRepo = { title: 'OtherAuthor/sample-project', url: 'https://github.com/OtherAuthor/sample-project' };
   for (const citationSource of ['unknown', 'none'] as const) {
-    for (const citation of ['yes', 'no'] as const) {
-      const record = await review({ ...positive(), citation, officialUrls: citation === 'yes' ? [official] : [] },
-        answer({ citations: citation === 'yes' ? answer().citations : [],
-          evidence: { answerComplete: true, citationsComplete: true, citationSource } }));
-      assert.equal(record.analysisStatus, 'failed');
-      assert.equal(record.mention, 'unknown');
-      assert.equal(record.citation, 'unknown');
-      assert.match(record.citationEvidence, /原生引用来源/);
-    }
+    const ownedFromSources = await review(
+      { ...positive(), citation: 'yes', officialUrls: [official] },
+      answer({ citations: [], sources: [{ title: 'GitHub', url: official }],
+        evidence: { answerComplete: true, citationsComplete: false, citationSource } }),
+    );
+    assert.equal(ownedFromSources.analysisStatus, 'complete');
+    assert.equal(ownedFromSources.citation, 'yes');
+    assert.deepEqual(ownedFromSources.officialUrls, [official]);
+
+    const authoredPost = await review(
+      { ...positive(), citation: 'yes', officialUrls: [devtoByOwner.url],
+        citationEvidence: '引用了项目作者在 Dev.to 发布的同名专栏文章。' },
+      answer({ citations: [], sources: [devtoByOwner],
+        evidence: { answerComplete: true, citationsComplete: false, citationSource } }),
+    );
+    assert.equal(authoredPost.analysisStatus, 'complete');
+    assert.equal(authoredPost.citation, 'yes');
+    assert.deepEqual(authoredPost.officialUrls, [devtoByOwner.url]);
+
+    const emptySourcesNo = await review(
+      { ...positive(), citation: 'no', officialUrls: [],
+        citationEvidence: '回答未附带任何指向本项目的引用链接。' },
+      answer({ citations: [], sources: [],
+        evidence: { answerComplete: true, citationsComplete: false, citationSource } }),
+    );
+    assert.equal(emptySourcesNo.analysisStatus, 'complete');
+    assert.equal(emptySourcesNo.citation, 'no');
+
+    const homonymRejected = await review(
+      { ...positive(), citation: 'yes', officialUrls: [homonymRepo.url] },
+      answer({ citations: [], sources: [homonymRepo],
+        evidence: { answerComplete: true, citationsComplete: false, citationSource } }),
+    );
+    assert.equal(homonymRejected.analysisStatus, 'failed');
+    assert.equal(homonymRejected.citation, 'unknown');
   }
+});
+
+test('ambiguous mentions can classify as confirmed non-mention without turning into pending', async () => {
+  const ambiguousText = 'There are several projects named SampleProject across different domains.';
+  const record = await review(
+    {
+      ...negative(),
+      identity: 'ambiguous',
+      mentionQuote: ambiguousText,
+      mentionEvidence: '回答只称有多个同名项目，未指出本项目的作者或仓库，读者无法定位到你。',
+      citationEvidence: '未包含本项目自有链接。',
+    },
+    answer({ text: ambiguousText, citations: [], sources: [], evidence: { answerComplete: true, citationsComplete: false, citationSource: 'unknown' } }),
+  );
+  assert.equal(record.analysisStatus, 'complete');
+  assert.equal(record.mention, 'no');
+  assert.equal(record.citation, 'no');
 });
 
 test('missing, incomplete and oversized evidence skips the model; web search is not applicable', async () => {
@@ -456,7 +517,7 @@ test('unavailable configuration and model failures save safe unknowns once; pers
   assert.equal(persisted, false, 'a trace write error must not become a saved model failure');
 });
 
-test('enabled ChatGPT automatic audits use Terra Max and never fall back to the retained DeepSeek connection', async () => {
+test('enabled ChatGPT automatic audits use Terra Max and never fall back to the saved API model connection', async () => {
   const privateDirectory = path.join(temporary, 'data/chatgpt-private');
   fs.mkdirSync(privateDirectory, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(privateDirectory, 'connection.json'), JSON.stringify({
@@ -467,9 +528,9 @@ test('enabled ChatGPT automatic audits use Terra Max and never fall back to the 
       idToken: 'synthetic-audit-identity', expiresAt: Date.now() + 3600_000, scopes: ['chatgpt.tokens.use.direct'] },
   }), { mode: 0o600 });
   const settingsFile = path.join(temporary, 'data/geo-settings.json');
-  const deepseekSettings = JSON.stringify({ version: 1, model: { provider: 'deepseek',
-    baseURL: 'https://api.deepseek.com/v1', model: 'synthetic-deepseek', apiKey: 'synthetic-deepseek-key' } });
-  fs.writeFileSync(settingsFile, deepseekSettings, { mode: 0o600 });
+  const savedApiSettings = JSON.stringify({ version: 1, model: { provider: 'openai',
+    baseURL: 'https://api.openai.com/v1', model: 'synthetic-api-model', apiKey: 'synthetic-api-key' } });
+  fs.writeFileSync(settingsFile, savedApiSettings, { mode: 0o600 });
 
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   let modelResult: unknown = positive();
@@ -526,7 +587,7 @@ test('enabled ChatGPT automatic audits use Terra Max and never fall back to the 
     assert.deepEqual(body.reasoning, { effort: 'max' });
     assert.equal(body.stream, true);
   }
-  assert.equal(fs.readFileSync(settingsFile, 'utf8'), deepseekSettings, 'DeepSeek settings are preserved');
+  assert.equal(fs.readFileSync(settingsFile, 'utf8'), savedApiSettings, 'Saved API model settings are preserved');
 });
 
 test('published owned assets are accepted exactly and project scope does not leak from the caller', async () => {

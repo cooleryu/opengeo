@@ -91,7 +91,7 @@ function saveReceipt(receipt: ChatGPTVerification) {
   } finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
 }
 
-/** An explicit one-answer proof. Never changes the existing DeepSeek configuration. */
+/** An explicit one-answer proof. Never changes other saved model configurations. */
 export async function verifyChatGPTAnalysis(projectId: string, requestId: string): Promise<ChatGPTVerification> {
   if (!/^[0-9a-f-]{36}$/i.test(requestId)) throw new Error('Invalid request');
   const previous = readChatGPTVerification();

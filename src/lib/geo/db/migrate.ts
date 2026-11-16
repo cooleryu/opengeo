@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { resolveAssetOwnership } from '../asset-ownership';
 import type { AnswerAuditRecord } from '../overview-metrics';
+import { isConsumerResearchEngine } from '../research-engines';
 import { loadInitialResearch, loadLegacyAnswerAudit, loadProjectSeed } from '../project-data';
 import type { ResearchBatch, ResearchObservation, ResearchQuestion } from '../research-types';
 import {
@@ -64,6 +65,7 @@ function insertObservationIfMissing(
   },
 ): boolean {
   const { projectId, id, batchId, questionId, optimizationRunId = null, observation, createdAt } = params;
+  if (!isConsumerResearchEngine(observation.engine)) return false;
   const result = db
     .prepare(
       `INSERT OR IGNORE INTO opengeo_observations (
@@ -102,6 +104,7 @@ function findMatchingObservationId(
   db: Database.Database,
   record: AnswerAuditRecord,
 ): string | null {
+  if (!isConsumerResearchEngine(record.engine)) return null;
   const matches = db
     .prepare(
       `SELECT id
@@ -520,6 +523,7 @@ export function syncObservationToRelational(
   observation: ResearchObservation,
   appendedAt: string,
 ): void {
+  if (!isConsumerResearchEngine(observation.engine)) return;
   configureSqliteConnection(db);
   const hasQuestion = db
     .prepare('SELECT 1 FROM opengeo_questions WHERE project_id = ? AND id = ?')

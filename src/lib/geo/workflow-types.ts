@@ -1,7 +1,15 @@
 import type { GeoProposal, GeoRun } from './types';
 import type { QuestionCategory } from './question-types';
-import type { CollectionConfig } from './providers/types';
-import type { ResearchObservation } from './research-types';
+import type { ResearchEngine, ResearchObservation } from './research-types';
+
+export interface LegacyCollectionConfig {
+  provider: ResearchEngine;
+  label: string;
+  endpoint?: string;
+  model?: string;
+  parameters: Record<string, unknown>;
+  metric: 'web_target_hit' | 'answer_target_citation';
+}
 
 export interface WorkflowQuestion {
   id: string;
@@ -116,7 +124,7 @@ export interface StrategyMemory {
 
 export interface GeoWorkflow {
   version: 1;
-  collection?: CollectionConfig;
+  collection?: LegacyCollectionConfig;
   maxQualityRounds?: number;
   questionPlanId: string;
   questionPlanRevision: number;

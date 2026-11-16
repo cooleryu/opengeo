@@ -14,7 +14,6 @@ import { PublicSourceError, readPublicSource, type PublicSource } from './projec
 import type { OnboardingRecord } from './project-onboarding-types';
 import { researchProject, type ProjectResearchSearch } from './project-research';
 import { projectResearch } from './project-research-context';
-import { availableProjectResearchSearch, searchProjectResearch } from './project-research-search';
 import { startOnboardingQuestionGeneration, type QuestionGenerationRuntime } from './store';
 
 const parameterSchema = z.object({
@@ -311,7 +310,7 @@ export async function analyzeProjectOnboarding(projectId: string, runtime: Onboa
       const configuredSearch = runtime.research && runtime.research.search;
       const research = await researchProject({ projectId, entry: record.url, notes: record.notes, documents, limitations,
         discover: runtime.research !== false, model: researchModel(parameters, runtime.model),
-        search: configuredSearch === false ? undefined : configuredSearch ?? (availableProjectResearchSearch() ? searchProjectResearch : undefined),
+        search: configuredSearch === false ? undefined : configuredSearch,
         readDocument: async url => {
           if (remaining <= 0) throw new PublicSourceError('已达到公开资料总读取大小上限。');
           const source = await (runtime.readSource ?? readPublicSource)(url, {

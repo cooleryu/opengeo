@@ -57,7 +57,7 @@ export interface DeliverableCompanionFile {
   content: string;
   /** 推送到 GitHub 时要顺手清理的旧路径（如 ["README.en.md"]） */
   deletePaths?: string[];
-  /** 仅用于工作台对照阅读或手动另发（如知乎/掘金/公众号），不写入本地仓库、不推送 GitHub */
+  /** 仅用于工作台对照阅读或手动另发到外部技术博客，不写入本地仓库、不推送 GitHub */
   reviewOnly?: boolean;
 }
 

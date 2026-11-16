@@ -6,8 +6,6 @@ import type { GeoQuestion, GeoRun } from './types';
 import type { CollectionTask } from './collection-runtime';
 import { getSeed } from './seed';
 import { matchesQuestionTarget } from './search-protocol';
-import { parseDoubaoAnswer } from './providers/doubao';
-import { parseQwenAnswer } from './providers/qwen';
 
 export const collectionQuestionFile = (id: string) => /^[a-zA-Z0-9_-]{1,100}$/.test(id) ? id : createHash('sha256').update(id).digest('hex');
 
@@ -78,7 +76,7 @@ export function readCollectionResponse(directory: string, question: GeoQuestion,
   return response;
 }
 
-/** Shared parsing keeps recovery equivalent to the original provider execution. */
+/** Shared parsing keeps recovery equivalent to the original collection structure. */
 export function questionFromCollectionResponse(task: CollectionTask, runId: string, question: GeoQuestion,
   response: SavedCollectionResponse): GeoQuestion {
   if (response.httpStatus < 200 || response.httpStatus >= 300) throw new Error(`HTTP ${response.httpStatus}`);
@@ -86,25 +84,16 @@ export function questionFromCollectionResponse(task: CollectionTask, runId: stri
   const target = task.workflow!.questions.find(item => item.id === question.id);
   const seed = getSeed();
   const evidencePath = `data/geo-evidence/${runId}/${collectionQuestionFile(question.id)}.json`;
-  if (collection.provider === 'deepseek') {
-    const parsed = JSON.parse(response.raw) as { results?: unknown };
-    if (!Array.isArray(parsed.results)) throw new Error('返回缺少 results，不能记作零命中。');
-    if (parsed.results.some(result => !result || typeof result !== 'object' || typeof result.url !== 'string')) throw new Error('搜索结果条目缺少有效 URL。');
-    const results = parsed.results as { url: string; title?: string }[];
-    const firstHit = results.findIndex(result => matchesQuestionTarget(result.url, target, seed));
-    return { ...question, measurementAt: response.measuredAt, provider: 'DeepSeek Search API', resultCount: results.length,
-      projectHit: firstHit >= 0, rank: firstHit >= 0 ? firstHit + 1 : null, aiCited: null, evidencePath,
-      topSources: results.slice(0, 3).map((source, index) => {
-        let domain = ''; try { domain = new URL(source.url).hostname; } catch { /* Preserve raw malformed links. */ }
-        return { position: index + 1, title: source.title || domain || '未提供标题', url: source.url, domain,
-          isHomonym: /2609\.38260/i.test(`${source.url} ${source.title || ''}`) };
-      }) };
-  }
-  const answer = collection.provider === 'doubao' ? parseDoubaoAnswer(JSON.parse(response.raw)) : parseQwenAnswer(JSON.parse(response.raw));
-  if (!answer.searchPerformed) throw new Error('没有取得有效联网搜索证据，不能记作零引用。');
-  const cited = answer.citations.some(source => matchesQuestionTarget(source.url, target, seed));
-  return { ...question, providerId: collection.provider, provider: collection.label, measurementAt: response.measuredAt,
-    answer, resultCount: answer.sources.length, projectHit: cited, rank: null, aiCited: cited, evidencePath,
-    topSources: answer.sources.slice(0, 3).map((source, index) => ({ position: index + 1, title: source.title,
-      url: source.url, domain: new URL(source.url).hostname, isHomonym: /2609\.38260/i.test(`${source.url} ${source.title}`) })) };
+  const parsed = JSON.parse(response.raw) as { results?: unknown };
+  if (!Array.isArray(parsed.results)) throw new Error('返回缺少 results，不能记作零命中。');
+  if (parsed.results.some(result => !result || typeof result !== 'object' || typeof result.url !== 'string')) throw new Error('搜索结果条目缺少有效 URL。');
+  const results = parsed.results as { url: string; title?: string }[];
+  const firstHit = results.findIndex(result => matchesQuestionTarget(result.url, target, seed));
+  return { ...question, providerId: collection.provider, measurementAt: response.measuredAt, provider: collection.label, resultCount: results.length,
+    projectHit: firstHit >= 0, rank: firstHit >= 0 ? firstHit + 1 : null, aiCited: null, evidencePath,
+    topSources: results.slice(0, 3).map((source, index) => {
+      let domain = ''; try { domain = new URL(source.url).hostname; } catch { /* Preserve raw malformed links. */ }
+      return { position: index + 1, title: source.title || domain || '未提供标题', url: source.url, domain,
+        isHomonym: /2609\.38260/i.test(`${source.url} ${source.title || ''}`) };
+    }) };
 }

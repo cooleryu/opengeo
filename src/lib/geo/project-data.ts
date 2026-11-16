@@ -151,7 +151,18 @@ export function loadInitialResearch(): ResearchBatch[] {
   if (!file) return [];
   const batches = readLocalProjectFile<ResearchBatch[]>(file);
   if (!Array.isArray(batches)) throw new Error('本地研究资料须为批次列表。');
-  return batches;
+  const isSupportedEngine = (engine: unknown) => engine === 'chatgpt' || engine === 'google';
+  return batches.map((batch) => ({
+    ...batch,
+    questions: batch.questions.map((question) => ({
+      ...question,
+      observations: question.observations.filter((obs) => isSupportedEngine(obs.engine)),
+    })),
+    deferredQuestions: batch.deferredQuestions.map((question) => ({
+      ...question,
+      observations: question.observations.filter((obs) => isSupportedEngine(obs.engine)),
+    })),
+  }));
 }
 
 export function loadLegacyAnswerAudit(): LegacyAnswerAudit {
@@ -161,7 +172,10 @@ export function loadLegacyAnswerAudit(): LegacyAnswerAudit {
   if (!audit || !Array.isArray(audit.records) || typeof audit.reviewedAt !== 'string' || typeof audit.scope?.limits !== 'string') {
     throw new Error('本地回答审核资料格式无效。');
   }
-  return audit;
+  return {
+    ...audit,
+    records: audit.records.filter((record) => record.engine === 'chatgpt' || record.engine === 'google'),
+  };
 }
 
 export function legacyAnswerAuditSource(): string {

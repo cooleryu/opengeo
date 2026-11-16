@@ -10,7 +10,8 @@
   color: #16201c;
 }
 
-.ohc-stage.is-failed {
+.ohc-stage.is-failed,
+.ohc-stage.is-warn {
   border-color: #f3d5a5;
   background: linear-gradient(132deg, #fffaf0 0%, #fffdf9 55%, #ffffff 100%);
 }
@@ -599,6 +600,48 @@
   height: 14px;
   accent-color: #147a5b;
   cursor: pointer;
+}
+
+.ohc-cited-row {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: #4b5a53;
+}
+
+.ohc-cited-label {
+  font-weight: 550;
+  color: #3f524a;
+}
+
+.ohc-cited-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #d5e5dd;
+  color: #1f332a;
+  font-size: 11.5px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.ohc-cited-pill:hover {
+  border-color: #147a5b;
+  background: #ffffff;
+}
+
+.ohc-cited-pill em {
+  font-style: normal;
+  color: #147a5b;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 980px) {

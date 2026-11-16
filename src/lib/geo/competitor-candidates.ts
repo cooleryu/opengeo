@@ -42,7 +42,7 @@ import type { GeoProject } from './types';
 // A publisher or community root is not a product identity. Article URLs never
 // qualify below; this list also excludes common shared publishing home pages.
 const publishingHosts =
-  /(^|\.)(?:youtube\.com|youtu\.be|bilibili\.com|reddit\.com|medium\.com|substack\.com|csdn\.net|zhihu\.com|arxiv\.org|aclanthology\.org|wikipedia\.org|twitter\.com|x\.com|facebook\.com|news\.ycombinator\.com|weixin\.qq\.com|greasyfork\.org)$/i;
+  /(^|\.)(?:youtube\.com|youtu\.be|reddit\.com|medium\.com|substack\.com|arxiv\.org|aclanthology\.org|wikipedia\.org|twitter\.com|x\.com|facebook\.com|news\.ycombinator\.com|greasyfork\.org)$/i;
 const collectionName =
   /(?:^|[-_\s/])(?:awesome|weekly|news|book|guide|guides|compass|cheat[-_ ]?sheet)(?:$|[-_\s/])|精选列表|资源合集|论文列表|reading list|curated list/i;
 const compact = (value: string) =>

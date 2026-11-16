@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { readAgentParameters, readAgentText } from './agent-files';
 import { loadGeoModel, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
@@ -8,7 +11,7 @@ import { saveAnswerAudit } from './answer-audit-store';
 import type { AnswerAuditRecord } from './overview-metrics';
 import type { CollectedAnswer } from './providers/types';
 import type { ResearchBatch, ResearchObservation } from './research-types';
-import { withGeoProject } from './projects';
+import { projectDataDirectory, withGeoProject } from './projects';
 import { getSeed } from './seed';
 import { matchesProjectURL } from './search-protocol';
 import type { GeoSeed } from './types';
@@ -62,7 +65,58 @@ function exactAssetUrl(left: string, right: string): boolean {
     a.pathname.replace(/\/+$/, '') === b.pathname.replace(/\/+$/, '') && a.search === b.search);
 }
 
-function projectIdentity(seed: GeoSeed): Identity {
+const CHROME_OR_POLICY_HOSTS = new Set([
+  'support.google.com',
+  'policies.google.com',
+  'accounts.google.com',
+]);
+
+function normInlineWs(value: string): string {
+  return value.replace(/[\u00a0\u2000-\u200b\ufeff]/gu, ' ');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function loadAppliedDeliverableUrls(projectId: string): string[] {
+  try {
+    return withGeoProject(projectId, () => {
+      const dbPath = path.join(projectDataDirectory(), 'db.sqlite');
+      if (!fs.existsSync(dbPath)) return [];
+      const db = new Database(dbPath, { readonly: true });
+      try {
+        const hasTable = db
+          .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='opengeo_deliverables'")
+          .get();
+        if (!hasTable) return [];
+        const rows = db
+          .prepare(
+            'SELECT applied_record_json FROM opengeo_deliverables WHERE project_id = ? AND applied_record_json IS NOT NULL',
+          )
+          .all(projectId) as Array<{ applied_record_json: string }>;
+        const urls: string[] = [];
+        for (const row of rows) {
+          try {
+            const parsed = JSON.parse(row.applied_record_json) as { publishedUrl?: unknown };
+            if (typeof parsed?.publishedUrl === 'string' && webUrl(parsed.publishedUrl)) {
+              urls.push(parsed.publishedUrl);
+            }
+          } catch {
+            // Skip malformed JSON records
+          }
+        }
+        return urls;
+      } finally {
+        db.close();
+      }
+    });
+  } catch {
+    return [];
+  }
+}
+
+function projectIdentity(seed: GeoSeed, extraPublishedUrls: string[] = []): Identity {
   const project = seed.project as GeoSeed['project'] & { identityExclusion?: Identity['exclusion'] };
   const repoUrl = webUrl(project.repositoryUrl);
   const repoParts = repoUrl?.pathname.split('/').filter(Boolean) ?? [];
@@ -72,6 +126,10 @@ function projectIdentity(seed: GeoSeed): Identity {
     (repoUrl?.hostname.toLowerCase() === 'github.com' && repoParts.length >= 2
       ? repoParts[0]
       : '');
+  const assetPublishedUrls = seed.assets
+    .filter((asset) => asset.status === 'published' && webUrl(asset.publicUrl))
+    .map((asset) => asset.publicUrl!);
+  const publishedUrls = [...new Set([...assetPublishedUrls, ...extraPublishedUrls])];
   return {
     name: project.name,
     aliases: [...new Set([repositoryName, repositoryName?.replace(/[-_]/g, ' ')])]
@@ -79,15 +137,14 @@ function projectIdentity(seed: GeoSeed): Identity {
     owner: inferredOwner,
     description: project.description,
     officialRoots: [project.siteUrl, project.repositoryUrl].filter((url) => Boolean(webUrl(url))),
-    publishedUrls: seed.assets.filter((asset) => asset.status === 'published' && webUrl(asset.publicUrl))
-      .map((asset) => asset.publicUrl!),
+    publishedUrls,
     ...(project.identityExclusion ? { exclusion: project.identityExclusion } : {}),
   };
 }
 
 function containsName(text: string, identity: Identity): boolean {
   return [identity.name, ...identity.aliases].some((name) => {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = escapeRegExp(name);
     // Latin aliases must not match a longer product name such as ExampleProjectX.
     return new RegExp(`(?<![a-z0-9_])${escaped}(?![a-z0-9_])`, 'iu').test(text) ||
       (/[^\x00-\x7F]/.test(name) && text.includes(name));
@@ -105,6 +162,42 @@ function containsExclusion(text: string, identity: Identity): boolean {
 function belongsToProject(url: string, seed: GeoSeed, identity: Identity): boolean {
   return Boolean(webUrl(url)) && (matchesProjectURL(url, seed) ||
     identity.publishedUrls.some((publishedUrl) => exactAssetUrl(url, publishedUrl)));
+}
+
+function canClaimProjectUrl(url: string, candidateUrls: Set<string>, seed: GeoSeed, identity: Identity): boolean {
+  if (!candidateUrls.has(url)) return false;
+  const parsed = webUrl(url);
+  if (!parsed) return false;
+  if (belongsToProject(url, seed, identity)) return true;
+  if (containsExclusion(url, identity)) return false;
+
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  // On GitHub, only the project's exact repository URL may be claimed (blocks homonym repos).
+  if (host === 'github.com' || host === 'raw.githubusercontent.com') return false;
+
+  const owner = identity.owner.trim();
+  if (owner.length < 2) return false;
+  const ownerRe = escapeRegExp(owner);
+  const hasOwnerPathSegment = new RegExp(`/(?:@|u/|user/|users/)?${ownerRe}(?:/|$)`, 'i').test(parsed.pathname);
+  const ownerSubdomain = `${owner.toLowerCase()}.`;
+  const hasOwnerSubdomain = host.startsWith(ownerSubdomain);
+  return hasOwnerPathSegment || hasOwnerSubdomain;
+}
+
+function getCandidateCitations(answer: CollectedAnswer): Array<{ title: string; url: string }> {
+  if (answer.evidence?.citationSource === 'native') {
+    return answer.citations;
+  }
+  const seen = new Set<string>();
+  const combined: Array<{ title: string; url: string }> = [];
+  for (const item of [...answer.citations, ...(answer.sources ?? [])]) {
+    const parsed = item ? webUrl(item.url) : undefined;
+    if (!parsed || CHROME_OR_POLICY_HOSTS.has(parsed.hostname.toLowerCase())) continue;
+    if (seen.has(item.url)) continue;
+    seen.add(item.url);
+    combined.push({ title: item.title || parsed.hostname, url: item.url });
+  }
+  return combined;
 }
 
 function containsProjectIdentityCue(text: string, seed: GeoSeed, identity: Identity): boolean {
@@ -126,13 +219,15 @@ function semanticIssue(result: ModelResult, answer: CollectedAnswer, seed: GeoSe
   if (!result.answerComplete && (result.mention !== 'unknown' || result.citation !== 'unknown')) {
     return '模型把不完整回答判为确定结论。';
   }
-  if (result.mentionQuote && !answer.text.includes(result.mentionQuote)) {
+  const normalizedText = normInlineWs(answer.text);
+  const normalizedQuote = normInlineWs(result.mentionQuote);
+  if (result.mentionQuote && !normalizedText.includes(normalizedQuote)) {
     return '模型的提及摘录与回答原文不一致。';
   }
-  if (result.mention === 'yes' && (!result.mentionQuote.trim() ||
-      !containsName(result.mentionQuote, identity) || result.identity !== 'matched' ||
-      (containsExclusion(result.mentionQuote, identity) &&
-        !containsProjectIdentityCue(result.mentionQuote, seed, identity)))) {
+  if (result.mention === 'yes' && (!normalizedQuote.trim() ||
+      !containsName(normalizedQuote, identity) || result.identity !== 'matched' ||
+      (containsExclusion(normalizedQuote, identity) &&
+        !containsProjectIdentityCue(normalizedQuote, seed, identity)))) {
     return '确认提及缺少可逐字核实的项目名称与身份依据，或混入已知同名对象。';
   }
   if (result.mention === 'no') {
@@ -140,41 +235,41 @@ function semanticIssue(result: ModelResult, answer: CollectedAnswer, seed: GeoSe
       if (result.identity === 'unrecognized') {
         // The model judges whether the answer actually recognizes the project.
         // Verify its evidence, without turning name matching into a positive verdict.
-        if (!result.mentionQuote.trim() || !containsName(result.mentionQuote, identity)) {
+        if (!normalizedQuote.trim() || !containsName(normalizedQuote, identity)) {
           return '未识别项目的结论缺少含项目名称的逐字依据。';
         }
-      } else if (result.identity !== 'excluded' || !containsName(result.mentionQuote, identity)) {
+      } else if ((result.identity !== 'excluded' && result.identity !== 'ambiguous') || !containsName(normalizedQuote, identity)) {
         return '回答出现项目名称或别名，未提供未识别项目或同名排除的依据。';
-      } else if (containsProjectIdentityCue(answer.text.replace(result.mentionQuote, ''), seed, identity)) {
+      } else if (containsProjectIdentityCue(normalizedText.replace(normalizedQuote, ''), seed, identity)) {
         return '摘录之外仍有本项目所有者或官方链接，不能仅凭同名摘录确认未提及。';
       }
-    } else if (result.identity !== 'absent' || result.mentionQuote) {
+    } else if (
+      result.identity === 'matched' ||
+      (result.identity === 'absent' && Boolean(normalizedQuote.trim())) ||
+      (result.identity !== 'absent' && !normalizedQuote.trim()) ||
+      containsProjectIdentityCue(normalizedText, seed, identity)
+    ) {
       return '未提及结论与名称及身份依据不一致。';
     }
   }
   if (result.mention === 'unknown' && result.identity !== 'ambiguous') {
     return '待核实提及与模型给出的确定身份结论不一致。';
   }
-  if (answer.evidence?.citationSource !== 'native' && result.citation !== 'unknown') {
-    return '没有确证的平台原生引用来源，引用结论须保留为待核实。';
-  }
-  const nativeUrls = new Set(answer.citations.map((citation) => citation.url));
-  const nativeOfficialUrls = [...nativeUrls].filter((url) => belongsToProject(url, seed, identity));
+  const candidateCitations = getCandidateCitations(answer);
+  const candidateUrls = new Set(candidateCitations.map((c) => c.url));
+  const exactOwnedCandidates = candidateCitations
+    .map((c) => c.url)
+    .filter((url) => belongsToProject(url, seed, identity));
   if (result.citation === 'yes') {
     if (!result.officialUrls.length || result.officialUrls.some((url) =>
-      !nativeUrls.has(url) || !belongsToProject(url, seed, identity))) {
-      return '确认引用缺少平台原生引用，或链接不属于本项目官网、仓库及已发布自有内容。';
+      !canClaimProjectUrl(url, candidateUrls, seed, identity))) {
+      return '确认引用缺少可核实来源，或链接不属于本项目官网、仓库及已发布自有内容。';
     }
   } else if (result.officialUrls.length) {
     return '尚未确认引用，却返回了已确认自有引用链接。';
   }
-  if (result.citation === 'no') {
-    if (answer.evidence?.citationsComplete !== true) {
-      return '平台原生引用清单不完整，不能确认未引用。';
-    }
-    if (nativeOfficialUrls.length) {
-      return '原生引用包含本项目自有链接，与未引用结论矛盾。';
-    }
+  if (result.citation === 'no' && exactOwnedCandidates.length) {
+    return '采集到的引用或来源包含本项目自有链接，与未引用结论矛盾。';
   }
   return undefined;
 }
@@ -233,7 +328,9 @@ export async function analyzeResearchObservation(
     if (seed.project.id !== batch.projectId || ![...batch.questions, ...batch.deferredQuestions].some((question) => question.id === questionId)) {
       audit = unresolved('项目或问题不属于指定批次，未进行审核。', 'failed');
     } else {
-      const identity = projectIdentity(seed);
+      const appliedUrls = loadAppliedDeliverableUrls(batch.projectId);
+      const identity = projectIdentity(seed, appliedUrls);
+      const candidateCitations = getCandidateCitations(answer).slice(0, 20);
       const observedSourceHints = (answer.sources ?? [])
         .slice(0, 20)
         .map((s) => ({ title: s.title, url: s.url }));
@@ -242,6 +339,7 @@ export async function analyzeResearchObservation(
         { role: 'user' as const, content: JSON.stringify({ project: identity, query: observation.query,
           answer: { text: answer.text,
             nativeCitations: answer.evidence.citationSource === 'native' ? answer.citations : [],
+            candidateCitations,
             ...(observedSourceHints.length ? { observedSourceHints } : {}),
             evidence: answer.evidence } }) },
       ];

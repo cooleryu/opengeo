@@ -20,7 +20,7 @@ const { getConversionSnapshot } = await import('./conversions.ts');
 const { getTrafficRange } = await import('./traffic.ts');
 const temporary = await mkdtemp(path.join(os.tmpdir(), 'opengeo-conversions-'));
 after(() => rm(temporary, { recursive: true, force: true }));
-const now = Date.parse('2026-10-28T12:00:00+08:00');
+const now = Date.parse('2026-10-28T12:00:00Z');
 const range = getTrafficRange('2026-10-21', '2026-10-28', now);
 const website = '11111111-1111-4111-8111-111111111111';
 const token = 'synthetic-secret-only';
@@ -28,7 +28,7 @@ const env = {
   DATA_DIR: temporary,
   OPENGEO_UMAMI_URL: 'https://analytics.example.test',
   OPENGEO_UMAMI_TOKEN: token,
-  OPENGEO_UMAMI_WEBSITE_IDS: JSON.stringify({ sample-project: website }),
+  OPENGEO_UMAMI_WEBSITE_IDS: JSON.stringify({ 'sample-project': website }),
 };
 const response = (data, status = 200) =>
   new Response(JSON.stringify(data), { status });

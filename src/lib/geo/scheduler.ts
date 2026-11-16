@@ -1,14 +1,12 @@
 import { geoRuntime, listTasks, newEvent, taskIsBusy, updateTask } from './store';
 import { startMonitor } from './monitor';
 import { listGeoProjectIds, withGeoProject } from './projects';
-import { tickResearchSchedules } from './research-tracking';
 
 export async function tickGeoScheduler(): Promise<void> {
   if (geoRuntime.ticking) return;
   geoRuntime.ticking = true;
   try {
     const now = Date.now();
-    await tickResearchSchedules();
     for (const projectId of listGeoProjectIds()) await withGeoProject(projectId, async () => {
       for (const task of listTasks()) {
         if (task.status !== 'monitoring' || !task.monitor.enabled || !task.monitor.nextRunAt || task.monitor.remaining <= 0 || new Date(task.monitor.nextRunAt).getTime() > now || taskIsBusy(task.id)) continue;
@@ -29,7 +27,6 @@ export function startGeoScheduler(): void {
   if (geoRuntime.timer) clearInterval(geoRuntime.timer);
   // Initializing storage also recovers a task interrupted by a previous process.
   for (const projectId of listGeoProjectIds()) withGeoProject(projectId, () => listTasks());
-  // The first tick also resumes expired research leases without a browser visit.
   geoRuntime.schedulerVersion = 4;
   geoRuntime.schedulerRunning = true;
   geoRuntime.timer = setInterval(() => { void tickGeoScheduler().catch(error => console.error('[OpenGEO scheduler]', error instanceof Error ? error.message : error)); }, 30000);

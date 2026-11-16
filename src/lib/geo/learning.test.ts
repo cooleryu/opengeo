@@ -96,7 +96,7 @@ test('actual implementation date is required and registration does not change me
 test('implementation date validates calendar, timezone, review and registration bounds', () => {
   const registeredAt = '2026-10-04T00:00:00Z';
   const reviewedAt = '2026-10-02T02:00:00Z';
-  assert.equal(validateImplementationDate('2026-10-03T08:00:00+08:00', registeredAt, reviewedAt), '2026-10-03T00:00:00.000Z');
+  assert.equal(validateImplementationDate('2026-10-03T00:00:00Z', registeredAt, reviewedAt), '2026-10-03T00:00:00.000Z');
   for (const value of [undefined, '', '2026-02-30T00:00:00Z', '2026-10-03T00:00:00', '2026-10-04T00:00:01Z', '2026-10-02T01:59:59Z']) {
     assert.throws(() => validateImplementationDate(value, registeredAt, reviewedAt));
   }

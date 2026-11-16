@@ -1,0 +1,1237 @@
+import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { z } from 'zod';
+import { getChatGPTStatus } from '../chatgpt-auth';
+import ChatGPTModel from '../chatgpt-model';
+import { loadGeoModel, shouldUseChatGPTSubscription } from '../connection-settings';
+import { singleRequestModel } from '../connection-test';
+import type { GeoLanguage } from '../i18n';
+import { OptimizationStateError, parseGitHubRepoSlug } from '../optimization';
+import { loadProjectSeed } from '../project-data';
+import { withGeoProject } from '../projects';
+import type { ResearchBatch, ResearchEngine } from '../research-types';
+import { extractOutreachCitedPages } from '../research-view';
+import { getGeoState } from '../store';
+import type { GeoProject } from '../types';
+import {
+  getOutreachRecord,
+  readOutreachRecords,
+  upsertOutreachRecord,
+  type AwesomePrDraft,
+  type CommunityPostDraft,
+  type OutreachActionRecord,
+  type RepoMetaDraft,
+} from './outreach-store';
+
+const SAFE_GH_SEGMENT_RE = /^[A-Za-z0-9_.-]{1,100}$/;
+const LIST_HEADING_PRIORITY_RE =
+  /tools|open[- ]source|monitoring|analytics|tracking|visibility|platforms|software|projects|resources|trackers|utilities/i;
+const SKIP_HEADING_RE = /table of contents|contents|contributing|license|acknowledg/i;
+const LIST_ITEM_RE = /^\s*([-*])\s+(.*)$/;
+
+interface RepoMetaSnapshot {
+  description: string;
+  homepage: string;
+  topics: string[];
+  fetchedAt: number;
+}
+
+const repoMetaCache = new Map<string, RepoMetaSnapshot>();
+const REPO_META_CACHE_TTL_MS = 60_000;
+
+function assertSafeGitHubSlug(owner: string, repo: string): { owner: string; repo: string } {
+  const cleanOwner = owner.trim();
+  const cleanRepo = repo.trim();
+  if (!SAFE_GH_SEGMENT_RE.test(cleanOwner) || !SAFE_GH_SEGMENT_RE.test(cleanRepo)) {
+    throw new OptimizationStateError('GitHub 仓库标识格式无效。', 400);
+  }
+  return { owner: cleanOwner, repo: cleanRepo };
+}
+
+function resolveEgoBrowserBin(): string | null {
+  const candidates = [
+    process.env.EGO_BROWSER_BIN?.trim(),
+    path.join(os.homedir(), '.local', 'bin', 'ego-browser'),
+    '/opt/homebrew/bin/ego-browser',
+    '/usr/local/bin/ego-browser',
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      }
+    } catch {
+      // Try next binary location
+    }
+  }
+  return 'ego-browser';
+}
+
+function runGh(args: string[], timeout = 15_000, stdinInput?: string): string {
+  return execFileSync('gh', args, {
+    encoding: 'utf8',
+    timeout,
+    ...(stdinInput !== undefined ? { input: stdinInput } : {}),
+    stdio: [stdinInput !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+  }).trim();
+}
+
+function runGit(args: string[], cwd?: string, timeout = 30_000): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    timeout,
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: '0',
+      GCM_INTERACTIVE: 'never',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+}
+
+function fetchLiveRepoMeta(owner: string, repo: string): {
+  description: string;
+  homepage: string;
+  topics: string[];
+} | null {
+  const key = `${owner.toLowerCase()}/${repo.toLowerCase()}`;
+  const cached = repoMetaCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < REPO_META_CACHE_TTL_MS) {
+    return {
+      description: cached.description,
+      homepage: cached.homepage,
+      topics: cached.topics,
+    };
+  }
+  try {
+    const raw = runGh(
+      [
+        'api',
+        `repos/${owner}/${repo}`,
+        '--jq',
+        '{description, homepage, topics}',
+      ],
+      4_500,
+    );
+    const parsed = JSON.parse(raw) as {
+      description?: unknown;
+      homepage?: unknown;
+      topics?: unknown;
+    };
+    const snapshot: RepoMetaSnapshot = {
+      description: typeof parsed.description === 'string' ? parsed.description : '',
+      homepage: typeof parsed.homepage === 'string' ? parsed.homepage : '',
+      topics: Array.isArray(parsed.topics)
+        ? parsed.topics.filter((t): t is string => typeof t === 'string')
+        : [],
+      fetchedAt: Date.now(),
+    };
+    repoMetaCache.set(key, snapshot);
+    return {
+      description: snapshot.description,
+      homepage: snapshot.homepage,
+      topics: snapshot.topics,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function generateStructuredJson<T>(
+  schema: z.ZodType<T>,
+  systemPrompt: string,
+  userPayload: unknown,
+): Promise<T | null> {
+  const controller = new AbortController();
+  const timeoutMs = 25_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const subscription = shouldUseChatGPTSubscription(getChatGPTStatus());
+    const model = subscription
+      ? new ChatGPTModel({ signal: controller.signal, timeoutMs })
+      : singleRequestModel(await loadGeoModel(), fetch, controller.signal, timeoutMs);
+
+    const raw = await model.generateObject({
+      schema,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: JSON.stringify(userPayload) },
+      ],
+      options: { temperature: 0.3, maxTokens: 1400 },
+    });
+    const parsed = schema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function normalizeUrlMatchToken(url: string): string {
+  return url
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\/(www\.)?/, '')
+    .replace(/[?#].*$/, '')
+    .replace(/\/+$/, '');
+}
+
+export interface AwesomeInsertionResult {
+  updatedReadme: string;
+  sectionHeading: string;
+  insertedLine: string;
+  contextSnippet: string;
+}
+
+export function parseAwesomeInsertion(
+  readmeContent: string,
+  project: Pick<GeoProject, 'name' | 'repositoryUrl' | 'siteUrl' | 'description'>,
+  modelSuggestion?: {
+    sectionHeading?: string;
+    description?: string;
+    insertedLine?: string;
+    stars?: number;
+    language?: string;
+  },
+): AwesomeInsertionResult {
+  const normalized = readmeContent.replace(/\r\n/g, '\n');
+  const primaryUrl = (project.repositoryUrl || project.siteUrl || '').trim();
+  if (!primaryUrl) {
+    throw new OptimizationStateError('当前项目缺少公开仓库或官网地址，无法生成榜单插入行。', 400);
+  }
+
+  const slug = parseGitHubRepoSlug(primaryUrl);
+  const urlTokens = [project.repositoryUrl, project.siteUrl]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map(normalizeUrlMatchToken);
+  const loweredReadme = normalized.toLowerCase();
+  if (
+    (slug && loweredReadme.includes(`${slug.owner.toLowerCase()}/${slug.repo.toLowerCase()}`)) ||
+    urlTokens.some((tok) => tok && loweredReadme.includes(tok))
+  ) {
+    throw new OptimizationStateError('该榜单仓库中已经包含你的项目链接，无需重复提交 PR。', 409);
+  }
+
+  if (modelSuggestion?.insertedLine?.trim()) {
+    const customLine = modelSuggestion.insertedLine.trim();
+    if (!customLine.includes(primaryUrl) && (!slug || !customLine.toLowerCase().includes(slug.repo.toLowerCase()))) {
+      throw new OptimizationStateError('提交行必须包含你的项目仓库或官网链接。', 400);
+    }
+  }
+
+  const lines = normalized.split('\n');
+  interface MarkdownSection {
+    heading: string;
+    headingLineIdx: number;
+    endLineIdx: number;
+    bulletLineIndexes: number[];
+    tableLineIndexes: number[];
+    tableHeaderLineIdx: number | null;
+    score: number;
+  }
+
+  const sections: MarkdownSection[] = [];
+  let current: MarkdownSection = {
+    heading: 'Overview',
+    headingLineIdx: -1,
+    endLineIdx: lines.length - 1,
+    bulletLineIndexes: [],
+    tableLineIndexes: [],
+    tableHeaderLineIdx: null,
+    score: 0,
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const headingMatch = lines[i].match(/^#{1,6}\s+(.+?)\s*$/);
+    if (headingMatch) {
+      current.endLineIdx = i - 1;
+      sections.push(current);
+      const heading = headingMatch[1].replace(/[#`*]/g, '').trim();
+      let score = LIST_HEADING_PRIORITY_RE.test(heading) ? 20 : 1;
+      if (SKIP_HEADING_RE.test(heading)) score = -20;
+      if (/^#{2,3}\s/.test(lines[i])) score += 3;
+      current = {
+        heading,
+        headingLineIdx: i,
+        endLineIdx: lines.length - 1,
+        bulletLineIndexes: [],
+        tableLineIndexes: [],
+        tableHeaderLineIdx: null,
+        score,
+      };
+      continue;
+    }
+
+    if (LIST_ITEM_RE.test(lines[i]) && /\[[^\]]+\]\(https?:\/\//.test(lines[i])) {
+      current.bulletLineIndexes.push(i);
+    } else if (/^\s*\|.+\|\s*$/.test(lines[i])) {
+      if (
+        current.tableHeaderLineIdx === null &&
+        i + 1 < lines.length &&
+        /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])
+      ) {
+        current.tableHeaderLineIdx = i;
+      } else if (/\[[^\]]+\]\(https?:\/\//.test(lines[i])) {
+        current.tableLineIndexes.push(i);
+      }
+    }
+  }
+  current.endLineIdx = lines.length - 1;
+  sections.push(current);
+
+  const listSections = sections.filter(
+    (s) => (s.bulletLineIndexes.length > 0 || s.tableLineIndexes.length > 0) && s.score >= 0,
+  );
+  const requestedHeading = modelSuggestion?.sectionHeading?.trim().toLowerCase();
+
+  let targetSection: MarkdownSection | undefined;
+  if (requestedHeading) {
+    targetSection =
+      listSections.find((s) => s.heading.toLowerCase() === requestedHeading) ??
+      listSections.find((s) => s.heading.toLowerCase().includes(requestedHeading)) ??
+      sections.find((s) => s.heading.toLowerCase().includes(requestedHeading));
+  }
+  if (!targetSection && listSections.length > 0) {
+    targetSection = [...listSections].sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.bulletLineIndexes.length + b.tableLineIndexes.length - (a.bulletLineIndexes.length + a.tableLineIndexes.length),
+    )[0];
+  }
+
+  let insertAtLineIdx = lines.length;
+  let bulletPrefix = '- ';
+  let useBoldName = false;
+  let separator = ' - ';
+  let trailingPeriod = true;
+  let sectionHeading = 'Open-Source Tools';
+  let tableFormattedLine: string | null = null;
+
+  const rawDesc = (
+    modelSuggestion?.description ||
+    project.description ||
+    'Open-source, local-first AI search visibility & GEO workbench.'
+  )
+    .replace(/\s+/g, ' ')
+    .replace(/\|/g, '/')
+    .trim()
+    .replace(/\.+$/, '');
+  const shortDesc = rawDesc.length > 140 ? `${rawDesc.slice(0, 136).trimEnd()}...` : rawDesc;
+
+  if (targetSection && targetSection.tableLineIndexes.length > 0 && targetSection.bulletLineIndexes.length === 0) {
+    sectionHeading = targetSection.heading;
+    const headerCells =
+      targetSection.tableHeaderLineIdx !== null
+        ? lines[targetSection.tableHeaderLineIdx]
+            .split('|')
+            .slice(1, -1)
+            .map((cell) => cell.trim())
+        : ['Repository', 'Description'];
+    const sampleRow = lines[targetSection.tableLineIndexes[0]];
+    const sampleCells = sampleRow.split('|').slice(1, -1).map((c) => c.trim());
+    const starsVal = typeof modelSuggestion?.stars === 'number' ? modelSuggestion.stars : 0;
+    const langVal = modelSuggestion?.language?.trim() || 'TypeScript';
+
+    const rowCells = headerCells.map((header, idx) => {
+      const h = header.toLowerCase();
+      const sample = sampleCells[idx] || '';
+      if (idx === 0 || /repo|name|tool|project/i.test(h)) {
+        return `[${project.name}](${primaryUrl})`;
+      }
+      if (/star/i.test(h)) {
+        return sample.includes('⭐') ? `⭐ ${starsVal}` : `${starsVal}`;
+      }
+      if (/type|kind|category/i.test(h)) {
+        return sample.includes('🔧') ? '🔧 Tool' : 'Tool';
+      }
+      if (/lang/i.test(h)) {
+        return langVal;
+      }
+      if (/desc|summary|about|what/i.test(h) || idx === headerCells.length - 1) {
+        return `${shortDesc}.`;
+      }
+      if (/licen/i.test(h)) {
+        return 'MIT';
+      }
+      return '-';
+    });
+    tableFormattedLine = `| ${rowCells.join(' | ')} |`;
+    insertAtLineIdx = targetSection.tableLineIndexes.at(-1)! + 1;
+  } else if (targetSection && targetSection.bulletLineIndexes.length > 0) {
+    sectionHeading = targetSection.heading;
+    const sampleLines = targetSection.bulletLineIndexes.map((idx) => lines[idx]);
+    const asteriskCount = sampleLines.filter((l) => /^\s*\*/.test(l)).length;
+    if (asteriskCount > sampleLines.length / 2) bulletPrefix = '* ';
+    const boldCount = sampleLines.filter((l) => /^\s*[-*]\s+\*\*\[/.test(l)).length;
+    useBoldName = boldCount > sampleLines.length / 2;
+    if (sampleLines.some((l) => /\]\([^)]+\)(?:\*\*)?\s+—\s+/.test(l))) separator = ' — ';
+    else if (sampleLines.some((l) => /\]\([^)]+\)(?:\*\*)?\s+–\s+/.test(l))) separator = ' – ';
+    else if (sampleLines.some((l) => /\]\([^)]+\)(?:\*\*)?:\s+/.test(l))) separator = ': ';
+
+    const periodCount = sampleLines.filter((l) => /\.\s*$/.test(l)).length;
+    trailingPeriod = periodCount >= sampleLines.length / 2;
+
+    const lastBulletIdx = targetSection.bulletLineIndexes.at(-1)!;
+    insertAtLineIdx = lastBulletIdx + 1;
+    // Skip indented continuation lines belonging to the last bullet
+    while (
+      insertAtLineIdx <= targetSection.endLineIdx &&
+      /^\s{2,}\S/.test(lines[insertAtLineIdx] ?? '')
+    ) {
+      insertAtLineIdx += 1;
+    }
+  } else if (targetSection) {
+    sectionHeading = targetSection.heading;
+    insertAtLineIdx = targetSection.headingLineIdx + 1;
+  }
+
+  const formattedDesc = trailingPeriod ? `${shortDesc}.` : shortDesc;
+  const linkedName = useBoldName
+    ? `**[${project.name}](${primaryUrl})**`
+    : `[${project.name}](${primaryUrl})`;
+
+  const insertedLine =
+    modelSuggestion?.insertedLine?.trim() ||
+    tableFormattedLine ||
+    `${bulletPrefix}${linkedName}${separator}${formattedDesc}`;
+
+  const nextLines = [...lines];
+  if (targetSection) {
+    nextLines.splice(insertAtLineIdx, 0, insertedLine);
+  } else {
+    while (nextLines.length > 0 && nextLines[nextLines.length - 1] === '') {
+      nextLines.pop();
+    }
+    insertAtLineIdx = nextLines.length + 2;
+    nextLines.push('', `## ${sectionHeading}`, '', insertedLine);
+  }
+
+  const contextStart = Math.max(0, insertAtLineIdx - 2);
+  const contextEnd = Math.min(nextLines.length - 1, insertAtLineIdx + 1);
+  const contextLines: string[] = [];
+  for (let i = contextStart; i <= contextEnd; i += 1) {
+    contextLines.push(i === insertAtLineIdx ? `+ ${nextLines[i]}` : `  ${nextLines[i]}`);
+  }
+
+  return {
+    updatedReadme: `${nextLines.join('\n').replace(/\n+$/, '')}\n`,
+    sectionHeading,
+    insertedLine,
+    contextSnippet: contextLines.join('\n'),
+  };
+}
+
+function discoverCitedAwesomeRepos(
+  batch: ResearchBatch | null,
+  ownSlug: { owner: string; repo: string } | null,
+): Array<{
+  owner: string;
+  repo: string;
+  url: string;
+  citedCount: number;
+  citedEngines: ResearchEngine[];
+}> {
+  if (!batch) return [];
+  const byRepo = new Map<
+    string,
+    {
+      owner: string;
+      repo: string;
+      url: string;
+      questionIds: Set<string>;
+      engines: Set<ResearchEngine>;
+    }
+  >();
+
+  for (const question of batch.questions ?? []) {
+    for (const obs of question.observations ?? []) {
+      for (const source of obs.sources ?? []) {
+        const rawUrl = (source.url || '').trim();
+        let parsedUrl: URL;
+        try {
+          parsedUrl = new URL(rawUrl);
+        } catch {
+          continue;
+        }
+        if (parsedUrl.hostname.replace(/^www\./, '').toLowerCase() !== 'github.com') continue;
+        const segments = parsedUrl.pathname.split('/').filter(Boolean);
+        if (segments.length < 2) continue;
+        const owner = segments[0];
+        const repo = segments[1].replace(/\.git$/i, '');
+        if (!SAFE_GH_SEGMENT_RE.test(owner) || !SAFE_GH_SEGMENT_RE.test(repo)) continue;
+        if (owner.toLowerCase() === 'topics') continue;
+        if (
+          ownSlug &&
+          owner.toLowerCase() === ownSlug.owner.toLowerCase() &&
+          repo.toLowerCase() === ownSlug.repo.toLowerCase()
+        ) {
+          continue;
+        }
+        const combinedLabel = `${repo} ${source.title || ''}`;
+        if (!/awesome|list|directory|curated|resources|collection/i.test(combinedLabel)) {
+          continue;
+        }
+        const key = `${owner.toLowerCase()}/${repo.toLowerCase()}`;
+        const existing = byRepo.get(key);
+        if (!existing) {
+          byRepo.set(key, {
+            owner,
+            repo,
+            url: `https://github.com/${owner}/${repo}`,
+            questionIds: new Set([question.id]),
+            engines: new Set([obs.engine]),
+          });
+        } else {
+          existing.questionIds.add(question.id);
+          existing.engines.add(obs.engine);
+        }
+      }
+    }
+  }
+
+  return [...byRepo.values()]
+    .sort((a, b) => b.questionIds.size - a.questionIds.size || a.repo.localeCompare(b.repo))
+    .slice(0, 4)
+    .map((entry) => ({
+      owner: entry.owner,
+      repo: entry.repo,
+      url: entry.url,
+      citedCount: entry.questionIds.size,
+      citedEngines: [...entry.engines],
+    }));
+}
+
+function buildDefaultShowHnDraft(project: GeoProject): CommunityPostDraft {
+  const repoSlug = parseGitHubRepoSlug(project.repositoryUrl);
+  const repoLabel = repoSlug ? `${repoSlug.owner}/${repoSlug.repo}` : project.name;
+  const cleanSummary = (project.description || '').replace(/\s+/g, ' ').trim();
+  const shortAngle = cleanSummary
+    ? cleanSummary.replace(/\.+$/, '')
+    : 'Local-first AI search visibility & GEO audit workbench';
+
+  return {
+    channelLabel: 'Hacker News · Show HN',
+    submitUrl: 'https://news.ycombinator.com/submit',
+    draftUrl: project.repositoryUrl || project.siteUrl || '',
+    draftTitle: `Show HN: ${project.name} – ${shortAngle.slice(0, 62)}`,
+    draftBody: [
+      `Hey HN, I built ${project.name} (${repoLabel}) because I got frustrated paying or wiring SaaS trackers that only hit raw model APIs and show opaque 0–100 visibility scores.`,
+      ``,
+      `Instead of API proxies, ${project.name} uses your local browser session (temporary chat / incognito) to ask buyer-intent prompts on ChatGPT web & Google AI Overviews, captures the actual cited URLs and prose verbatim, and runs strict attribution checks (including excluding same-named projects).`,
+      ``,
+      `Would love blunt feedback from other maintainers trying to see whether LLMs actually recognize their project or cite someone else.`,
+    ].join('\n'),
+  };
+}
+
+function buildDefaultDevtoDraft(project: GeoProject): CommunityPostDraft {
+  const targetUrl = project.repositoryUrl || project.siteUrl || '';
+  return {
+    channelLabel: 'Dev.to · Technical Post',
+    submitUrl: 'https://dev.to/new',
+    draftUrl: targetUrl,
+    draftTitle: `How to Audit Why ChatGPT Confuses Your Open-Source Project (and Fix It Locally)`,
+    draftBody: [
+      `When we asked ChatGPT directly about **${project.name}**, it didn't say "I don't know"—it pulled up three unrelated projects with the same name.`,
+      ``,
+      `## What actually happens in AI search answers`,
+      `1. **Same-name collision beats your README**: Until external lists or write-ups point clearly to your repository, models merge similar names.`,
+      `2. **API answers != web search answers**: Model APIs don't reproduce what real users see in ChatGPT Search or Google AI Overviews with live source citations.`,
+      ``,
+      `## Checking citations locally without SaaS scores`,
+      `I packaged our audit loop into an open-source local workbench (**[${project.name}](${targetUrl})**) that:`,
+      `- Captures real browser answers in temporary chat / incognito mode`,
+      `- Records exact cited domains vs. your published pages`,
+      `- Tracks before/after changes across indexing windows`,
+      ``,
+      `Repo & setup guide: ${targetUrl}`,
+    ].join('\n'),
+  };
+}
+
+export function listOutreachActions(
+  projectId: string,
+  lang: GeoLanguage = 'zh',
+): OutreachActionRecord[] {
+  const isEn = lang === 'en';
+  const seed = loadProjectSeed(projectId);
+  const project = seed.project;
+  const latestBatch = withGeoProject(projectId, () => getGeoState().latestResearch) ?? null;
+  const persistedList = readOutreachRecords(projectId);
+  const persistedMap = new Map(persistedList.map((r) => [r.id, r]));
+  const now = new Date().toISOString();
+
+  const records: OutreachActionRecord[] = [];
+  const ownSlug = parseGitHubRepoSlug(project.repositoryUrl);
+
+  // 1. GitHub Repo Facade / Metadata Card
+  if (ownSlug) {
+    const saved = persistedMap.get('repo-meta');
+    const liveMeta = fetchLiveRepoMeta(ownSlug.owner, ownSlug.repo);
+    const currentDescription = liveMeta?.description ?? project.description ?? '';
+    const currentHomepage = liveMeta?.homepage ?? project.siteUrl ?? '';
+    const currentTopics = liveMeta?.topics ?? [];
+
+    const recommendedTopics = Array.from(
+      new Set([
+        ...currentTopics,
+        'generative-engine-optimization',
+        'ai-search-visibility',
+        'local-first',
+        'geo',
+      ]),
+    );
+    const suggestedHomepage =
+      currentHomepage.trim() ||
+      project.siteUrl?.trim() ||
+      `https://github.com/${ownSlug.owner}/${ownSlug.repo}#readme`;
+    const suggestedDescription =
+      saved?.repoMetaDraft?.suggestedDescription ||
+      (currentDescription.trim().length >= 30
+        ? currentDescription.trim()
+        : `${project.name} (${ownSlug.owner}/${ownSlug.repo}): Open-source, local-first AI search visibility workbench to audit real ChatGPT & Google AI citations.`);
+
+    const needsSync =
+      !currentHomepage.trim() || currentTopics.length < 4 || currentDescription.trim().length < 20;
+
+    const draft: RepoMetaDraft = {
+      owner: ownSlug.owner,
+      repo: ownSlug.repo,
+      currentDescription,
+      currentHomepage,
+      currentTopics,
+      suggestedDescription: saved?.repoMetaDraft?.suggestedDescription ?? suggestedDescription,
+      suggestedHomepage: saved?.repoMetaDraft?.suggestedHomepage ?? suggestedHomepage,
+      suggestedTopics: saved?.repoMetaDraft?.suggestedTopics ?? recommendedTopics,
+    };
+
+    records.push({
+      id: 'repo-meta',
+      kind: 'repo_meta',
+      title: isEn
+        ? `GitHub About & Topics (${ownSlug.owner}/${ownSlug.repo})`
+        : `GitHub 仓库门面与 Topics（${ownSlug.owner}/${ownSlug.repo}）`,
+      subtitle: isEn
+        ? !currentHomepage.trim()
+          ? 'Homepage URL is blank and topic pages like /topics/generative-engine-optimization are directly cited by ChatGPT.'
+          : 'Keep repo description, Homepage link, and AI-search topics crisp so search engines stop mixing homonyms.'
+        : !currentHomepage.trim()
+          ? '检测到当前 Homepage 为空；实测 ChatGPT 会直接引用 GitHub Topic 页，补齐主页与简介有助快速建索引。'
+          : '保持仓库 About 简介、Homepage 链接与 GEO Topics 标签清晰，防止同名项目混淆。',
+      targetUrl: `https://github.com/${ownSlug.owner}/${ownSlug.repo}`,
+      status: saved?.status ?? (needsSync ? 'prepared' : 'suggested'),
+      repoMetaDraft: draft,
+      ...(saved?.resultUrl ? { resultUrl: saved.resultUrl } : {}),
+      ...(saved?.completedAt ? { completedAt: saved.completedAt } : {}),
+      updatedAt: saved?.updatedAt ?? now,
+    });
+  }
+
+  // 2. Discovered AI-cited Awesome GitHub Repositories
+  const awesomeRepos = discoverCitedAwesomeRepos(latestBatch, ownSlug);
+  for (const repo of awesomeRepos) {
+    const id = `awesome:${repo.owner}/${repo.repo}`;
+    const saved = persistedMap.get(id);
+    records.push({
+      id,
+      kind: 'awesome_pr',
+      title: `${repo.owner}/${repo.repo}`,
+      subtitle: isEn
+        ? 'AI answers directly cite this GitHub list—preview the 1-line PR diff and submit cleanly.'
+        : 'AI 回答直接引用了这个 GitHub 榜单仓库——生成单行 Diff 预览后可一键 Fork 并提交 PR。',
+      targetUrl: repo.url,
+      citedCount: repo.citedCount,
+      citedEngines: repo.citedEngines,
+      status: saved?.status ?? 'suggested',
+      ...(saved?.awesomePrDraft ? { awesomePrDraft: saved.awesomePrDraft } : {}),
+      ...(saved?.resultUrl ? { resultUrl: saved.resultUrl } : {}),
+      ...(saved?.note ? { note: saved.note } : {}),
+      ...(saved?.completedAt ? { completedAt: saved.completedAt } : {}),
+      updatedAt: saved?.updatedAt ?? now,
+    });
+  }
+
+  // 3. Multi-Angle Community / Social Launch Drafts (Show HN + Dev.to)
+  const showHnSaved = persistedMap.get('post:show-hn');
+  records.push({
+    id: 'post:show-hn',
+    kind: 'community_post',
+    title: isEn ? 'Hacker News · Show HN Post' : 'Hacker News · Show HN 发布帖',
+    subtitle: isEn
+      ? 'Understated founder launch angle focused on real browser evidence vs. opaque SaaS scores.'
+      : '克制不吹牛的技术创始人口吻：聊“为何弃用黑盒 SaaS 跑分”，在已登录的 Ego Lite 打开提交页即可发布。',
+    targetUrl: 'https://news.ycombinator.com/submit',
+    status: showHnSaved?.status ?? 'prepared',
+    postDraft: showHnSaved?.postDraft ?? buildDefaultShowHnDraft(project),
+    ...(showHnSaved?.resultUrl ? { resultUrl: showHnSaved.resultUrl } : {}),
+    ...(showHnSaved?.note ? { note: showHnSaved.note } : {}),
+    ...(showHnSaved?.completedAt ? { completedAt: showHnSaved.completedAt } : {}),
+    updatedAt: showHnSaved?.updatedAt ?? now,
+  });
+
+  const devtoSaved = persistedMap.get('post:devto-angle');
+  records.push({
+    id: 'post:devto-angle',
+    kind: 'community_post',
+    title: isEn ? 'Dev.to · Technical Walkthrough Angle' : 'Dev.to · 多角度技术复盘长文',
+    subtitle: isEn
+      ? 'Practical how-to angle explaining homonym collision and real citation capture.'
+      : '从“怎么排查大模型把开源项目张冠李戴”切入的实战长文角度，多铺一条外部索引来源。',
+    targetUrl: 'https://dev.to/new',
+    status: devtoSaved?.status ?? 'prepared',
+    postDraft: devtoSaved?.postDraft ?? buildDefaultDevtoDraft(project),
+    ...(devtoSaved?.resultUrl ? { resultUrl: devtoSaved.resultUrl } : {}),
+    ...(devtoSaved?.note ? { note: devtoSaved.note } : {}),
+    ...(devtoSaved?.completedAt ? { completedAt: devtoSaved.completedAt } : {}),
+    updatedAt: devtoSaved?.updatedAt ?? now,
+  });
+
+  // 4. Cited External Threads / Articles (Reddit, HN, blogs)
+  const citedPages = extractOutreachCitedPages(
+    latestBatch,
+    { repositoryUrl: project.repositoryUrl ?? '', siteUrl: project.siteUrl ?? '' },
+    { limit: 6 },
+  ).filter(
+    (page) =>
+      !/github\.com\/[^/]+\/[^/]+/i.test(page.url) &&
+      !/github topics/i.test(page.title),
+  );
+
+  for (const page of citedPages.slice(0, 3)) {
+    const safeKey = createHash('sha256').update(page.url).digest('base64url').slice(0, 16);
+    const id = `post:thread:${safeKey}`;
+    const saved = persistedMap.get(id);
+    records.push({
+      id,
+      kind: 'community_post',
+      title: page.title,
+      subtitle: isEn
+        ? `${page.host} page already cited by AI — draft an honest developer note and open in Ego Lite.`
+        : `${page.host} 页面已被 AI 直接引用 — 生成一段不带广告味的开发者补充说明，并在 Ego Lite 打开原网页。`,
+      targetUrl: page.url,
+      citedCount: page.questionCount,
+      citedEngines: page.engines,
+      status: saved?.status ?? 'suggested',
+      ...(saved?.postDraft ? { postDraft: saved.postDraft } : {}),
+      ...(saved?.resultUrl ? { resultUrl: saved.resultUrl } : {}),
+      ...(saved?.note ? { note: saved.note } : {}),
+      ...(saved?.completedAt ? { completedAt: saved.completedAt } : {}),
+      updatedAt: saved?.updatedAt ?? now,
+    });
+  }
+
+  return records;
+}
+
+const awesomeAiSuggestionSchema = z.object({
+  sectionHeading: z.string().min(1).max(120),
+  description: z.string().min(8).max(160),
+});
+
+export async function prepareAwesomePrAction(
+  projectId: string,
+  actionId: string,
+  lang: GeoLanguage = 'zh',
+): Promise<OutreachActionRecord> {
+  const currentList = listOutreachActions(projectId, lang);
+  const existing = currentList.find((item) => item.id === actionId && item.kind === 'awesome_pr');
+  if (!existing) {
+    throw new OptimizationStateError('未找到该 Awesome 榜单条目。', 404);
+  }
+
+  const rawSlug = existing.id.slice('awesome:'.length);
+  const [rawOwner = '', rawRepo = ''] = rawSlug.split('/');
+  const { owner, repo } = assertSafeGitHubSlug(rawOwner, rawRepo);
+  const seed = loadProjectSeed(projectId);
+
+  let defaultBranch = 'main';
+  let readmeText = '';
+  try {
+    const repoRaw = runGh(['api', `repos/${owner}/${repo}`, '--jq', '{default_branch}']);
+    defaultBranch = (JSON.parse(repoRaw) as { default_branch?: string }).default_branch || 'main';
+    const readmeRaw = runGh(['api', `repos/${owner}/${repo}/readme`, '--jq', '{content}']);
+    const contentB64 = (JSON.parse(readmeRaw) as { content?: string }).content || '';
+    readmeText = Buffer.from(contentB64.replace(/\s+/g, ''), 'base64').toString('utf8');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new OptimizationStateError(`读取 ${owner}/${repo} README 失败：${msg}`, 502);
+  }
+
+  const headings = readmeText
+    .split(/\r?\n/)
+    .map((line) => line.match(/^#{1,6}\s+(.+?)\s*$/)?.[1]?.trim())
+    .filter((h): h is string => Boolean(h))
+    .slice(0, 30);
+
+  const aiSuggestion = await generateStructuredJson(
+    awesomeAiSuggestionSchema,
+    'You prepare clean 1-line entries for GitHub awesome lists. Pick the best existing heading from headings[] and write one concise, factual, hype-free English description (< 120 chars).',
+    {
+      targetRepo: `${owner}/${repo}`,
+      headings,
+      readmePreview: readmeText.slice(0, 4500),
+      project: {
+        name: seed.project.name,
+        url: seed.project.repositoryUrl || seed.project.siteUrl,
+        description: seed.project.description,
+      },
+    },
+  );
+
+  let ownStars = 0;
+  let ownLanguage = 'TypeScript';
+  const ownSlug = parseGitHubRepoSlug(seed.project.repositoryUrl);
+  if (ownSlug) {
+    try {
+      const ownRaw = runGh(
+        ['api', `repos/${ownSlug.owner}/${ownSlug.repo}`, '--jq', '{stargazers_count, language}'],
+        4000,
+      );
+      const ownParsed = JSON.parse(ownRaw) as { stargazers_count?: unknown; language?: unknown };
+      if (typeof ownParsed.stargazers_count === 'number') ownStars = ownParsed.stargazers_count;
+      if (typeof ownParsed.language === 'string' && ownParsed.language.trim()) {
+        ownLanguage = ownParsed.language.trim();
+      }
+    } catch {
+      // Fallback cleanly to defaults
+    }
+  }
+
+  const insertion = parseAwesomeInsertion(readmeText, seed.project, {
+    ...(aiSuggestion ?? {}),
+    stars: ownStars,
+    language: ownLanguage,
+  });
+  const draft: AwesomePrDraft = {
+    upstreamOwner: owner,
+    upstreamRepo: repo,
+    defaultBranch,
+    sectionHeading: insertion.sectionHeading,
+    insertedLine: insertion.insertedLine,
+    contextSnippet: insertion.contextSnippet,
+    prTitle: `Add ${seed.project.name} under ${insertion.sectionHeading}`,
+    prBody: [
+      `Hi! Adding [${seed.project.name}](${seed.project.repositoryUrl || seed.project.siteUrl}) under **${insertion.sectionHeading}**.`,
+      ``,
+      `It's an open-source, local-first AI search visibility workbench that captures live ChatGPT Web & Google AI Overview answers in your own browser and audits brand mentions/citations.`,
+      ``,
+      `Happy to adjust the wording or section placement if needed!`,
+    ].join('\n'),
+  };
+
+  return upsertOutreachRecord(projectId, {
+    ...existing,
+    status: 'prepared',
+    awesomePrDraft: draft,
+  });
+}
+
+export async function submitAwesomePrAction(
+  projectId: string,
+  actionId: string,
+  overrides?: { insertedLine?: string; prTitle?: string; prBody?: string },
+): Promise<OutreachActionRecord> {
+  const existing =
+    getOutreachRecord(projectId, actionId) ??
+    listOutreachActions(projectId, 'en').find((item) => item.id === actionId);
+  if (!existing || existing.kind !== 'awesome_pr') {
+    throw new OptimizationStateError('未找到该 Awesome 榜单 PR 任务。', 404);
+  }
+  const draft = existing.awesomePrDraft;
+  if (!draft) {
+    throw new OptimizationStateError('请先生成推荐行 Diff 预览，确认无误后再提交 PR。', 400);
+  }
+
+  const { owner, repo } = assertSafeGitHubSlug(draft.upstreamOwner, draft.upstreamRepo);
+  const seed = loadProjectSeed(projectId);
+
+  let viewerLogin = '';
+  try {
+    viewerLogin = runGh(['api', 'user', '--jq', '.login']);
+  } catch {
+    throw new OptimizationStateError('请先在本机执行 `gh auth login` 登录 GitHub 后再提交 PR。', 422);
+  }
+  if (!SAFE_GH_SEGMENT_RE.test(viewerLogin)) {
+    throw new OptimizationStateError('无法识别当前 GitHub 登录账号。', 422);
+  }
+
+  let readmePath = 'README.md';
+  let defaultBranch = draft.defaultBranch || 'main';
+  let freshReadme = '';
+  try {
+    const repoRaw = runGh(['api', `repos/${owner}/${repo}`, '--jq', '{default_branch}']);
+    defaultBranch = (JSON.parse(repoRaw) as { default_branch?: string }).default_branch || defaultBranch;
+    const readmeRaw = runGh(['api', `repos/${owner}/${repo}/readme`, '--jq', '{path, content}']);
+    const parsed = JSON.parse(readmeRaw) as { path?: string; content?: string };
+    readmePath = parsed.path || 'README.md';
+    freshReadme = Buffer.from((parsed.content || '').replace(/\s+/g, ''), 'base64').toString('utf8');
+  } catch (err) {
+    throw new OptimizationStateError(
+      `拉取 ${owner}/${repo} 最新 README 失败：${err instanceof Error ? err.message : String(err)}`,
+      502,
+    );
+  }
+
+  const insertion = parseAwesomeInsertion(freshReadme, seed.project, {
+    sectionHeading: draft.sectionHeading,
+    insertedLine: overrides?.insertedLine?.trim() || draft.insertedLine,
+  });
+
+  const cleanPrTitle = (overrides?.prTitle?.trim() || draft.prTitle).slice(0, 180);
+  const cleanPrBody = (overrides?.prBody?.trim() || draft.prBody).slice(0, 4000);
+  const sameOwner = viewerLogin.toLowerCase() === owner.toLowerCase();
+
+  if (!sameOwner) {
+    runGh(['repo', 'fork', `${owner}/${repo}`, '--clone=false'], 30_000);
+  }
+
+  const forkTarget = sameOwner ? `${owner}/${repo}` : `${viewerLogin}/${repo}`;
+  // GitHub fork provisioning can lag slightly; poll briefly until reachable.
+  let forkReady = false;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      runGh(['api', `repos/${forkTarget}`, '--jq', '.full_name'], 6_000);
+      forkReady = true;
+      break;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+  }
+  if (!forkReady) {
+    throw new OptimizationStateError(`已触发 Fork ${owner}/${repo}，但仓库尚未就绪，请几秒后重试。`, 502);
+  }
+
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'opengeo-awesome-pr-'));
+  const cloneDir = path.join(tempRoot, 'repo');
+  const ownSlug = parseGitHubRepoSlug(seed.project.repositoryUrl);
+  const branchSlug = (ownSlug?.repo || seed.project.name)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-|-$/g, '') || 'project';
+  const branchName = `add-${branchSlug}-${Date.now().toString(36).slice(-4)}`;
+
+  try {
+    runGh(['repo', 'clone', forkTarget, cloneDir, '--', '--depth', '1'], 30_000);
+    if (!sameOwner) {
+      runGit(
+        ['fetch', `https://github.com/${owner}/${repo}.git`, defaultBranch, '--depth=1'],
+        cloneDir,
+        30_000,
+      );
+      runGit(['checkout', '-B', branchName, 'FETCH_HEAD'], cloneDir);
+    } else {
+      runGit(['checkout', '-b', branchName], cloneDir);
+    }
+
+    const absReadme = path.resolve(cloneDir, readmePath);
+    if (!absReadme.startsWith(`${path.resolve(cloneDir)}${path.sep}`)) {
+      throw new OptimizationStateError('上游 README 路径不安全。', 400);
+    }
+    fs.writeFileSync(absReadme, insertion.updatedReadme, 'utf8');
+
+    try {
+      runGit(['config', '--get', 'user.name'], cloneDir);
+    } catch {
+      runGit(['config', 'user.name', viewerLogin], cloneDir);
+    }
+    try {
+      runGit(['config', '--get', 'user.email'], cloneDir);
+    } catch {
+      runGit(['config', 'user.email', `${viewerLogin}@users.noreply.github.com`], cloneDir);
+    }
+
+    runGit(['add', readmePath], cloneDir);
+    runGit(['commit', '-m', cleanPrTitle], cloneDir);
+    runGit(['push', '-u', 'origin', branchName], cloneDir, 30_000);
+
+    const headRef = sameOwner ? branchName : `${viewerLogin}:${branchName}`;
+    const prOutput = runGh(
+      [
+        'pr',
+        'create',
+        '--repo',
+        `${owner}/${repo}`,
+        '--head',
+        headRef,
+        '--base',
+        defaultBranch,
+        '--title',
+        cleanPrTitle,
+        '--body',
+        cleanPrBody,
+      ],
+      30_000,
+    );
+    const prUrl = prOutput.match(/https:\/\/github\.com\/[^\s]+\/pull\/\d+/)?.[0] || prOutput;
+
+    return upsertOutreachRecord(projectId, {
+      ...existing,
+      status: 'completed',
+      awesomePrDraft: {
+        ...draft,
+        insertedLine: insertion.insertedLine,
+        contextSnippet: insertion.contextSnippet,
+        prTitle: cleanPrTitle,
+        prBody: cleanPrBody,
+      },
+      resultUrl: prUrl,
+      note: `PR 已提交至 ${owner}/${repo} (${defaultBranch})`,
+      completedAt: new Date().toISOString(),
+    });
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+const communityAiSchema = z.object({
+  draftTitle: z.string().min(4).max(160),
+  draftBody: z.string().min(20).max(2500),
+});
+
+export async function prepareCommunityPostAction(
+  projectId: string,
+  actionId: string,
+  lang: GeoLanguage = 'zh',
+): Promise<OutreachActionRecord> {
+  const existing = listOutreachActions(projectId, lang).find(
+    (item) => item.id === actionId && item.kind === 'community_post',
+  );
+  if (!existing) {
+    throw new OptimizationStateError('未找到该社区发声任务。', 404);
+  }
+  const seed = loadProjectSeed(projectId);
+  const project = seed.project;
+  const repoUrl = project.repositoryUrl || project.siteUrl || '';
+
+  const aiDraft = await generateStructuredJson(
+    communityAiSchema,
+    'Write an authentic, non-salesy developer community post/comment in English (unless target page is Chinese). Never use hype, exclamation marks, or marketing cliches. Mention the open-source repo naturally once.',
+    {
+      channel: existing.postDraft?.channelLabel ?? existing.title,
+      targetUrl: existing.targetUrl,
+      project: {
+        name: project.name,
+        repoUrl,
+        description: project.description,
+      },
+    },
+  );
+
+  const fallbackDraft: CommunityPostDraft = existing.postDraft ?? {
+    channelLabel: existing.title,
+    submitUrl: existing.targetUrl,
+    draftUrl: repoUrl,
+    draftTitle: `Sharing a local-first way to check ChatGPT & Google AI citations (${project.name})`,
+    draftBody: [
+      `When benchmarking AI visibility tools recently, one gap stood out: API-only checks rarely match what logged-in users actually see in ChatGPT web search or Google AI Overviews.`,
+      ``,
+      `We built an open-source local workbench (${repoUrl}) to capture real temporary-chat answers in your own browser, compare cited URLs against competitors, and avoid paying SaaS subscriptions just to inspect raw evidence.`,
+      ``,
+      `Curious if anyone else here tests temporary-chat / web-answer outputs directly instead of relying solely on API prompts?`,
+    ].join('\n'),
+  };
+
+  const nextPostDraft: CommunityPostDraft = aiDraft
+    ? {
+        ...fallbackDraft,
+        draftTitle: aiDraft.draftTitle,
+        draftBody: aiDraft.draftBody,
+      }
+    : fallbackDraft;
+
+  return upsertOutreachRecord(projectId, {
+    ...existing,
+    status: 'prepared',
+    postDraft: nextPostDraft,
+  });
+}
+
+export async function openDraftInEgoLiteAction(input: {
+  targetUrl: string;
+  draftTitle?: string;
+  draftBody?: string;
+  draftUrl?: string;
+}): Promise<{ openedUrl: string }> {
+  const targetUrl = input.targetUrl.trim();
+  if (!/^https?:\/\//i.test(targetUrl)) {
+    throw new OptimizationStateError('只能打开 http:// 或 https:// 网页。', 400);
+  }
+
+  const egoBin = resolveEgoBrowserBin();
+  const script = `
+const targetUrl = ${JSON.stringify(targetUrl)};
+const draftTitle = ${JSON.stringify(input.draftTitle || '')};
+const draftBody = ${JSON.stringify(input.draftBody || '')};
+const draftUrl = ${JSON.stringify(input.draftUrl || '')};
+const task = await taskSpace("OpenGEO 发布工作台");
+const pages = await task.pages();
+const page = pages.length === 0 ? task.page("p1") : await task.newPage();
+await page.goto(targetUrl);
+if (/news\\.ycombinator\\.com\\/submit/i.test(targetUrl)) {
+  try {
+    await page.waitForSelector('input[name="title"]', { state: 'visible', timeout: 8000 });
+    if (draftTitle) await page.fill('input[name="title"]', draftTitle);
+    if (draftUrl) await page.fill('input[name="url"]', draftUrl);
+    if (draftBody) {
+      await page.evaluate((text) => {
+        const box = document.querySelector('textarea[name="text"]');
+        if (box) box.value = text;
+      }, draftBody);
+    }
+  } catch {
+    // User might need to sign in on HN first; keep tab open for manual post
+  }
+}
+const allPages = await task.pages();
+await task.finish({ keep: allPages.map((p) => p.label) });
+`;
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(egoBin || 'ego-browser', ['nodejs', '-e', script], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let errText = '';
+    child.stderr?.on('data', (chunk) => {
+      errText += chunk.toString();
+    });
+    child.on('error', (err) => {
+      reject(new OptimizationStateError(`无法打开 Ego Lite：${err.message}`, 500));
+    });
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(
+          new OptimizationStateError(
+            `Ego Lite 打开页面失败：${errText.trim().split('\n').pop() || `exit ${code}`}`,
+            500,
+          ),
+        );
+      }
+    });
+  });
+
+  if (process.platform === 'darwin') {
+    try {
+      spawn('open', ['-a', 'ego lite'], { stdio: 'ignore', detached: true }).unref();
+    } catch {
+      // Non-fatal if OS focus command fails
+    }
+  }
+
+  return { openedUrl: targetUrl };
+}
+
+export function updateRepoMetaAction(
+  projectId: string,
+  input: {
+    description: string;
+    homepage: string;
+    topics: string[];
+  },
+): OutreachActionRecord {
+  const existing = listOutreachActions(projectId, 'zh').find((item) => item.id === 'repo-meta');
+  if (!existing?.repoMetaDraft) {
+    throw new OptimizationStateError('当前项目未配置 GitHub 仓库，无法更新仓库门面信息。', 400);
+  }
+  const { owner, repo } = assertSafeGitHubSlug(
+    existing.repoMetaDraft.owner,
+    existing.repoMetaDraft.repo,
+  );
+  const description = input.description.trim().slice(0, 350);
+  const homepage = input.homepage.trim().slice(0, 300);
+  if (homepage && !/^https?:\/\//i.test(homepage)) {
+    throw new OptimizationStateError('Homepage 链接必须以 http:// 或 https:// 开头。', 400);
+  }
+  const cleanTopics = Array.from(
+    new Set(
+      input.topics
+        .map((t) => t.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-|-$/g, ''))
+        .filter((t) => t.length >= 1 && t.length <= 50),
+    ),
+  ).slice(0, 20);
+
+  try {
+    runGh([
+      'api',
+      '-X',
+      'PATCH',
+      `repos/${owner}/${repo}`,
+      '-f',
+      `description=${description}`,
+      '-f',
+      `homepage=${homepage}`,
+    ]);
+    if (cleanTopics.length > 0) {
+      runGh(
+        [
+          'api',
+          '-X',
+          'PUT',
+          `repos/${owner}/${repo}/topics`,
+          '-H',
+          'Accept: application/vnd.github+json',
+          '--input',
+          '-',
+        ],
+        15_000,
+        JSON.stringify({ names: cleanTopics }),
+      );
+    }
+  } catch (err) {
+    throw new OptimizationStateError(
+      `更新 GitHub 仓库信息失败：${err instanceof Error ? err.message : String(err)}`,
+      502,
+    );
+  }
+
+  repoMetaCache.delete(`${owner.toLowerCase()}/${repo.toLowerCase()}`);
+
+  return upsertOutreachRecord(projectId, {
+    ...existing,
+    status: 'completed',
+    repoMetaDraft: {
+      ...existing.repoMetaDraft,
+      currentDescription: description,
+      currentHomepage: homepage,
+      currentTopics: cleanTopics,
+      suggestedDescription: description,
+      suggestedHomepage: homepage,
+      suggestedTopics: cleanTopics,
+    },
+    resultUrl: `https://github.com/${owner}/${repo}`,
+    note: `已更新 ${owner}/${repo} 的 About 简介、Homepage 与 ${cleanTopics.length} 个 Topics`,
+    completedAt: new Date().toISOString(),
+  });
+}
+
+export function markOutreachStatusAction(
+  projectId: string,
+  actionId: string,
+  status: 'completed' | 'skipped',
+  options?: { resultUrl?: string; note?: string },
+): OutreachActionRecord {
+  const existing = listOutreachActions(projectId, 'zh').find((item) => item.id === actionId);
+  if (!existing) {
+    throw new OptimizationStateError('未找到对应的行动卡片。', 404);
+  }
+  const cleanResultUrl = options?.resultUrl?.trim();
+  if (cleanResultUrl && !/^https?:\/\//i.test(cleanResultUrl)) {
+    throw new OptimizationStateError('公开链接必须以 http:// 或 https:// 开头。', 400);
+  }
+
+  return upsertOutreachRecord(projectId, {
+    ...existing,
+    status,
+    ...(cleanResultUrl ? { resultUrl: cleanResultUrl } : status === 'completed' ? { resultUrl: existing.resultUrl || existing.targetUrl } : {}),
+    ...(options?.note?.trim() ? { note: options.note.trim() } : {}),
+    ...(status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
+  });
+}

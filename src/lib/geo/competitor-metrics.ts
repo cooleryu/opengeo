@@ -14,7 +14,7 @@ export interface CompetitorMentionSummary {
 export function isCompetitorAnswerRow(row: CompetitorRow): boolean {
   if (row.entryType)
     return row.entryType === 'web_answer' || row.entryType === 'api_answer';
-  return ['chatgpt', 'qwen', 'doubao'].includes(row.engine);
+  return row.engine === 'chatgpt';
 }
 
 /** Repeated observations must not change the weight of one question. */

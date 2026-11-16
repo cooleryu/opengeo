@@ -13,10 +13,18 @@ test('known hosts match bare Umami domains and HTTP(S) referrer URLs', () => {
     assert.equal(match?.observedHost, 'chatgpt.com');
     assert.equal(match?.evidence, 'referrer-host');
   }
-  assert.equal(
-    identifyAiReferral('chat.deepseek.com')?.host,
-    'chat.deepseek.com',
-  );
+  for (const [source, expectedHost] of [
+    ['chat.openai.com', 'chat.openai.com'],
+    ['claude.ai', 'claude.ai'],
+    ['perplexity.ai', 'perplexity.ai'],
+    ['www.perplexity.ai', 'www.perplexity.ai'],
+    ['app.perplexity.ai', 'app.perplexity.ai'],
+    ['gemini.google.com', 'gemini.google.com'],
+    ['copilot.microsoft.com', 'copilot.microsoft.com'],
+  ]) {
+    assert.equal(identifyAiReferral(source)?.host, expectedHost);
+  }
+  assert.equal(identifyAiReferral('news.ycombinator.com'), null);
 });
 
 test('lookalike suffixes, unlisted subdomains, and credential tricks do not match', () => {

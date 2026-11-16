@@ -15,9 +15,6 @@ import {
 import { resolveProjectTargetLanguage, resolveProjectUiLanguage } from '../i18n';
 import { loadProjectSeed } from '../project-data';
 import { projectDataDirectory, withGeoProject } from '../projects';
-import { getCollectionConfig, requireCollectionKey } from '../providers/config';
-import { buildDoubaoRequest, parseDoubaoAnswer } from '../providers/doubao';
-import { buildQwenRequest, parseQwenAnswer } from '../providers/qwen';
 import type { CollectedAnswer } from '../providers/types';
 import type { ResearchEngine, ResearchObservation } from '../research-types';
 import {
@@ -28,7 +25,9 @@ import {
 } from './agents';
 import {
   appendRunProgress,
+  computeRetestComparison,
   createOptimizationRunRecord,
+  deleteDiscardableOptimizationRun,
   getOptimizationRun,
   insertDeliverableSkeleton,
   OptimizationStateError,
@@ -246,10 +245,92 @@ async function generateZhCompanionForDeliverable(
   return mergeZhCompanionFile(deliv.companionFiles, nextFile);
 }
 
+export class OptimizationCancelledError extends OptimizationStateError {
+  constructor(message = '已终止本次生成。') {
+    super(message, 499);
+  }
+}
+
+const activeRunControllers = new Map<string, { runId: string; controller: AbortController }>();
+
+function attachRunAbortController(
+  projectId: string,
+  runId: string,
+  externalSignal?: AbortSignal,
+) {
+  const controller = new AbortController();
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
+  activeRunControllers.set(projectId, { runId, controller });
+
+  const throwIfAborted = () => {
+    if (controller.signal.aborted || !getOptimizationRun(projectId, runId)) {
+      throw new OptimizationCancelledError();
+    }
+  };
+
+  const cleanup = () => {
+    externalSignal?.removeEventListener('abort', onExternalAbort);
+    if (activeRunControllers.get(projectId)?.runId === runId) {
+      activeRunControllers.delete(projectId);
+    }
+  };
+
+  return { controller, throwIfAborted, cleanup };
+}
+
+function handleRunCancellationOrFailure(
+  projectId: string,
+  runId: string,
+  controller: AbortController,
+  error: unknown,
+  fallbackMessage: string,
+): OptimizationRun {
+  if (
+    controller.signal.aborted ||
+    error instanceof OptimizationCancelledError ||
+    !getOptimizationRun(projectId, runId)
+  ) {
+    try {
+      deleteDiscardableOptimizationRun(projectId, runId);
+    } catch {
+      // Ignore if run already had shipped deliverables
+    }
+    throw new OptimizationCancelledError();
+  }
+  const message = error instanceof Error ? error.message : fallbackMessage;
+  return transitionOptimizationRun(projectId, runId, 'failed', {
+    statusMessage: `未能完成：${message}`,
+    errorMessage: message,
+    recordStep: true,
+  });
+}
+
+export function cancelOptimizationRun(
+  projectId: string,
+  runId?: string,
+): { cancelledRunId: string | null } {
+  const active = activeRunControllers.get(projectId);
+  if (active && (!runId || active.runId === runId)) {
+    active.controller.abort();
+    activeRunControllers.delete(projectId);
+  }
+  const { deletedRunId } = deleteDiscardableOptimizationRun(projectId, runId || active?.runId);
+  return { cancelledRunId: deletedRunId ?? active?.runId ?? null };
+}
+
 export interface StartOptimizationOptions {
   mode?: OptimizationRunMode;
   targetLanguage?: 'en' | 'zh';
   includeChineseCompanion?: boolean;
+  onlyNewContent?: boolean;
+  angleBrief?: string;
   transport?: LLMTransport;
   preferredProvider?: 'gemini' | 'deepseek';
   probeWinners?: typeof selectAndProbeReferenceWinners;
@@ -261,7 +342,7 @@ export async function startOptimizationRun(
   projectId: string,
   options: StartOptimizationOptions = {},
 ): Promise<OptimizationRun> {
-  const mode = options.mode ?? 'deep';
+  const mode = options.mode ?? (options.onlyNewContent ? 'focus' : 'deep');
   const preferredProvider = resolveDefaultPreferredProvider(options.preferredProvider, options.transport);
   const seed = loadProjectSeed(projectId);
   const targetLanguage =
@@ -280,26 +361,42 @@ export async function startOptimizationRun(
   let run = createOptimizationRunRecord(
     projectId,
     mode,
-    '正在梳理项目的全部监测问题与真实搜索回答，寻找最关键的突破口…',
+    options.onlyNewContent
+      ? '正在按你选定的角度梳理现有内容与真实回答，准备撰写新文章…'
+      : '正在梳理项目的全部监测问题与真实搜索回答，寻找最关键的突破口…',
+  );
+  const { controller, throwIfAborted, cleanup } = attachRunAbortController(
+    projectId,
+    run.id,
+    options.signal,
   );
 
   const emitProgress = (step: HumanProgressStep) => {
+    if (controller.signal.aborted) return;
     appendRunProgress(projectId, run.id, step);
     options.onProgress?.(step, run.status);
   };
 
   try {
+    throwIfAborted();
     const planRes = await defaultAgentHub.run(
       optimizationStrategistAgent,
-      { mode, targetLanguage, uiLanguage },
+      {
+        mode,
+        targetLanguage,
+        uiLanguage,
+        onlyNewContent: options.onlyNewContent,
+        angleBrief: options.angleBrief,
+      },
       {
         projectId,
         transport: options.transport,
         preferredProvider,
         onProgress: emitProgress,
-        signal: options.signal,
+        signal: controller.signal,
       },
     );
+    throwIfAborted();
 
     const activeQuestions = withProjectDb(projectId, (db, id) => {
       ensureProjectRelationalData(id, db);
@@ -350,11 +447,14 @@ export async function startOptimizationRun(
 
     run = transitionOptimizationRun(projectId, run.id, 'drafting', {
       summary: planRes.output.summary,
-      statusMessage: `已锁定核心突破口，正在精写旗舰成稿（共 ${createdDeliverables.length} 份）…`,
+      statusMessage: options.onlyNewContent
+        ? '正在按你选定的角度撰写 1 篇独立获客长文…'
+        : `已锁定核心突破口，正在精写旗舰成稿（共 ${createdDeliverables.length} 份）…`,
       recordStep: true,
     });
 
     for (const { planned, record } of createdDeliverables) {
+      throwIfAborted();
       const targetQuestions = planned.questionIds
         .map((qid) => questionLookup.get(qid))
         .filter((q): q is { id: string; queryZh: string; queryEn: string } => Boolean(q));
@@ -372,6 +472,7 @@ export async function startOptimizationRun(
         maxWinners: 3,
         timeoutMs: 4000,
       }).catch(() => [] as ReferenceWinner[]);
+      throwIfAborted();
       if (referenceWinners.length > 0) {
         updateDeliverableRecord(projectId, record.id, { referenceWinners });
       }
@@ -390,9 +491,10 @@ export async function startOptimizationRun(
           transport: options.transport,
           preferredProvider,
           onProgress: emitProgress,
-          signal: options.signal,
+          signal: controller.signal,
         },
       );
+      throwIfAborted();
 
       let finalTitle = writerRes.output.title;
       let finalContent = normalizeDeliverableContent(
@@ -430,9 +532,10 @@ export async function startOptimizationRun(
           transport: options.transport,
           preferredProvider,
           onProgress: emitProgress,
-          signal: options.signal,
+          signal: controller.signal,
         },
       );
+      throwIfAborted();
 
       let revisionRound = 0;
 
@@ -471,9 +574,10 @@ export async function startOptimizationRun(
             transport: options.transport,
             preferredProvider,
             onProgress: emitProgress,
-            signal: options.signal,
+            signal: controller.signal,
           },
         );
+        throwIfAborted();
 
         finalTitle = writerRes.output.title;
         finalContent = normalizeDeliverableContent(
@@ -510,9 +614,10 @@ export async function startOptimizationRun(
             transport: options.transport,
             preferredProvider,
             onProgress: emitProgress,
-            signal: options.signal,
+            signal: controller.signal,
           },
         );
+        throwIfAborted();
       }
 
       const finalReview: DeliverableReviewResult = {
@@ -557,9 +662,10 @@ export async function startOptimizationRun(
             transport: options.transport,
             preferredProvider,
             onProgress: emitProgress,
-            signal: options.signal,
+            signal: controller.signal,
           },
         );
+        throwIfAborted();
       }
 
       updateDeliverableRecord(projectId, record.id, {
@@ -569,6 +675,7 @@ export async function startOptimizationRun(
       });
     }
 
+    throwIfAborted();
     if (run.status === 'drafting') {
       run = transitionOptimizationRun(projectId, run.id, 'reviewing', {
         statusMessage: '已完成已有成稿把关核对…',
@@ -580,12 +687,15 @@ export async function startOptimizationRun(
       recordStep: true,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : '优化生成过程中出现异常。';
-    return transitionOptimizationRun(projectId, run.id, 'failed', {
-      statusMessage: `未能完成：${message}`,
-      errorMessage: message,
-      recordStep: true,
-    });
+    return handleRunCancellationOrFailure(
+      projectId,
+      run.id,
+      controller,
+      error,
+      '优化生成过程中出现异常。',
+    );
+  } finally {
+    cleanup();
   }
 }
 
@@ -612,13 +722,20 @@ export async function resumeOptimizationRun(
     errorMessage: null,
     recordStep: true,
   });
+  const { controller, throwIfAborted, cleanup } = attachRunAbortController(
+    projectId,
+    run.id,
+    options.signal,
+  );
 
   const emitProgress = (step: HumanProgressStep) => {
+    if (controller.signal.aborted) return;
     appendRunProgress(projectId, run.id, step);
     options.onProgress?.(step, run.status);
   };
 
   try {
+    throwIfAborted();
     const seed = loadProjectSeed(projectId);
     const targetLanguage =
       seed.project.targetLanguage ??
@@ -634,6 +751,7 @@ export async function resumeOptimizationRun(
     const questionLookup = new Map(activeQuestions.map((q) => [q.id, q]));
 
     for (const record of existing.deliverables) {
+      throwIfAborted();
       if (record.status === 'ready' && record.review?.verdict === 'pass') continue;
 
       const targetQuestions = record.questionIds
@@ -668,6 +786,7 @@ export async function resumeOptimizationRun(
           maxWinners: 3,
           timeoutMs: 4000,
         }).catch(() => [] as ReferenceWinner[]);
+        throwIfAborted();
         if (referenceWinners.length > 0) {
           updateDeliverableRecord(projectId, record.id, { referenceWinners });
         }
@@ -691,9 +810,10 @@ export async function resumeOptimizationRun(
           transport: options.transport,
           preferredProvider,
           onProgress: emitProgress,
-          signal: options.signal,
+          signal: controller.signal,
         },
       );
+      throwIfAborted();
 
       const initialContent = normalizeDeliverableContent(
         planned.kind,
@@ -729,9 +849,10 @@ export async function resumeOptimizationRun(
           transport: options.transport,
           preferredProvider,
           onProgress: emitProgress,
-          signal: options.signal,
+          signal: controller.signal,
         },
       );
+      throwIfAborted();
 
       const finalReview: DeliverableReviewResult = {
         verdict: reviewRes.output.verdict,
@@ -775,9 +896,10 @@ export async function resumeOptimizationRun(
             transport: options.transport,
             preferredProvider,
             onProgress: emitProgress,
-            signal: options.signal,
+            signal: controller.signal,
           },
         );
+        throwIfAborted();
       }
 
       updateDeliverableRecord(projectId, record.id, {
@@ -787,6 +909,7 @@ export async function resumeOptimizationRun(
       });
     }
 
+    throwIfAborted();
     if (run.status === 'drafting') {
       run = transitionOptimizationRun(projectId, run.id, 'reviewing', {
         statusMessage: '已完成已有成稿把关核对…',
@@ -798,12 +921,15 @@ export async function resumeOptimizationRun(
       recordStep: true,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : '继续修订过程中出现异常。';
-    return transitionOptimizationRun(projectId, run.id, 'failed', {
-      statusMessage: `未能完成：${message}`,
-      errorMessage: message,
-      recordStep: true,
-    });
+    return handleRunCancellationOrFailure(
+      projectId,
+      run.id,
+      controller,
+      error,
+      '继续修订过程中出现异常。',
+    );
+  } finally {
+    cleanup();
   }
 }
 
@@ -991,7 +1117,6 @@ export interface CapturedRetestAnswer {
 
 export interface RunOptimizationRetestOptions {
   capturedAnswers?: CapturedRetestAnswer[];
-  liveProvider?: 'qwen' | 'doubao';
   transport?: LLMTransport;
   preferredProvider?: 'gemini' | 'deepseek';
 }
@@ -1043,12 +1168,15 @@ export async function runOptimizationRetest(
       collected: CollectedAnswer;
     }> = [];
 
+    const seed = loadProjectSeed(projectId);
+    const projectFallbackLang = resolveProjectTargetLanguage(seed.project, null);
+
     if (options.capturedAnswers?.length) {
       for (const item of options.capturedAnswers) {
         const q = questionMap.get(item.questionId);
         if (!q) throw new OptimizationStateError(`复测问题（${item.questionId}）不在当前核心问题中。`, 400);
-        const lang = item.language ?? 'zh';
-        const query = item.query || (lang === 'en' && q.queryEn ? q.queryEn : q.queryZh);
+        const lang = item.language ?? projectFallbackLang;
+        const query = item.query || (lang === 'en' ? q.queryEn || q.queryZh : q.queryZh || q.queryEn);
         answersToIngest.push({
           questionId: item.questionId,
           engine: item.engine,
@@ -1068,40 +1196,9 @@ export async function runOptimizationRetest(
           },
         });
       }
-    } else if (options.liveProvider) {
-      const provider = options.liveProvider;
-      const apiKey = requireCollectionKey(provider);
-      const config = getCollectionConfig(provider);
-      const qids = targetQuestionIds.length ? targetQuestionIds : questionRows.slice(0, 2).map((q) => q.id);
-
-      for (const qid of qids) {
-        const q = questionMap.get(qid);
-        if (!q) continue;
-        const query = q.queryZh || q.queryEn;
-        const req =
-          provider === 'qwen'
-            ? buildQwenRequest(query, config, apiKey)
-            : buildDoubaoRequest(query, config, apiKey);
-        const resp = await fetch(req.url, {
-          method: 'POST',
-          headers: req.headers,
-          body: JSON.stringify(req.body),
-        });
-        const rawJson = await resp.json();
-        const parsed = provider === 'qwen' ? parseQwenAnswer(rawJson) : parseDoubaoAnswer(rawJson);
-        answersToIngest.push({
-          questionId: qid,
-          engine: provider,
-          language: 'zh',
-          query,
-          collected: parsed,
-        });
-      }
     } else {
-      throw new OptimizationStateError('请选择联网复测平台（如千问/豆包）或提交最新采集的真实搜索回答。', 400);
+      throw new OptimizationStateError('请先通过浏览器完成 ChatGPT / Google 原题重测，或提交最新采集的真实回答。', 400);
     }
-
-    const seed = loadProjectSeed(projectId);
     const dataDir = withGeoProject(projectId, projectDataDirectory);
     const retestRelDir = `geo-evidence/retest-${runId}`;
     const retestAbsDir = path.join(dataDir, retestRelDir);
@@ -1231,4 +1328,32 @@ export async function runOptimizationRetest(
     });
     throw error;
   }
+}
+
+export function finalizeOptimizationBrowserRetest(
+  projectId: string,
+  runId: string,
+): OptimizationRun {
+  const current = getOptimizationRun(projectId, runId);
+  if (!current) {
+    throw new OptimizationStateError('没有找到该优化任务。', 404);
+  }
+  if (!current.followupObservationIds.length) {
+    throw new OptimizationStateError(
+      '尚未收到本轮复测的新采集回答，请先运行浏览器同题采集或粘贴最新回答。',
+      400,
+    );
+  }
+  if (current.status !== 'remeasuring') {
+    transitionOptimizationRun(projectId, runId, 'remeasuring', {
+      statusMessage: '正在汇总浏览器原题复测结果…',
+    });
+  }
+  const latest = getOptimizationRun(projectId, runId)!;
+  const comparison = computeRetestComparison(projectId, latest);
+  const count = comparison?.comparedCount ?? latest.followupObservationIds.length;
+  return transitionOptimizationRun(projectId, runId, 'completed', {
+    statusMessage: `已完成原题同条件复测（对比 ${count} 条记录），前后曝光对比已就绪。`,
+    recordStep: true,
+  });
 }

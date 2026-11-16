@@ -235,7 +235,7 @@ export function createProjectInspectionTools(options?: {
                    FROM opengeo_observations o
                    LEFT JOIN opengeo_answer_audits a
                      ON a.project_id = o.project_id AND a.observation_id = o.id AND a.is_current = 1
-                   WHERE o.project_id = ? AND o.question_id = ? AND o.language = ?
+                   WHERE o.project_id = ? AND o.question_id = ? AND o.language = ? AND o.engine IN ('chatgpt', 'google')
                    ORDER BY o.seq DESC`,
                 )
                 .all(projectId, q.id, options.targetLanguage)
@@ -249,7 +249,7 @@ export function createProjectInspectionTools(options?: {
                      FROM opengeo_observations o
                      LEFT JOIN opengeo_answer_audits a
                        ON a.project_id = o.project_id AND a.observation_id = o.id AND a.is_current = 1
-                     WHERE o.project_id = ? AND o.question_id = ?
+                     WHERE o.project_id = ? AND o.question_id = ? AND o.engine IN ('chatgpt', 'google')
                      ORDER BY o.seq DESC`,
                   )
                   .all(projectId, q.id);
@@ -266,13 +266,13 @@ export function createProjectInspectionTools(options?: {
 
   const readObservationTool: AgentTool<{
     questionId: string;
-    engine: 'chatgpt' | 'google' | 'deepseek' | 'qwen' | 'doubao';
+    engine: 'chatgpt' | 'google';
   }> = {
     name: 'read_observation_answer',
     description: '按问题编号与平台（如 chatgpt、google）读取本地保存的完整 AI 搜索回答原文及引用来源。',
     parameters: z.object({
       questionId: z.string().min(1),
-      engine: z.enum(['chatgpt', 'google', 'deepseek', 'qwen', 'doubao']),
+      engine: z.enum(['chatgpt', 'google']),
     }),
     readOnly: true,
     humanLabel: (args) => `正在调阅问题在 ${args.engine} 上的真实搜索回答原文…`,

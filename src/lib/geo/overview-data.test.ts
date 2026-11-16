@@ -31,7 +31,7 @@ test('backend summary keeps unknown citations separate from negatives for each l
   const original = structuredClone(batch);
   const result = attachOverviewData(batch)!;
   assert.deepEqual(batch, original);
-  assert.equal(Object.keys(result.overviewMetrics!).length, 12);
+  assert.equal(Object.keys(result.overviewMetrics!).length, 6);
   const zh = result.overviewMetrics!['zh:chatgpt'];
   assert.equal(zh.mention.yes, 1);
   assert.equal(zh.mention.no, 7);
@@ -108,7 +108,7 @@ test('offline pipeline persists valid AI review and keeps malformed output unkno
     evidence: { answerComplete: true, citationsComplete: true, citationSource: 'native' },
   };
   saveResearchRun(batch.projectId, {
-    id: runId, projectId: batch.projectId, batchId: batch.id, provider: 'qwen', language: 'zh',
+    id: runId, projectId: batch.projectId, batchId: batch.id, provider: 'google', language: 'zh',
     questions: questions.map((question) => ({ questionId: question.id, query: question.zh })),
     status: 'running', startedAt: '2026-10-28T08:00:00Z', updatedAt: '2026-10-28T08:00:00Z',
     budgetLimit: 0, spent: 0,
@@ -119,7 +119,7 @@ test('offline pipeline persists valid AI review and keeps malformed output unkno
     fs.writeFileSync(path.join(directory, `${question.id}.json`), JSON.stringify(answer));
     fs.writeFileSync(path.join(directory, `${question.id}.answer.md`), text);
     const observation: ResearchObservation = {
-      runId, engine: 'qwen', entryType: 'api_answer', language: 'zh', query: question.zh,
+      runId, engine: 'google', entryType: 'web_answer', language: 'zh', query: question.zh,
       recordedAt: `2026-10-28T08:0${index + 1}:00Z`, status: 'found', summary: text,
       conditions: 'Isolated offline pipeline fixture; no provider request.',
       sources: [{ url: official, title: 'SampleProject', kind: 'official' }],
@@ -130,7 +130,7 @@ test('offline pipeline persists valid AI review and keeps malformed output unkno
     return observation;
   });
   const snapshot = readLatestResearch(batch.projectId)!;
-  const before = attachOverviewData(snapshot)!.overviewMetrics!['zh:qwen'];
+  const before = attachOverviewData(snapshot)!.overviewMetrics!['zh:google'];
   assert.equal(before.mention.completed, 2);
   assert.equal(before.mention.unknown, 2);
   assert.equal(before.mention.minimumRate, 0);
@@ -147,7 +147,7 @@ test('offline pipeline persists valid AI review and keeps malformed output unkno
   assert.equal(valid.analysisStatus, 'complete');
   assert.equal(valid.mention, 'yes');
   assert.equal(valid.citation, 'yes');
-  const afterValid = attachOverviewData(readLatestResearch(batch.projectId))!.overviewMetrics!['zh:qwen'];
+  const afterValid = attachOverviewData(readLatestResearch(batch.projectId))!.overviewMetrics!['zh:google'];
   assert.equal(afterValid.mention.yes, 1);
   assert.equal(afterValid.mention.unknown, 1);
   assert.equal(afterValid.mention.minimumRate, 50);
@@ -161,9 +161,9 @@ test('offline pipeline persists valid AI review and keeps malformed output unkno
   assert.equal(invalid.analysisStatus, 'failed');
   assert.equal(invalid.mention, 'unknown');
   assert.equal(invalid.citation, 'unknown');
-  const persisted = listAnswerAudits(batch.projectId, batch.id).filter((record) => record.engine === 'qwen');
+  const persisted = listAnswerAudits(batch.projectId, batch.id).filter((record) => record.engine === 'google');
   assert.deepEqual(persisted, [valid, invalid]);
-  const final = attachOverviewData(readLatestResearch(batch.projectId))!.overviewMetrics!['zh:qwen'];
+  const final = attachOverviewData(readLatestResearch(batch.projectId))!.overviewMetrics!['zh:google'];
   for (const summary of [final.mention, final.citation]) {
     assert.equal(summary.completed, 2);
     assert.equal(summary.yes, 1);

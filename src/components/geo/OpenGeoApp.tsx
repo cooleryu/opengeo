@@ -10,6 +10,7 @@ import {
 } from 'react';
 import Markdown from 'markdown-to-jsx';
 import {
+  AlertTriangle,
   ArrowRight,
   ArrowUpRight,
   BookOpen,
@@ -38,8 +39,11 @@ import {
   RESEARCH_ENGINE_NAMES,
 } from '@/lib/geo/research-engines';
 import { auditRows, isAiAnswerRow } from '@/lib/geo/overview-metrics';
-import { getResearchRows } from '@/lib/geo/research-view';
-import type { CollectionProvider } from '@/lib/geo/providers/types';
+import {
+  extractTopExternalCitedSources,
+  getResearchRows,
+  type TopExternalCitedSource,
+} from '@/lib/geo/research-view';
 import type {
   ResearchBatch,
   ResearchQuestion,
@@ -265,6 +269,46 @@ function OpenGeoAppInner() {
     [error, setError] = useState(''),
     [busy, setBusy] = useState(''),
     [toast, setToast] = useState('');
+  const [robotsNotice, setRobotsNotice] = useState<{
+    checked: boolean;
+    origin: string | null;
+    robotsUrl: string | null;
+    blockedBots: string[];
+  } | null>(null);
+  const [dismissedRobotsOrigin, setDismissedRobotsOrigin] = useState<string | null>(null);
+  const robotsProjectId = storedData?.project.id || '';
+
+  useEffect(() => {
+    if (!robotsProjectId) {
+      setRobotsNotice(null);
+      return;
+    }
+    const controller = new AbortController();
+    fetch(`/api/geo/robots-check?project=${encodeURIComponent(robotsProjectId)}`, {
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then(
+        (
+          payload: {
+            check?: {
+              checked: boolean;
+              origin: string | null;
+              robotsUrl: string | null;
+              blockedBots: string[];
+            };
+          } | null,
+        ) => {
+          if (!controller.signal.aborted) {
+            setRobotsNotice(payload?.check ?? null);
+          }
+        },
+      )
+      .catch(() => {
+        // Silent best-effort check; never block the workspace.
+      });
+    return () => controller.abort();
+  }, [robotsProjectId]);
   // Keep internal development records in storage, outside all customer views.
   const data = useMemo(
     () =>
@@ -288,7 +332,7 @@ function OpenGeoAppInner() {
     '让项目在相关问题的搜索结果中被找到，给我一个有依据的改进方案，并持续观察它是否有效。',
   );
   const [collectionProvider, setCollectionProvider] =
-    useState<CollectionProvider>('deepseek');
+    useState<ResearchEngine>('chatgpt');
   const [implementationKind, setImplementationKind] = useState<
       'rehearsal' | 'user_confirmed'
     >('rehearsal'),
@@ -632,17 +676,17 @@ function OpenGeoAppInner() {
   const taskProvider =
     task?.workflow?.collection?.provider ??
     task?.collectionProvider ??
-    'deepseek';
+    'chatgpt';
   const providerOptions = data?.settings.collectionProviders ?? [];
   const taskProviderStatus = providerOptions.find((p) => p.id === taskProvider);
   const newProviderStatus = providerOptions.find(
     (p) => p.id === collectionProvider,
   );
-  const taskProviderLabel = taskProviderStatus?.label ?? 'DeepSeek 搜索';
-  const taskProviderConfigured =
-    taskProviderStatus?.configured ??
-    (taskProvider === 'deepseek' && !!data?.settings.liveSearchConfigured);
-  const answerCollection = taskProvider !== 'deepseek';
+  const taskProviderLabel =
+    taskProviderStatus?.label ??
+    (taskProvider === 'google' ? 'Google' : 'ChatGPT');
+  const taskProviderConfigured = taskProviderStatus?.configured ?? false;
+  const answerCollection = taskProvider !== 'google';
   const monitorQuestionCount =
     task?.workflow?.questions.length ??
     (task?.monitor.queryIds.length || data?.questions.length || 0);
@@ -709,6 +753,38 @@ function OpenGeoAppInner() {
     setImplementationRevision(task?.workflow?.proposalRevision);
     setDialog('implementation');
   };
+  const autoConfirmedPlanKeyRef = useRef<string>('');
+  useEffect(() => {
+    if (
+      page !== 'overview' ||
+      !data ||
+      data.latestResearch ||
+      data.questions.length > 0 ||
+      busy
+    ) {
+      return;
+    }
+    const genActive =
+      data.questionGeneration?.status === 'queued' ||
+      data.questionGeneration?.status === 'running';
+    const readyCandidates = data.questionPlan.candidates.filter(
+      (c) => c.selected && c.review.decision !== 'exclude',
+    );
+    if (genActive || readyCandidates.length === 0) return;
+    const planKey = `${data.project.id}:${data.questionPlan.id}:${data.questionPlan.revision}`;
+    if (autoConfirmedPlanKeyRef.current === planKey) return;
+    autoConfirmedPlanKeyRef.current = planKey;
+    void act(
+      'confirm_questions',
+      {
+        planId: data.questionPlan.id,
+        revision: data.questionPlan.revision,
+      },
+      uiLanguage === 'en'
+        ? 'Buyer questions ready for browser collection'
+        : '核心问题已就绪，可直接开始采集',
+    );
+  }, [page, data, busy, uiLanguage]);
   useEffect(() => {
     window.scrollTo({ top: 0 });
   }, [page]);
@@ -968,8 +1044,8 @@ function OpenGeoAppInner() {
         setGoal(
           `${brief.length > 1800 ? `${brief.slice(0, 1799)}…` : brief}\n\n目标：自身比之前好，并缩小与参照的差距；同条件复测后分别判断。`,
         );
-        if (['deepseek', 'qwen', 'doubao'].includes(detail.engine))
-          setCollectionProvider(detail.engine as CollectionProvider);
+        if (['chatgpt', 'google'].includes(detail.engine))
+          setCollectionProvider(detail.engine as ResearchEngine);
         setDialog('create');
       } catch (error) {
         if (isCurrent())
@@ -1104,6 +1180,12 @@ function OpenGeoAppInner() {
           : r.observation?.status === 'not_observed',
       );
     }).length;
+  }, [data?.latestResearch, data?.project]);
+  const topCitedSources = useMemo<TopExternalCitedSource[]>(() => {
+    const b = data?.latestResearch;
+    if (!b || !data?.project) return [];
+    const activeLang = resolveProjectTargetLanguage(data.project, b);
+    return extractTopExternalCitedSources(b, data.project, activeLang, 4);
   }, [data?.latestResearch, data?.project]);
   return (
     <div
@@ -1277,6 +1359,38 @@ function OpenGeoAppInner() {
             </button>
           </div>
         )}
+        {robotsNotice &&
+          robotsNotice.blockedBots.length > 0 &&
+          dismissedRobotsOrigin !== robotsNotice.origin && (
+            <div className="og-robots-notice" role="status">
+              <div className="og-robots-notice-main">
+                <AlertTriangle size={15} aria-hidden="true" />
+                <span>
+                  {uiLanguage === 'en'
+                    ? `${robotsNotice.origin || 'Your site'} robots.txt blocks ${robotsNotice.blockedBots.join(', ')} at /.`
+                    : `${robotsNotice.origin || '官网'} 的 robots.txt 拦截了 ${robotsNotice.blockedBots.join('、')} 访问根目录。`}
+                </span>
+                {robotsNotice.robotsUrl && (
+                  <a
+                    href={robotsNotice.robotsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    robots.txt
+                  </a>
+                )}
+              </div>
+              <button
+                type="button"
+                aria-label={uiLanguage === 'en' ? 'Dismiss' : '关闭提示'}
+                onClick={() =>
+                  setDismissedRobotsOrigin(robotsNotice.origin ?? '__dismissed__')
+                }
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+          )}
         {!data ? (
           <div className="og-loading">
             <Loader2 className="spin" size={24} />
@@ -1360,6 +1474,7 @@ function OpenGeoAppInner() {
                         projectId={data.project.id}
                         questionCount={data.latestResearch.questions.length}
                         missedQuestionCount={overviewMissedCount}
+                        topCitedSources={topCitedSources}
                         onOpenStudio={(runId) => navigate('tasks', runId ?? '')}
                         onOpenQuestions={() => navigate('question-plan')}
                         onStatusChange={setOptViewModel}
@@ -1371,6 +1486,9 @@ function OpenGeoAppInner() {
                     detailsOnly={page === 'question-plan'}
                     tasks={groups.tasks}
                     onTask={openTask}
+                    onRefresh={() => {
+                      void refresh();
+                    }}
                     onCompetitor={() =>
                       navigate('competitor', '', data.latestResearch?.id)
                     }
@@ -1451,13 +1569,16 @@ function OpenGeoAppInner() {
                               disabled={!!busy || genActive}
                               onClick={() =>
                                 void act(
-                                  'confirm_question_plan',
-                                  {},
+                                  'confirm_questions',
+                                  {
+                                    planId: data.questionPlan.id,
+                                    revision: data.questionPlan.revision,
+                                  },
                                   '已确认本批核心问题，可直接开始采集',
                                 )
                               }
                             >
-                              {busy === 'confirm_question_plan' ? (
+                              {busy === 'confirm_questions' ? (
                                 <>
                                   <Loader2 size={15} className="spin" />
                                   {t('overview.confirmingQuestionsBtn')}
@@ -1483,6 +1604,8 @@ function OpenGeoAppInner() {
                               void act(
                                 'generate_questions',
                                 {
+                                  planId: data.questionPlan.id,
+                                  revision: data.questionPlan.revision,
                                   positioning:
                                     data.questionPlan.positioning ||
                                     data.project.description,
@@ -1740,8 +1863,16 @@ function OpenGeoAppInner() {
                   projectId={data.project.id}
                   projectName={data.project.name}
                   repositoryUrl={data.project.repositoryUrl}
+                  siteUrl={data.project.siteUrl}
                   selectedRunId={selectedTask || undefined}
                   batch={data.latestResearch}
+                  targetLanguage={resolveProjectTargetLanguage(
+                    data.project,
+                    data.latestResearch,
+                  )}
+                  onRefresh={() => {
+                    void refresh();
+                  }}
                   onBackOverview={() => navigate('overview')}
                   onOpenQuestions={() => navigate('question-plan')}
                   onSelectRun={(runId) => navigate('tasks', runId)}
@@ -1889,7 +2020,7 @@ function OpenGeoAppInner() {
             <label className="og-field-label" htmlFor="collection-provider">
               本次观察哪个入口？
             </label>
-            <GeoSelect<CollectionProvider>
+            <GeoSelect<ResearchEngine>
               id="collection-provider"
               label="本次观察哪个入口？"
               value={collectionProvider}
@@ -1900,13 +2031,16 @@ function OpenGeoAppInner() {
                       value: provider.id,
                       label: `${provider.label}${provider.configured ? '' : ' · 待配置'}`,
                     }))
-                  : [{ value: 'deepseek', label: 'DeepSeek 搜索' }]
+                  : [
+                      { value: 'chatgpt', label: 'ChatGPT' },
+                      { value: 'google', label: 'Google' },
+                    ]
               }
             />
             <p className="og-muted">
-              {collectionProvider === 'deepseek'
-                ? '观察网页搜索结果是否包含目标内容。'
-                : '观察联网回答是否引用目标内容。API 回答与各家 App 中的回答分别记录。'}
+              {collectionProvider === 'google'
+                ? '观察 Google 搜索结果与 AI 概览是否包含目标内容。'
+                : '观察 ChatGPT 联网回答是否引用目标内容。'}
               {newProviderStatus &&
                 !newProviderStatus.configured &&
                 ` 可先创建任务；真实采集还需要：${newProviderStatus.missing.join('、')}。`}
@@ -2085,7 +2219,7 @@ function OpenGeoAppInner() {
             <div className="og-form-row">
               <div>
                 <label className="og-field-label" htmlFor="monitor-time">
-                  检查时间 <span>北京时间</span>
+                  检查时间 <span>UTC</span>
                 </label>
                 <input
                   id="monitor-time"
@@ -2115,8 +2249,8 @@ function OpenGeoAppInner() {
               <>
                 <label className="og-field-label" htmlFor="monitor-budget">
                   {answerCollection
-                    ? '累计预算预留（元）'
-                    : '搜索费用上限（元）'}
+                    ? '累计预算预留（USD）'
+                    : '搜索费用上限（USD）'}
                 </label>
                 <input
                   id="monitor-budget"
@@ -2128,11 +2262,11 @@ function OpenGeoAppInner() {
                   onChange={(e) => setMonitorBudget(Number(e.target.value))}
                 />
                 <div className="og-cost-note">
-                  固定 {monitorQuestionCount} 题，每次完整检查预留 ¥
-                  {monitorRunCost.toFixed(3)}，{monitorDays} 天预留 ¥
+                  固定 {monitorQuestionCount} 题，每次完整检查预留{' '}
+                  {monitorRunCost.toFixed(3)}，{monitorDays} 天预留{' '}
                   {(monitorDays * monitorRunCost).toFixed(3)}。
                   {answerCollection
-                    ? '按每题 ¥0.10 预留以控制调用次数；搜索与模型费用以服务商账单为准，这不是实际花费或硬性费用上限。'
+                    ? '按预算系数控制调用次数；搜索与模型费用以服务商账单为准，这不是实际花费或硬性费用上限。'
                     : '预算用尽后停止。'}
                 </div>
                 <label className="og-checkbox">
@@ -2199,10 +2333,10 @@ function OpenGeoAppInner() {
               <div>
                 <strong>{monitorQuestionCount} 个固定问题</strong>
                 <p>
-                  预留 ¥{monitorRunCost.toFixed(3)} ·{' '}
+                  预留额度 {monitorRunCost.toFixed(3)} ·{' '}
                   {answerCollection
-                    ? '每题按 ¥0.10 预留，实际费用以服务商账单为准'
-                    : '每题成功请求 ¥0.005'}
+                    ? '实际费用以服务商账单为准'
+                    : '按服务商实际请求计费'}
                 </p>
               </div>
             </div>

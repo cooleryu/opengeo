@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import fs from 'node:fs';
 import path from 'node:path';
 import { isRuntimeProject, legacyDefaultProjectId, loadProjectSeed, readProjectCatalog } from './project-data';
 import type { GeoProject } from './types';
@@ -32,9 +33,33 @@ export function projectDataDirectory(): string {
   const id = currentGeoProject();
   return id === DEFAULT_PROJECT_ID && !isRuntimeProject(id) ? base : path.join(base, 'projects', id);
 }
+function isPathInside(root: string, target: string): boolean {
+  const rel = path.relative(root, target);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 /** Run references remain stable; the active project selects their physical root. */
 export function evidenceLocation(file: string): { root: string; target: string } {
-  const runtimeEvidence = file.startsWith('data/geo-evidence/');
-  const root = path.resolve(runtimeEvidence ? projectDataDirectory() : process.env.GEO_WORKSPACE || path.join(process.cwd(), '..'));
-  return { root, target: path.resolve(root, runtimeEvidence ? file.slice('data/'.length) : file) };
+  if (file.startsWith('data/geo-evidence/')) {
+    const root = path.resolve(projectDataDirectory());
+    return { root, target: path.resolve(root, file.slice('data/'.length)) };
+  }
+  const workspaceRoot = path.resolve(process.env.GEO_WORKSPACE || path.join(process.cwd(), '..'));
+  const directTarget = path.resolve(workspaceRoot, file);
+  if (isPathInside(workspaceRoot, directTarget) && !fs.existsSync(directTarget)) {
+    if (file.startsWith('product-notes/')) {
+      const notesRoot = path.resolve(workspaceRoot, 'workspace-notes');
+      const notesTarget = path.resolve(notesRoot, file);
+      if (isPathInside(notesRoot, notesTarget) && fs.existsSync(notesTarget)) {
+        return { root: notesRoot, target: notesTarget };
+      }
+    } else if (/^(?:sprint-01|articles|publish|tasks|projects)\//.test(file)) {
+      const expRoot = path.resolve(workspaceRoot, 'archive-2026-10', 'experiments');
+      const expTarget = path.resolve(expRoot, file);
+      if (isPathInside(expRoot, expTarget) && fs.existsSync(expTarget)) {
+        return { root: expRoot, target: expTarget };
+      }
+    }
+  }
+  return { root: workspaceRoot, target: directTarget };
 }

@@ -2,13 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ArrowRight,
   Check,
-  Loader2,
   Minus,
   Plus,
   Search,
-  Square,
   X,
 } from 'lucide-react';
 import ResearchEngineIcon from './ResearchEngineIcon';
@@ -23,27 +20,19 @@ import type {
   ResearchQuestion,
   ResearchEngine,
 } from '@/lib/geo/research-types';
-import type {
-  CollectionProvider,
-  CollectionProviderStatus,
-} from '@/lib/geo/providers/types';
 import {
   RESEARCH_ENGINE_NAMES,
   RESEARCH_ENGINES,
   getBatchResearchEngines,
   isResearchEngine,
 } from '@/lib/geo/research-engines';
+import { resolveProjectTargetLanguage } from '@/lib/geo/i18n';
 import {
   getLatestResearchObservation,
   getResearchRows,
   isBrandQuestion,
   type ResearchFilter,
 } from '@/lib/geo/research-view';
-import {
-  normalizeResearchBudget,
-  type MoneyBudget,
-} from '@/lib/geo/research-budget';
-import ResearchSearchControls from './ResearchSearchControls';
 import GeoSelect from './GeoSelect';
 import QuestionAssessmentDetails, {
   hasQuestionAssessment,
@@ -92,23 +81,6 @@ type PendingResearchAudit = {
   questionId: string;
   query: string;
   queryEn: string;
-};
-type ResearchRunSummary = {
-  id: string;
-  projectId: string;
-  batchId: string;
-  provider: CollectionProvider;
-  language: 'zh' | 'en';
-  status: string;
-  questions: { questionId: string; query: string }[];
-  completedCount?: number;
-  spent: number;
-  confirmedSpentCny?: number;
-  reservedCny?: number;
-  error?: string;
-  currentQuestionId?: string;
-  phase?: 'searching' | 'analyzing' | 'finalizing';
-  stopRequestedAt?: string;
 };
 
 const normalizedQuestion = (value: string) =>
@@ -175,7 +147,9 @@ export default function QuestionManagementPanel({
 }: Props) {
   const [scope, setScope] = useState<'observed' | 'backlog'>('observed');
   const [search, setSearch] = useState('');
-  const [language, setLanguage] = useState<'zh' | 'en'>('zh');
+  const [language, setLanguage] = useState<'zh' | 'en'>(() =>
+    resolveProjectTargetLanguage(data.project, data.latestResearch),
+  );
   const [resultEngine, setResultEngine] =
     useState<ResearchFilter['engine']>('all');
   const [kind, setKind] = useState<ResearchFilter['kind']>('all');
@@ -192,27 +166,6 @@ export default function QuestionManagementPanel({
   const [error, setError] = useState('');
   const [loadedResearchBatch, setResearchBatch] =
     useState<ResearchBatch | null>(data.latestResearch ?? null);
-  const [providers, setProviders] = useState<CollectionProviderStatus[]>([]);
-  const [provider, setProvider] = useState<CollectionProvider>('deepseek');
-  const [budgetEnabled, setBudgetEnabled] = useState(false);
-  const [budget, setBudget] = useState<MoneyBudget>({
-    currency: 'CNY',
-    amount: 0.1,
-  });
-  const [searchIds, setSearchIds] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [confirmQuestionIds, setConfirmQuestionIds] = useState<string[] | null>(
-    null,
-  );
-  const [stopping, setStopping] = useState(false);
-  const [runningIds, setRunningIds] = useState<string[]>([]);
-  const [searchError, setSearchError] = useState('');
-  const [lastRun, setLastRun] = useState<ResearchRunSummary | null>(null);
-  const [dismissedRunId, setDismissedRunId] = useState<string | null>(null);
-  const activeRun = lastRun?.status === 'running' ? lastRun : null;
-  const searching = submitting || !!activeRun;
-  const request = useRef<{ key: string; id: string } | null>(null);
-  const submissionId = useRef<string | null>(null);
   const projectRef = useRef(data.project.id);
   const projectSession = useRef(0);
   if (projectRef.current !== data.project.id) {
@@ -223,30 +176,6 @@ export default function QuestionManagementPanel({
     loadedResearchBatch?.projectId === data.project.id
       ? loadedResearchBatch
       : null;
-  const finishedSingleRun =
-    !searching &&
-    lastRun?.questions.length === 1 &&
-    lastRun.projectId === data.project.id &&
-    lastRun.batchId === researchBatch?.id
-      ? lastRun
-      : null;
-  const finishedResult =
-    finishedSingleRun && researchBatch
-      ? getResearchRows(
-          researchBatch,
-          {
-            language: finishedSingleRun.language,
-            engine: finishedSingleRun.provider,
-            kind: 'all',
-            result: 'all',
-          },
-          { includeHistory: true },
-        ).find(
-          (row) =>
-            row.question.id === finishedSingleRun.questions[0].questionId &&
-            row.observation?.runId === finishedSingleRun.id,
-        )
-      : undefined;
   const modal = useRef<HTMLDialogElement>(null);
   const plan = data.questionPlan;
   const candidates = plan.candidates.filter(
@@ -260,11 +189,6 @@ export default function QuestionManagementPanel({
   const pending = candidates.filter((item) => item.review.status === 'pending');
   const observed = researchBatch?.questions ?? [];
   const deferred = researchBatch?.deferredQuestions ?? [];
-  const canSearch = providers.some(
-    (item) => item.id === provider && item.configured,
-  );
-  const coreIds = observed.map((question) => question.id);
-  const selectedSearchIds = searchIds.filter((id) => coreIds.includes(id));
   const linkedCandidates = new Set<string>();
   for (const research of observed) {
     const candidate = candidates.find((item) =>
@@ -298,11 +222,19 @@ export default function QuestionManagementPanel({
   const recordedEngines = researchBatch
     ? getBatchResearchEngines(researchBatch)
     : [];
-  const availableEngines = RESEARCH_ENGINES.filter(
-    (engine) =>
-      recordedEngines.includes(engine) ||
-      providers.some((item) => item.id === engine && item.configured),
+  const defaultTargetLang = resolveProjectTargetLanguage(
+    data.project,
+    researchBatch,
   );
+  const hasZhObservations = Boolean(
+    researchBatch?.questions.some((q) =>
+      q.observations.some((obs) => obs.language === 'zh'),
+    ),
+  );
+  const availableEngines: ResearchEngine[] =
+    recordedEngines.length > 0
+      ? RESEARCH_ENGINES.filter((engine) => recordedEngines.includes(engine))
+      : [...RESEARCH_ENGINES];
   const displayedEngines: ResearchEngine[] =
     resultEngine === 'all' ? availableEngines : [resultEngine];
   const matchingResults = researchBatch
@@ -333,240 +265,29 @@ export default function QuestionManagementPanel({
   }, [data.latestResearch]);
 
   useEffect(() => {
-    if (!searching) return;
-    const controller = new AbortController();
-    let pending = false;
-    const poll = async () => {
-      if (pending) return;
-      pending = true;
-      try {
-        const response = await fetch(
-          `/api/geo/research?project=${encodeURIComponent(data.project.id)}`,
-          { signal: controller.signal },
-        );
-        if (!response.ok) return;
-        const result = (await response.json()) as {
-          runs: ResearchRunSummary[];
-          batch: ResearchBatch | null;
-        };
-        if (controller.signal.aborted) return;
-        const runId = request.current?.id ?? activeRun?.id;
-        const run = result.runs.find((item) => item.id === runId);
-        if (!run) return;
-        setLastRun(run);
-        setResearchBatch(result.batch);
-        if (run.status !== 'running') {
-          setSubmitting(false);
-          setRunningIds([]);
-          request.current = null;
-          if (run.error && run.status !== 'interrupted')
-            setSearchError(run.error);
-          void Promise.resolve(onRefresh?.()).catch(() => {});
-        }
-      } catch {
-        // A failed status read does not cancel the server's search.
-      } finally {
-        pending = false;
-      }
-    };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 1500);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [searching, activeRun?.id, data.project.id, onRefresh]);
-
-  useEffect(() => {
     const controller = new AbortController();
     setDraft(null);
     setReviewId(null);
     setAuditingId(null);
     setPendingResearchAudit(null);
     pendingResearchAuditRef.current = null;
-    setSearchIds([]);
-    setProvider('deepseek');
-    setSearchError('');
-    setLastRun(null);
-    setDismissedRunId(null);
-    setProviders([]);
-    setSubmitting(false);
-    setStopping(false);
-    setConfirmQuestionIds(null);
-    setRunningIds([]);
-    setBudget({ currency: 'CNY', amount: 0.1 });
-    setBudgetEnabled(false);
-    request.current = null;
-    submissionId.current = null;
     fetch(`/api/geo/research?project=${encodeURIComponent(data.project.id)}`, {
       signal: controller.signal,
     })
       .then(async (response) => {
         const result = await response.json();
-        if (!response.ok)
-          throw new Error(result.error || '搜索入口暂时无法读取。');
+        if (!response.ok) return null;
         return result as {
           batch: ResearchBatch | null;
-          providers: CollectionProviderStatus[];
-          runs: ResearchRunSummary[];
         };
       })
       .then((result) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !result) return;
         setResearchBatch(result.batch);
-        setProviders(result.providers);
-        const run =
-          result.runs.find((item) => item.status === 'running') ??
-          result.runs[0];
-        setLastRun(run ?? null);
-        if (run?.status === 'running') {
-          setRunningIds(run.questions.map((item) => item.questionId));
-          setProvider(run.provider);
-        }
-        if (run?.error && run.status !== 'interrupted')
-          setSearchError(run.error);
       })
-      .catch((failure) => {
-        if (!controller.signal.aborted)
-          setSearchError(
-            failure instanceof Error
-              ? failure.message
-              : '搜索入口暂时无法读取。',
-          );
-      });
+      .catch(() => {});
     return () => controller.abort();
   }, [data.project.id]);
-
-  const runSearch = async (questionIds: string[]) => {
-    if (
-      searching ||
-      busy ||
-      !canSearch ||
-      !researchBatch ||
-      !questionIds.length ||
-      questionIds.length > 8 ||
-      questionIds.some(
-        (id) =>
-          !observed.some(
-            (question) => question.id === id && question[language]?.trim(),
-          ),
-      )
-    )
-      return;
-    try {
-      if (budgetEnabled) normalizeResearchBudget(budget);
-    } catch (failure) {
-      setSearchError(
-        failure instanceof Error ? failure.message : '请填写有效预算。',
-      );
-      return;
-    }
-    const projectId = data.project.id;
-    const session = projectSession.current;
-    const body = {
-      projectId,
-      batchId: researchBatch.id,
-      questionIds,
-      language,
-      provider,
-      budgetEnabled,
-      ...(budgetEnabled ? { budget } : {}),
-    };
-    const key = JSON.stringify(body);
-    if (request.current?.key !== key)
-      request.current = { key, id: crypto.randomUUID() };
-    const requestId = request.current.id;
-    submissionId.current = requestId;
-    const isCurrent = () =>
-      projectRef.current === projectId &&
-      projectSession.current === session &&
-      submissionId.current === requestId;
-    setConfirmQuestionIds(null);
-    setSubmitting(true);
-    setRunningIds(questionIds);
-    setSearchError('');
-    setLastRun(null);
-    try {
-      const response = await fetch('/api/geo/research', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, requestId }),
-      });
-      const result = await response.json();
-      if (!isCurrent()) return;
-      if (result.run) setLastRun(result.run);
-      if (result.batch) setResearchBatch(result.batch);
-      // A finished request must not flash "正在启动搜索" while the overview refreshes.
-      if (result.run && result.run.status !== 'running') {
-        setSubmitting(false);
-        setRunningIds([]);
-      }
-      if (!response.ok)
-        throw new Error(
-          result.error || result.run?.error || '搜索未完成，请查看执行记录。',
-        );
-      request.current = null;
-      if (result.run?.error && result.run.status !== 'interrupted')
-        setSearchError(result.run.error);
-      try {
-        await onRefresh?.();
-      } catch {
-        if (isCurrent())
-          setSearchError('搜索记录已保存，概览刷新失败。请刷新页面查看。');
-      }
-    } catch (failure) {
-      if (isCurrent())
-        setSearchError(
-          failure instanceof Error ? failure.message : '搜索未完成。',
-        );
-    } finally {
-      if (isCurrent()) {
-        setSubmitting(false);
-        setRunningIds([]);
-      }
-    }
-  };
-
-  const stopSearch = async () => {
-    if (!activeRun || activeRun.stopRequestedAt || stopping) return;
-    const projectId = data.project.id;
-    const session = projectSession.current;
-    setStopping(true);
-    try {
-      const response = await fetch('/api/geo/research', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'stop',
-          projectId,
-          runId: activeRun.id,
-        }),
-      });
-      const result = await response.json();
-      if (
-        projectRef.current !== projectId ||
-        projectSession.current !== session
-      )
-        return;
-      if (!response.ok)
-        throw new Error(result.error || '未能停止搜索，请重试。');
-      if (result.run) setLastRun(result.run);
-    } catch (failure) {
-      if (
-        projectRef.current === projectId &&
-        projectSession.current === session
-      )
-        setSearchError(
-          failure instanceof Error ? failure.message : '未能停止搜索。',
-        );
-    } finally {
-      if (
-        projectRef.current === projectId &&
-        projectSession.current === session
-      )
-        setStopping(false);
-    }
-  };
 
   useEffect(() => {
     if (draft || review) {
@@ -595,7 +316,12 @@ export default function QuestionManagementPanel({
           : 'observed',
       );
       setSearch(params.get('questionSearch') || params.get('search') || '');
-      setLanguage(params.get('language') === 'en' ? 'en' : 'zh');
+      const paramLang = params.get('language');
+      setLanguage(
+        paramLang === 'zh' || paramLang === 'en'
+          ? paramLang
+          : resolveProjectTargetLanguage(data.project, data.latestResearch),
+      );
       const engine = params.get('engine');
       setResultEngine(isResearchEngine(engine) ? engine : 'all');
       const kind = params.get('kind');
@@ -612,7 +338,7 @@ export default function QuestionManagementPanel({
     read();
     window.addEventListener('popstate', read);
     return () => window.removeEventListener('popstate', read);
-  }, []);
+  }, [data.project, data.latestResearch]);
   const controls = (
     patch: Partial<{
       scope: typeof scope;
@@ -866,22 +592,24 @@ export default function QuestionManagementPanel({
               onChange={(event) => controls({ search: event.target.value })}
             />
           </label>
-          <div className="qm-languages" role="group" aria-label="问题语言">
-            <button
-              aria-pressed={language === 'zh'}
-              disabled={searching}
-              onClick={() => controls({ language: 'zh' })}
-            >
-              中文
-            </button>
-            <button
-              aria-pressed={language === 'en'}
-              disabled={searching}
-              onClick={() => controls({ language: 'en' })}
-            >
-              English
-            </button>
-          </div>
+          {(defaultTargetLang === 'zh' ||
+            hasZhObservations ||
+            language === 'zh') && (
+            <div className="qm-languages" role="group" aria-label="问题语言">
+              <button
+                aria-pressed={language === 'zh'}
+                onClick={() => controls({ language: 'zh' })}
+              >
+                中文
+              </button>
+              <button
+                aria-pressed={language === 'en'}
+                onClick={() => controls({ language: 'en' })}
+              >
+                English
+              </button>
+            </div>
+          )}
           {scope === 'backlog' && (
             <button className="qm-secondary" onClick={onLegacy}>
               生成用户提问
@@ -898,191 +626,6 @@ export default function QuestionManagementPanel({
             添加问题
           </button>
         </div>
-        {scope === 'observed' && (
-          <ResearchSearchControls
-            key={data.project.id}
-            projectId={data.project.id}
-            batch={researchBatch}
-            selectedIds={selectedSearchIds}
-            language={language}
-            provider={provider}
-            onProviderChange={setProvider}
-            providers={providers}
-            budget={budget}
-            onBudgetChange={setBudget}
-            budgetEnabled={budgetEnabled}
-            onBudgetEnabledChange={setBudgetEnabled}
-            busy={busy}
-            searching={searching}
-            runningCount={runningIds.length}
-            onSearch={setConfirmQuestionIds}
-            confirmQuestionIds={confirmQuestionIds}
-            onCloseConfirm={() => setConfirmQuestionIds(null)}
-            onConfirmSearch={() =>
-              confirmQuestionIds && void runSearch(confirmQuestionIds)
-            }
-            onRefresh={onRefresh}
-          />
-        )}
-        {scope === 'observed' && searching && (
-          <section
-            className="qm-search-progress"
-            aria-label="搜索进度"
-            aria-live="polite"
-          >
-            <div className="qm-search-progress-heading">
-              <Loader2
-                size={17}
-                className="qm-search-spinner"
-                aria-hidden="true"
-              />
-              <strong>
-                {activeRun?.stopRequestedAt
-                  ? '正在停止'
-                  : !activeRun
-                    ? '正在启动搜索'
-                    : activeRun.phase === 'finalizing'
-                      ? '正在整理本轮结果'
-                      : activeRun.phase === 'analyzing'
-                        ? '正在整理回答'
-                        : '正在搜索'}
-              </strong>
-              <span>
-                {RESEARCH_ENGINE_NAMES[activeRun?.provider ?? provider]} ·{' '}
-                {(activeRun?.language ?? language) === 'zh' ? '中文' : '英文'}
-              </span>
-              <b>
-                已保存 {activeRun?.completedCount ?? 0} /{' '}
-                {activeRun?.questions.length ?? runningIds.length} 题
-              </b>
-              <button
-                className="qm-stop-search"
-                disabled={!activeRun || stopping || !!activeRun.stopRequestedAt}
-                onClick={() => void stopSearch()}
-              >
-                <Square size={12} fill="currentColor" />
-                {stopping || activeRun?.stopRequestedAt
-                  ? '正在停止…'
-                  : '停止搜索'}
-              </button>
-            </div>
-            {activeRun?.stopRequestedAt ? (
-              <p>等待当前步骤结束，后续问题不再搜索。已保存的结果会保留。</p>
-            ) : activeRun?.currentQuestionId ? (
-              <p>
-                {
-                  activeRun.questions.find(
-                    (item) => item.questionId === activeRun.currentQuestionId,
-                  )?.query
-                }
-              </p>
-            ) : null}
-            <progress
-              aria-label="已保存的问题"
-              max={activeRun?.questions.length || runningIds.length || 1}
-              value={activeRun?.completedCount ?? 0}
-            />
-          </section>
-        )}
-        {scope === 'observed' &&
-          finishedSingleRun &&
-          dismissedRunId !== finishedSingleRun.id && (
-            <section
-              className="qm-search-outcome"
-              aria-label="本次搜索结果"
-              aria-live="polite"
-            >
-              <div className="qm-search-outcome-heading">
-                <span
-                  className={`qm-outcome-status ${finishedResult ? 'saved' : ''}`}
-                >
-                  {finishedSingleRun.status === 'interrupted' ? (
-                    <Square size={15} />
-                  ) : finishedResult ? (
-                    <Check size={17} />
-                  ) : (
-                    <X size={17} />
-                  )}
-                  {finishedSingleRun.status === 'interrupted'
-                    ? '搜索已停止'
-                    : finishedSingleRun.status === 'partial'
-                      ? '结果已保存，后续处理未完成'
-                      : finishedSingleRun.status === 'failed'
-                        ? '搜索未完成'
-                        : finishedResult
-                          ? '搜索完成'
-                          : '搜索未完成'}
-                </span>
-                <span>
-                  {RESEARCH_ENGINE_NAMES[finishedSingleRun.provider]} ·{' '}
-                  {finishedSingleRun.language === 'zh' ? '中文' : '英文'}
-                </span>
-                <button
-                  aria-label="收起本次搜索结果"
-                  className="qm-outcome-dismiss"
-                  onClick={() => setDismissedRunId(finishedSingleRun.id)}
-                >
-                  <X size={16} />
-                </button>
-              </div>
-              <div className="qm-search-outcome-body">
-                <div>
-                  <h3>{finishedSingleRun.questions[0].query}</h3>
-                  {finishedResult?.observation ? (
-                    <p className="qm-outcome-summary">
-                      {finishedResult.observation.summary}
-                    </p>
-                  ) : (
-                    <p className="qm-outcome-summary">未保存新的结果</p>
-                  )}
-                </div>
-                {finishedResult && researchBatch && (
-                  <button
-                    className="qm-primary qm-outcome-open"
-                    onClick={() =>
-                      onResult(
-                        finishedResult.question,
-                        finishedSingleRun.language,
-                        finishedSingleRun.provider,
-                        { batch: researchBatch, recordKey: finishedResult.key },
-                      )
-                    }
-                  >
-                    查看本次结果 <ArrowRight size={15} />
-                  </button>
-                )}
-              </div>
-            </section>
-          )}
-        {scope === 'observed' &&
-          lastRun &&
-          !searching &&
-          !finishedSingleRun && (
-            <p className="qm-run-status" role="status">
-              {RESEARCH_ENGINE_NAMES[lastRun.provider]} ·{' '}
-              {lastRun.language === 'zh' ? '中文' : '英文'} ·{' '}
-              {(
-                {
-                  completed: '已完成',
-                  partial: '部分完成',
-                  failed: '失败',
-                  running: '进行中',
-                  interrupted: '已停止',
-                } as Record<string, string>
-              )[lastRun.status] || lastRun.status}
-              {typeof lastRun.completedCount === 'number' &&
-                ` · ${lastRun.completedCount}/${lastRun.questions.length} 题已保存`}
-              {Number.isFinite(lastRun.confirmedSpentCny ?? lastRun.spent) &&
-                ` · ${lastRun.confirmedSpentCny !== undefined ? '已确认费用' : '记录费用'} ¥${(lastRun.confirmedSpentCny ?? lastRun.spent).toFixed(3)}`}
-              {!!lastRun.reservedCny &&
-                ` · 待核费用 ¥${lastRun.reservedCny.toFixed(3)}`}
-            </p>
-          )}
-        {scope === 'observed' && searchError && (
-          <p className="qm-error" role="alert">
-            {searchError}
-          </p>
-        )}
         {error && !draft && !review && (
           <p className="qm-error" role="alert">
             {error}
@@ -1118,30 +661,6 @@ export default function QuestionManagementPanel({
           <table className="qm-table">
             <thead>
               <tr>
-                {scope === 'observed' && (
-                  <th className="qm-select-cell">
-                    <input
-                      type="checkbox"
-                      aria-label="选择当前显示的核心问题（最多 8 题）"
-                      checked={
-                        visibleRows.length > 0 &&
-                        visibleRows.every((row) =>
-                          selectedSearchIds.includes(row.research!.id),
-                        )
-                      }
-                      disabled={searching || busy || !visibleRows.length}
-                      onChange={(event) =>
-                        setSearchIds(
-                          event.target.checked
-                            ? visibleRows
-                                .slice(0, 8)
-                                .map((row) => row.research!.id)
-                            : [],
-                        )
-                      }
-                    />
-                  </th>
-                )}
                 {scope === 'backlog' && candidates.length > 0 && (
                   <th aria-label="选择本批问题" />
                 )}
@@ -1202,30 +721,6 @@ export default function QuestionManagementPanel({
             <tbody>
               {visibleRows.map(({ key, research, candidate }) => (
                 <tr key={key}>
-                  {scope === 'observed' && research && (
-                    <td className="qm-select-cell">
-                      <input
-                        type="checkbox"
-                        aria-label={`选择搜索：${research[language]}`}
-                        checked={selectedSearchIds.includes(research.id)}
-                        disabled={
-                          searching ||
-                          busy ||
-                          (!selectedSearchIds.includes(research.id) &&
-                            selectedSearchIds.length >= 8)
-                        }
-                        onChange={(event) =>
-                          setSearchIds(
-                            event.target.checked
-                              ? [...selectedSearchIds, research.id]
-                              : selectedSearchIds.filter(
-                                  (id) => id !== research.id,
-                                ),
-                          )
-                        }
-                      />
-                    </td>
-                  )}
                   {scope === 'backlog' && candidates.length > 0 && (
                     <td className="qm-select-cell">
                       {candidate && (
@@ -1392,44 +887,13 @@ export default function QuestionManagementPanel({
                   <td>
                     <div className="qm-actions">
                       {scope === 'observed' && research && (
-                        <>
-                          <span className="qm-single-search">
-                            <button
-                              disabled={
-                                searching ||
-                                busy ||
-                                !canSearch ||
-                                !research[language]?.trim()
-                              }
-                              aria-label={`搜索：${research[language]}`}
-                              onClick={() =>
-                                setConfirmQuestionIds([research.id])
-                              }
-                            >
-                              {searching && runningIds.includes(research.id)
-                                ? activeRun?.currentQuestionId === research.id
-                                  ? activeRun.phase === 'analyzing'
-                                    ? '整理中…'
-                                    : '搜索中…'
-                                  : activeRun &&
-                                      research.observations.some(
-                                        (item) => item.runId === activeRun.id,
-                                      )
-                                    ? '已保存'
-                                    : activeRun?.stopRequestedAt
-                                      ? '已停止'
-                                      : '等待中'
-                                : '搜索'}
-                            </button>
-                          </span>
-                          <button
-                            onClick={() =>
-                              onResult(research, language, resultEngine)
-                            }
-                          >
-                            查看结果
-                          </button>
-                        </>
+                        <button
+                          onClick={() =>
+                            onResult(research, language, resultEngine)
+                          }
+                        >
+                          查看结果
+                        </button>
                       )}
                       {candidate ? (
                         <>

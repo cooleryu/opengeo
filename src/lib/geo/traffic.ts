@@ -10,7 +10,6 @@ import type {
 } from './traffic-types';
 
 const DAY_MS = 86_400_000;
-const CHINA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const METRICS_LIMIT = 20;
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -39,22 +38,22 @@ export class TrafficProviderError extends Error {
   }
 }
 
-function chinaDate(timestamp: number): string {
-  return new Date(timestamp + CHINA_OFFSET_MS).toISOString().slice(0, 10);
+function utcDate(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
 }
 
 function dateStart(value: string): number {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new TrafficRequestError('日期请使用 YYYY-MM-DD 格式。');
   }
-  const timestamp = Date.parse(`${value}T00:00:00+08:00`);
-  if (!Number.isFinite(timestamp) || chinaDate(timestamp) !== value) {
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  if (!Number.isFinite(timestamp) || utcDate(timestamp) !== value) {
     throw new TrafficRequestError('日期无效。');
   }
   return timestamp;
 }
 
-/** Inclusive calendar dates in Beijing time; today's end is the request time. */
+/** Inclusive calendar dates in UTC; today's end is the request time. */
 export function getTrafficRange(
   startDate?: string | null,
   endDate?: string | null,
@@ -63,13 +62,13 @@ export function getTrafficRange(
   if ((startDate == null) !== (endDate == null)) {
     throw new TrafficRequestError('请同时提供开始日期和结束日期。');
   }
-  const end = endDate ?? chinaDate(now);
-  const start = startDate ?? chinaDate(dateStart(end) - 29 * DAY_MS);
+  const end = endDate ?? utcDate(now);
+  const start = startDate ?? utcDate(dateStart(end) - 29 * DAY_MS);
   const startAt = dateStart(start);
   const endDay = dateStart(end);
   if (startAt > endDay)
     throw new TrafficRequestError('开始日期不能晚于结束日期。');
-  if (endDay > dateStart(chinaDate(now))) {
+  if (endDay > dateStart(utcDate(now))) {
     throw new TrafficRequestError('结束日期不能晚于今天。');
   }
   return {
@@ -77,7 +76,7 @@ export function getTrafficRange(
     endDate: end,
     startAt,
     endAt: Math.min(endDay + DAY_MS - 1, now),
-    timezone: 'Asia/Shanghai',
+    timezone: 'UTC',
   };
 }
 

@@ -96,11 +96,10 @@ export default function TaskTrackingPanel({
   const answerCollection =
     workflow?.collection?.metric === 'answer_target_citation';
   const provider =
-    workflow?.collection?.provider ?? task.collectionProvider ?? 'deepseek';
+    workflow?.collection?.provider ?? task.collectionProvider ?? 'chatgpt';
   const configured =
     data.settings.collectionProviders?.find((item) => item.id === provider)
-      ?.configured ??
-    (provider === 'deepseek' && data.settings.liveSearchConfigured);
+      ?.configured ?? false;
   const working = !!busy || task.status === 'investigating';
   const canRecord =
     (!actual || needsActualDate) &&
@@ -197,7 +196,7 @@ export default function TaskTrackingPanel({
                   : '未关联'}
             </span>
             <span>
-              {run.costEstimated ? '费用预留' : '记录费用'} ¥
+              {run.costEstimated ? '费用预留' : '记录费用'} $
               {run.cost.toFixed(3)}
             </span>
           </div>
@@ -453,7 +452,7 @@ export default function TaskTrackingPanel({
               <div>
                 <dt>{answerCollection ? '费用预留' : '已用预算'}</dt>
                 <dd>
-                  ¥{task.monitor.spent.toFixed(3)} / ¥
+                  ${task.monitor.spent.toFixed(3)} / $
                   {task.monitor.budgetLimit.toFixed(2)}
                 </dd>
               </div>
@@ -484,7 +483,7 @@ export default function TaskTrackingPanel({
                 {data.settings.schedulerRunning
                   ? '本地服务运行中'
                   : '调度器未运行'}{' '}
-                · 北京时间
+                · UTC
               </span>
             </div>
             {actual && !configured && (

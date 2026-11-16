@@ -313,7 +313,7 @@ export async function selectAndProbeReferenceWinners(
         `SELECT o.question_id, q.category AS question_category, o.engine, o.language, o.summary, o.answer_path, o.evidence_path, o.sources_json
          FROM opengeo_observations o
          LEFT JOIN opengeo_questions q ON q.project_id = o.project_id AND q.id = o.question_id
-         WHERE o.project_id = ?
+         WHERE o.project_id = ? AND o.engine IN ('chatgpt', 'google')
          ORDER BY o.seq DESC`,
       )
       .all(id) as Array<{

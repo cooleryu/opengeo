@@ -83,7 +83,7 @@ test('research kind uses saved brand and positioning categories before legacy ID
     { ...question, id: 'C01', category: 'problem' },
     { ...question, id: 'R01', category: undefined },
   ];
-  const filters = { language: 'zh', engine: 'deepseek', kind: 'brand', result: 'all' } as const;
+  const filters = { language: 'zh', engine: 'google', kind: 'brand', result: 'all' } as const;
   assert.deepEqual(getResearchRows(batch, filters).map(row => row.question.id), ['manual-brand', 'manual-positioning', 'R01']);
   assert.deepEqual(getResearchRows(batch, { ...filters, kind: 'discovery' }).map(row => row.question.id), ['C01']);
   assert.equal(isBrandQuestion({ ...question, id: 'C01', category: undefined }), true);
@@ -98,18 +98,18 @@ test('new batches are idempotent and historical batch reads retain their own app
   assert.deepEqual(getResearchBatch(seed.project.id, old.id), old);
   assert.equal(getResearchBatch('sample-project-two', batch.id), null);
   const record: ResearchRunRecord = {
-    id: 'old-batch-run', projectId: seed.project.id, batchId: old.id, provider: 'deepseek', language: 'zh',
+    id: 'old-batch-run', projectId: seed.project.id, batchId: old.id, provider: 'chatgpt', language: 'zh',
     questions: [{ questionId: old.questions[0].id, query: old.questions[0].zh }],
     startedAt: '2026-10-28T00:00:00Z', updatedAt: '2026-10-28T00:00:00Z', status: 'running',
-    spent: 0, budgetLimit: 0.02, scheduleId: 'schedule-1', budget: { currency: 'CNY', amount: 0.02, limitCny: 0.02 },
+    spent: 0, budgetLimit: 0.02, scheduleId: 'schedule-1',
   };
   saveResearchRun(seed.project.id, record);
   assert.throws(() => saveResearchRun(seed.project.id, { ...record, scheduleId: 'changed' }), /冻结输入/);
-  assert.throws(() => saveResearchRun(seed.project.id, { ...record, budget: { ...record.budget!, amount: 0.03 } }), /冻结输入/);
-  saveResearchRun(seed.project.id, { ...record, confirmedSpentCny: 0.005, reservedCny: 0, spent: 0.005 });
-  assert.equal(getResearchRun(seed.project.id, record.id)!.confirmedSpentCny, 0.005);
+  assert.throws(() => saveResearchRun(seed.project.id, { ...record, budgetLimit: 0.03 }), /冻结输入/);
+  saveResearchRun(seed.project.id, { ...record, confirmedSpentUsd: 0.005, reservedUsd: 0, spent: 0.005 });
+  assert.equal(getResearchRun(seed.project.id, record.id)!.confirmedSpentUsd, 0.005);
   appendResearchObservation(seed.project.id, old.id, old.questions[0].id, {
-    runId: record.id, engine: 'deepseek', language: 'zh', query: old.questions[0].zh,
+    runId: record.id, engine: 'chatgpt', language: 'zh', query: old.questions[0].zh,
     status: 'not_observed', recordedAt: record.startedAt, summary: 'Offline fixture only.', conditions: 'No network.', sources: [], evidencePath: 'fixture.json',
   });
   const historical = getResearchBatch(seed.project.id, old.id)!;

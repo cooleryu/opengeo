@@ -33,8 +33,8 @@ export interface ProjectResearchSnapshot {
     query: string;
     requestedAt: string;
     status: 'pending' | 'completed' | 'failed';
-    confirmedCostCny: number | null;
-    reservedCostCny: number;
+    confirmedCostUsd: number | null;
+    reservedCostUsd: number;
     results: { title: string; url: string }[];
   }[];
 }

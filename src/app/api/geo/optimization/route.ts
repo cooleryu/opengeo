@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   applyOptimizationDeliverables,
   buildOptimizationRunViewModel,
+  cancelOptimizationRun,
+  finalizeOptimizationBrowserRetest,
   generateDeliverableChineseCompanion,
   listOptimizationRuns,
+  OptimizationCancelledError,
   OptimizationStateError,
   publishRepoDeliverablesToGitHub,
   resumeOptimizationRun,
@@ -48,8 +51,26 @@ export async function POST(request: NextRequest) {
     const projectId = resolveGeoProject(body.projectId);
     const action = body.action;
 
+    if (action === 'cancel') {
+      const runId = typeof body.runId === 'string' && body.runId ? body.runId : undefined;
+      return withGeoProject(projectId, () => {
+        const { cancelledRunId } = cancelOptimizationRun(projectId, runId);
+        return NextResponse.json({
+          projectId,
+          cancelledRunId,
+          viewModel: buildOptimizationRunViewModel(projectId),
+          runs: listOptimizationRuns(projectId),
+        });
+      });
+    }
+
     if (action === 'start' || action === 'retry') {
-      const mode = body.mode === 'focus' ? 'focus' : 'deep';
+      const onlyNewContent = body.onlyNewContent === true;
+      const angleBrief =
+        typeof body.angleBrief === 'string' && body.angleBrief.trim()
+          ? body.angleBrief.trim().slice(0, 600)
+          : undefined;
+      const mode = body.mode === 'focus' || onlyNewContent ? 'focus' : 'deep';
       const runIdToResume = action === 'retry' && typeof body.runId === 'string' ? body.runId : '';
       const includeChineseCompanion =
         typeof body.includeChineseCompanion === 'boolean' ? body.includeChineseCompanion : undefined;
@@ -65,12 +86,16 @@ export async function POST(request: NextRequest) {
               preferredProvider,
               includeChineseCompanion,
               onProgress,
+              signal: request.signal,
             })
           : startOptimizationRun(projectId, {
               mode,
               preferredProvider,
               includeChineseCompanion,
+              onlyNewContent,
+              angleBrief,
               onProgress,
+              signal: request.signal,
             });
 
       if (request.headers.get('accept')?.includes('application/x-ndjson')) {
@@ -92,10 +117,18 @@ export async function POST(request: NextRequest) {
                   runs: listOptimizationRuns(projectId),
                 });
               } catch (error) {
-                send({
-                  type: 'error',
-                  error: error instanceof Error ? error.message : '优化执行异常。',
-                });
+                if (error instanceof OptimizationCancelledError) {
+                  send({
+                    type: 'cancelled',
+                    viewModel: buildOptimizationRunViewModel(projectId),
+                    runs: listOptimizationRuns(projectId),
+                  });
+                } else {
+                  send({
+                    type: 'error',
+                    error: error instanceof Error ? error.message : '优化执行异常。',
+                  });
+                }
               } finally {
                 if (!closed) controller.close();
               }
@@ -171,15 +204,25 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    if (action === 'finalize_retest') {
+      const runId = typeof body.runId === 'string' ? body.runId : '';
+      return withGeoProject(projectId, () => {
+        const run = finalizeOptimizationBrowserRetest(projectId, runId);
+        return NextResponse.json({
+          projectId,
+          viewModel: buildOptimizationRunViewModel(projectId, run.id),
+          runs: listOptimizationRuns(projectId),
+        });
+      });
+    }
+
     if (action === 'retest') {
       const runId = typeof body.runId === 'string' ? body.runId : '';
-      const liveProvider =
-        body.liveProvider === 'qwen' || body.liveProvider === 'doubao' ? body.liveProvider : undefined;
       const capturedAnswers = Array.isArray(body.capturedAnswers)
         ? (body.capturedAnswers as CapturedRetestAnswer[])
         : undefined;
       return await withGeoProject(projectId, async () => {
-        const run = await runOptimizationRetest(projectId, runId, { liveProvider, capturedAnswers });
+        const run = await runOptimizationRetest(projectId, runId, { capturedAnswers });
         return NextResponse.json({
           projectId,
           viewModel: buildOptimizationRunViewModel(projectId, run.id),

@@ -129,22 +129,22 @@ test('default rows select the latest measurement, preserving original history ke
   );
 });
 
-test('API entries remain separate and a new unmeasured entry has no rate', () => {
-  const api = observation('found', {
-    engine: 'qwen',
-    entryType: 'api_answer',
+test('latest observation selection keeps distinct platforms and unmeasured slots separate', () => {
+  const ai = observation('found', {
+    engine: 'google',
+    entryType: 'web_answer',
     collectedAt: '2026-10-27T09:00:00Z',
   });
-  const source = batch([question('C02', [api])]);
+  const source = batch([question('C02', [ai])]);
   const rows = getResearchRows(source, { ...filters, engine: 'all' });
   assert.deepEqual(
     rows.map((row) => row.engine),
-    ['chatgpt', 'google', 'qwen'],
+    ['chatgpt', 'google'],
   );
-  assert.equal(rows.find((row) => row.engine === 'qwen').observation, api);
+  assert.equal(rows.find((row) => row.engine === 'google').observation, ai);
   assert.equal(
     getResearchMetrics(
-      getResearchRows(source, { ...filters, engine: 'doubao' }),
+      getResearchRows(source, { ...filters, engine: 'chatgpt' }),
     ).rate,
     null,
   );

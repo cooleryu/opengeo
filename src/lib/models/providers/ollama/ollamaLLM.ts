@@ -22,7 +22,6 @@ type OllamaConfig = {
 const reasoningModels = [
   'gpt-oss',
   'deepseek-r1',
-  'qwen3',
   'deepseek-v3.1',
   'magistral',
   'nemotron-3',

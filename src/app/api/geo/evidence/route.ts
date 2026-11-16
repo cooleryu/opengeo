@@ -52,7 +52,7 @@ async function readProjectEvidence(request: NextRequest) {
       const observations = batches.flatMap(batch => [...batch.questions, ...batch.deferredQuestions].flatMap(question => question.observations));
       const isSearchEvidence = observations.some(observation => observation.evidencePath === file && (
         observation.entryType === 'web_search' || observation.entryType === 'api_search' ||
-        (!observation.entryType && (observation.engine === 'google' || observation.engine === 'deepseek'))
+        (!observation.entryType && observation.engine === 'google')
       ));
       const standalone = observations.some(observation => observation.answerPath === file && (
         (observation.entryType === 'api_answer' && file.endsWith('.answer.md')) ||

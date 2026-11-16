@@ -38,7 +38,7 @@ title: 开源代码仓库 README 门面规范
 
 ### 一句锋利好懂核心定位（不超过 22 字，例如：看清 AI 搜索怎么回答你的产品，把缺口直接改成好内容。）
 
-**一句具象的日常困扰场景（例如：ChatGPT 推荐了竞品没提你、DeepSeek 说错了你的功能、回答底下没挂你的官网。）**<br>
+**一句具象的日常困扰场景（例如：ChatGPT 推荐了竞品没提你、Google AI Overviews 说错了你的功能、回答底下没挂你的官网。）**<br>
 两行以内讲透本地闭环：把真实客户问题跑一遍，存下完整回答和参考网页，<br>
 查到短板直接写出配套改稿，挑合适的上线后再用原题复查变化。
 
@@ -70,7 +70,7 @@ title: 开源代码仓库 README 门面规范
 分 3 个清晰小节：
 - **问题监测与原文留证**：讲清原始提问、AI 完整回答、参考网页与竞品同题对照（仅在 `targetLanguage = "zh"` 且有真实中文截图时嵌入 `docs/images/question-answer.png`；英文版改用紧致结构化说明或对比表）。
 - **赢家拆解、配套改稿与单篇采用**：讲清怎么先自动拆解被引用赢家页面的标题结构与切入逻辑，再生成带改前改后对照的互补方案、三红线把关，按自己节奏逐篇采用再原题重测（中文版可嵌 `docs/images/improvement-tracking.png`）。
-- **支持的平台**：放一张诚实直观的 2~3 列表格，分清 **ChatGPT / Google AI Overviews**（在用户自己的本地浏览器会话中按人性化低频节奏整批采集真实回答与引用来源，也支持无痕手工保存原文核对；触发 Google 人机验证时交由用户确认）与 **DeepSeek / 千问 / 豆包**（可选填入自己的 API 密钥一键联网提问留证）。
+- **支持的平台**：放一张诚实直观的 2 列表格，分清 **ChatGPT / Google AI Overviews**（界面一键启动本机真实浏览器会话、按人性化低频节奏整批采集真实回答与引用来源；触发 Google 人机验证时暂停交由用户确认）与 **无痕手工补录（备选）**（自行在无痕窗口提问后粘贴完整回答与引用链接）。
 
 ### 第 6 块：`## 文档`（`## Documentation`）
 放一张干净的二列导航表，保留原有有效链接：[快速上手](docs/getting-started.zh-CN.md)（英文首页用 `docs/getting-started.md`）、[接口文档](docs/API/OPENGEO-CONTRACTS.md)、[Agent 提示词说明](skills/README.md)、[English README](README.md)（英文首页链接 `[简体中文 README](README.zh-CN.md)`）。
