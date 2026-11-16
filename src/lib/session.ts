@@ -1,4 +1,4 @@
-import { EventEmitter } from 'stream';
+import { EventEmitter } from 'node:events';
 import { applyPatch } from 'rfc6902';
 import { Block } from './types';
 

@@ -1,6 +1,6 @@
 # Updating OpenGEO
 
-Update from [cooleryu/opengeo](https://github.com/cooleryu/opengeo). The public branch is `main`; development branches can contain unfinished work. OpenGEO retains code from Vane, but Vane's published images are not OpenGEO updates.
+Update from [cooleryu/opengeo](https://github.com/cooleryu/opengeo). The public branch is `main`; development branches can contain unfinished work.
 
 ## Before updating
 
@@ -59,8 +59,8 @@ After updating the source, rebuild from this repository using the same Compose p
 docker compose up -d --build
 ```
 
-The repository's Compose file builds the local `opengeo:local` image. Its `vane` service name, `vane-data` volume, and `/home/vane/data` mount are retained for compatibility with existing deployments. Keep any environment settings, overrides, and additional mounts you already use; rebuilding does not copy host `.env.local` into the container.
+The repository's Compose file builds the local `opengeo:local` image with the `opengeo` service, `opengeo-data` volume, and `/app/data` mount. Keep any environment settings, overrides, and additional mounts you already use; rebuilding does not copy host `.env.local` into the container.
 
-The default Compose port mapping remains `3000:3000`, so check [localhost:3000](http://127.0.0.1:3000), or your existing configured address. Verify that the original projects and saved records are present. Do not remove the data volume or run `docker compose down -v` during an update.
+The default Compose port mapping is `4327:4327`, so check [localhost:4327](http://127.0.0.1:4327), or your existing configured address. Verify that the original projects and saved records are present. Do not remove the data volume or run `docker compose down -v` during an update.
 
-If you originally deployed with `docker run` or a custom Compose file, retain that deployment's volume mapping, environment, and port settings when rebuilding from this repository. Do not replace it with an upstream Vane image. Docker files are retained as a deployment option; this documentation update does not establish that the current OpenGEO workflow has been verified in Docker.
+If you originally deployed with `docker run` or a custom Compose file, retain that deployment's volume mapping, environment, and port settings when rebuilding from this repository. Docker files are retained as a deployment option; this documentation update does not establish that the current OpenGEO workflow has been verified in Docker.

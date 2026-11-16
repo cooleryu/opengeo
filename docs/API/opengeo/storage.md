@@ -17,7 +17,7 @@
 | 改进任务、方案/审核/实施/跟测历史 | `geo_tasks.payload` 嵌套完整对象；事件 `geo_task_events`，执行占用 `geo_task_locks` |
 | 材料核查、人工事实核查、策略版本 | `geo_governance`、`geo_claim_reviews`、`geo_strategies` |
 | 搜索完整请求/返回/失败 | 项目 `geo-evidence/<runId>/` 文件；数据库存引用；请求记录不保存 Authorization header |
-| Target / 模型配置 | 项目 `competitor.json` / 应用 `data/geo-settings.json`，兼容 Vane `data/config.json`；不属于研究表 |
+| Target / 模型配置 | 项目 `competitor.json` / 应用 `data/geo-settings.json`；不属于研究表 |
 | 访问/转化 | 上游 Umami 保存；OpenGEO当前只读，不落查询快照 |
 | 回答提及/引用审核 | SQLite `geo_answer_audits` 追加审核版本；`geo_answer_audit_imports` 保留兼容迁移标记；源码不包含本地旧审核记录 |
 

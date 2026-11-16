@@ -54,7 +54,14 @@ When the project is created you land on **Overview**, which answers two things o
 
 <details><summary>Prefer to start from a terminal? (developer option)</summary>
 
-Full setup steps live in the Quick Start section of [the README](../README.md). You need Node.js 24; the service then runs locally on port 4327. Leave any missing API keys blank during setup and add them in the UI later.
+Requires **Node.js 24**. From the repository root:
+
+```sh
+npm install
+npm run dev
+```
+
+Then open [http://127.0.0.1:4327](http://127.0.0.1:4327). Leave any missing API keys blank during setup (or copy `.env.example` to `.env.local`) and configure providers in **Settings** later.
 
 </details>
 

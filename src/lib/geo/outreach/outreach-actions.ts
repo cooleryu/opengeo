@@ -27,6 +27,9 @@ import {
 } from './outreach-store';
 
 const SAFE_GH_SEGMENT_RE = /^[A-Za-z0-9_.-]{1,100}$/;
+const HAS_CJK_RE = /[\u3400-\u9fff]/;
+const RELEVANT_OUTREACH_TOPIC_RE =
+  /\b(ai|llm|gpt|chatgpt|perplexity|gemini|claude|overview|search|seo|aeo|geo|citation|cite|visibility|brand|mention|track|monitor|rank|tool|open[- ]source|benchmark|saas|discover)\b/i;
 const LIST_HEADING_PRIORITY_RE =
   /tools|open[- ]source|monitoring|analytics|tracking|visibility|platforms|software|projects|resources|trackers|utilities/i;
 const SKIP_HEADING_RE = /table of contents|contents|contributing|license|acknowledg/i;
@@ -52,11 +55,17 @@ function assertSafeGitHubSlug(owner: string, repo: string): { owner: string; rep
 }
 
 function resolveEgoBrowserBin(): string | null {
+  const pathDirs = (process.env.PATH || '')
+    .split(path.delimiter)
+    .map((dir) => dir.trim())
+    .filter(Boolean)
+    .map((dir) => path.join(dir, process.platform === 'win32' ? 'ego-browser.exe' : 'ego-browser'));
   const candidates = [
     process.env.EGO_BROWSER_BIN?.trim(),
     path.join(os.homedir(), '.local', 'bin', 'ego-browser'),
     '/opt/homebrew/bin/ego-browser',
     '/usr/local/bin/ego-browser',
+    ...pathDirs,
   ].filter((value): value is string => Boolean(value));
 
   for (const candidate of candidates) {
@@ -69,7 +78,19 @@ function resolveEgoBrowserBin(): string | null {
       // Try next binary location
     }
   }
-  return 'ego-browser';
+  return null;
+}
+
+function openUrlInSystemBrowser(url: string): void {
+  if (process.platform === 'darwin') {
+    spawn('open', [url], { stdio: 'ignore', detached: true }).unref();
+    return;
+  }
+  if (process.platform === 'win32') {
+    spawn('cmd', ['/c', 'start', '', url], { stdio: 'ignore', detached: true }).unref();
+    return;
+  }
+  spawn('xdg-open', [url], { stdio: 'ignore', detached: true }).unref();
 }
 
 function runGh(args: string[], timeout = 15_000, stdinInput?: string): string {
@@ -314,9 +335,11 @@ export function parseAwesomeInsertion(
   let sectionHeading = 'Open-Source Tools';
   let tableFormattedLine: string | null = null;
 
+  const cleanProjectDesc =
+    project.description && !HAS_CJK_RE.test(project.description) ? project.description : '';
   const rawDesc = (
     modelSuggestion?.description ||
-    project.description ||
+    cleanProjectDesc ||
     'Open-source, local-first AI search visibility & GEO workbench.'
   )
     .replace(/\s+/g, ' ')
@@ -346,6 +369,7 @@ export function parseAwesomeInsertion(
         return `[${project.name}](${primaryUrl})`;
       }
       if (/star/i.test(h)) {
+        if (starsVal <= 0) return '-';
         return sample.includes('⭐') ? `⭐ ${starsVal}` : `${starsVal}`;
       }
       if (/type|kind|category/i.test(h)) {
@@ -511,7 +535,8 @@ function discoverCitedAwesomeRepos(
 function buildDefaultShowHnDraft(project: GeoProject): CommunityPostDraft {
   const repoSlug = parseGitHubRepoSlug(project.repositoryUrl);
   const repoLabel = repoSlug ? `${repoSlug.owner}/${repoSlug.repo}` : project.name;
-  const cleanSummary = (project.description || '').replace(/\s+/g, ' ').trim();
+  const rawSummary = (project.description || '').replace(/\s+/g, ' ').trim();
+  const cleanSummary = rawSummary && !HAS_CJK_RE.test(rawSummary) ? rawSummary : '';
   const shortAngle = cleanSummary
     ? cleanSummary.replace(/\.+$/, '')
     : 'Local-first AI search visibility & GEO audit workbench';
@@ -592,14 +617,25 @@ export function listOutreachActions(
       currentHomepage.trim() ||
       project.siteUrl?.trim() ||
       `https://github.com/${ownSlug.owner}/${ownSlug.repo}#readme`;
-    const suggestedDescription =
-      saved?.repoMetaDraft?.suggestedDescription ||
-      (currentDescription.trim().length >= 30
+    const cleanSavedDesc =
+      saved?.repoMetaDraft?.suggestedDescription &&
+      !HAS_CJK_RE.test(saved.repoMetaDraft.suggestedDescription)
+        ? saved.repoMetaDraft.suggestedDescription
+        : '';
+    const cleanCurrentDesc =
+      currentDescription.trim().length >= 30 && !HAS_CJK_RE.test(currentDescription)
         ? currentDescription.trim()
-        : `${project.name} (${ownSlug.owner}/${ownSlug.repo}): Open-source, local-first AI search visibility workbench to audit real ChatGPT & Google AI citations.`);
+        : '';
+    const suggestedDescription =
+      cleanSavedDesc ||
+      cleanCurrentDesc ||
+      `${project.name} (${ownSlug.owner}/${ownSlug.repo}): Open-source, local-first AI search visibility workbench to audit real ChatGPT & Google AI citations.`;
 
     const needsSync =
-      !currentHomepage.trim() || currentTopics.length < 4 || currentDescription.trim().length < 20;
+      !currentHomepage.trim() ||
+      currentTopics.length < 4 ||
+      currentDescription.trim().length < 20 ||
+      HAS_CJK_RE.test(currentDescription);
 
     const draft: RepoMetaDraft = {
       owner: ownSlug.owner,
@@ -701,7 +737,8 @@ export function listOutreachActions(
   ).filter(
     (page) =>
       !/github\.com\/[^/]+\/[^/]+/i.test(page.url) &&
-      !/github topics/i.test(page.title),
+      !/github topics/i.test(page.title) &&
+      RELEVANT_OUTREACH_TOPIC_RE.test(`${page.title} ${page.url}`),
   );
 
   for (const page of citedPages.slice(0, 3)) {
@@ -1065,6 +1102,11 @@ export async function openDraftInEgoLiteAction(input: {
   }
 
   const egoBin = resolveEgoBrowserBin();
+  if (!egoBin) {
+    openUrlInSystemBrowser(targetUrl);
+    return { openedUrl: targetUrl };
+  }
+
   const script = `
 const targetUrl = ${JSON.stringify(targetUrl)};
 const draftTitle = ${JSON.stringify(input.draftTitle || '')};

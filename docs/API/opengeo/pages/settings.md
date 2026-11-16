@@ -4,7 +4,7 @@
 
 公开版说明更新：2026-10-31。描述当前代码协议；新增或变更接口时同步维护本页。
 
-侧栏“设置”直接打开 `/?view=settings`，沿用 OpenGEO 页面布局。旧 `/research` 地址跳转到该页，不再经过 Vane 欢迎动画或初始化向导。
+侧栏“设置”直接打开 `/?view=settings`，沿用 OpenGEO 页面布局。旧 `/research` 地址直接跳转到该页。
 
 ## OpenGEO 设置接口
 
@@ -20,7 +20,7 @@
 
 拟题、分析、改稿和审核通过 `loadGeoModel()` 在新操作开始时读取设置。已有跟测继续使用冻结的协议与条件，避免修改可比条件。保存或读取到配置不等于连接已验证。
 
-测试有 45 秒总时限，不自动重试；错误不回显 Key 或供应商完整响应。既有 Vane provider 配置继续兼容实际调用，但测试按钮会说明该旧连接暂不支持单次测试。修改为直连需有效配置，不能静默清空原连接。
+测试有 45 秒总时限，不自动重试；错误不回显 Key 或供应商完整响应。修改为直连需有效配置，不能静默清空原连接。
 
 源码：[设置页](../../../../src/components/geo/ConnectionSettingsPanel.tsx)、[设置路由](../../../../src/app/api/geo/settings/route.ts)、[配置读取与保存](../../../../src/lib/geo/connection-settings.ts)、[连接测试](../../../../src/lib/geo/connection-test.ts)。
 
@@ -43,42 +43,9 @@
 
 官方协议：[注册登录](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)、[账户与会话](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)、[推理要求](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)。
 
-## 兼容保留的 Vane 接口（非当前设置页）
-
-设置组件 `SettingsDialogue` 打开时 GET `/api/config`；设置四组为 preferences、personalization、models、search。
-这些路由没有 `project/projectId`，是 Vane 应用全局配置，不能描述为项目隔离配置。
-统一风格与 GEO 不同：成功/失败一般 `{message:string}`，服务商新增/修改为 `{provider:…}`，配置 GET 为 `{values,fields}`。
-
-|接口|请求、成功返回、失败/限制|
-|---|---|
-|GET `/api/config`|无请求字段；200 `{values:Config,fields:UIConfigSections}`；modelProviders 结合当前 provider 模型列表；异常 500 message。|
-|POST `/api/config`|body `{key,value}`；两者 truthy 为必需，UI key 为 `组名.字段名`；200 `Config updated successfully.`；缺字段 400；异常含 JSON 解析 500。|
-|POST `/api/config/setup-complete`|不读 body；标 setupComplete=true；200 `Setup marked as complete.`；异常 500；并不核验供应商联网能力。|
-|GET `/api/providers`|200 `{providers:MinimalProvider[]}`；排除 chatModels 含 key=`error` 的 provider；异常 500。|
-|POST `/api/providers`|body `{type,name,config}` truthy 必需；200 `{provider:ConfigModelProvider}`；缺字段400；无效 type/其他异常500。|
-|PATCH `/api/providers/:id`|id + body `{name,config}` truthy 必需；200 `{provider:ConfigModelProvider}`；缺字段400；找不到 provider/其他异常500。|
-|DELETE `/api/providers/:id`|无 body；200 `Provider deleted successfully.`；缺 id400；未找到 id 的实现直接成功；异常500。|
-|POST `/api/providers/:id/models`|body `{key,name,type:'chat'\|'embedding'}`；仅 key/name 做必填检查；200 `Model added successfully`；缺字段400；无效 provider/其他异常500。|
-|DELETE `/api/providers/:id/models`|body `{key,type:'chat'\|'embedding'}`；仅 key 做必填检查；200 的 message 仍写 `Model added successfully`；缺 key400；异常500。|
-
-`Config` 为 `{version,setupComplete,preferences,personalization,modelProviders,search}`；`ConfigModelProvider` 为 `{id,name,type,chatModels,embeddingModels,config,hash}`。
-`MinimalProvider` 只含 `{id,name,chatModels,embeddingModels}`；`Model` 为 `{name,key}`；模型 type 未在 route 做运行时 enum 校验，非 chat 分支进入 embedding。
-`fields` 描述 `{name,key,type,required,description,scope,env?,default?,…}`；scope 为 client/server，select 有 options。
-client 字段写 localStorage：theme 默认 dark、measureUnit 默认 Metric、autoMediaSearch/showWeatherWidget/showNewsWidget 默认 true、systemInstructions 默认空。
-server 的 search 仅 SearXNG URL，key=`search.searxngURL`，初始默认空，可由 `SEARXNG_API_URL` 初始化；POST 因 truthy 校验无法保存空串清空。
-聊天/embedding 模型选择只写 localStorage 的 `chatModelProviderId/chatModelKey/embeddingModelProviderId/embeddingModelKey` 并更新 ChatProvider。
-新增/修改 provider 的 config 字段由对应 provider 的 fields 定义，默认值来自 fields；API 没有通用字段级完整校验。
-模型列表读取失败可回退为 `{key:'error',name:错误消息}`，新增/修改仍可能 200；因此保存成功不等于可用性验证通过。
-
 ## 原环境配置与兼容边界
 
-没有界面保存值时，OpenGEO 模型仍读取 `OPENGEO_LLM_MODEL`，并要求 `OPENGEO_LLM_API_KEY` 或 `OPENGEO_VANE_PROVIDER_ID` 存在；可用 `OPENGEO_LLM_BASE_URL`。
-尚未在新设置页保存模型且设置了 `OPENGEO_VANE_PROVIDER_ID` 时，服务端继续用 Vane registry 的对应 provider；否则构造兼容 OpenAI 的模型连接。
-旧 Vane 聊天模型选择不会改变 OpenGEO 设置；新的配置保存通过上方 `/api/geo/settings` 接入实际调用。
+没有界面保存值时，OpenGEO 模型仍读取 `OPENGEO_LLM_MODEL`、`OPENGEO_LLM_API_KEY` 与 `OPENGEO_LLM_BASE_URL`。
 模型密钥未保存时可从环境变量回退：Gemini=`GEMINI_API_KEY`；DeepSeek=`DEEPSEEK_API_KEY`（模型 `deepseek-flash`，地址 `https://api.deepseek.com`）；自定义 OpenAI 兼容端点使用 `OPENGEO_LLM_MODEL`、`OPENGEO_LLM_API_KEY`、`OPENGEO_LLM_BASE_URL`。
 GeoState 中的 `settings.collectionProviders`、`liveSearchConfigured` 不再返回搜索 API 密钥状态。
-Vane configManager 将配置（含 provider config）序列化到本地 `data/config.json`，环境导入的 provider config 也可能写入此文件。
-但遗留 GET `/api/config` 与 provider POST/PATCH 响应没有密钥脱敏，`config` 原值会返回浏览器；新的 OpenGEO 设置页不调用这些接口，但本次没有重构或移除其兼容能力。
-遗留 route 也未见用户鉴权/同源显式检查；新设置写入执行同源检查，但本次没有实现远程多用户鉴权，不能推断已具备多用户隔离。
-
-源码：[config 路由](../../../../src/app/api/config/route.ts)、[providers 路由](../../../../src/app/api/providers/route.ts)、[配置类型](../../../../src/lib/config/types.ts)、[configManager](../../../../src/lib/config/index.ts)、[模型 registry](../../../../src/lib/models/registry.ts)、[OpenGEO planner](../../../../src/lib/geo/planner.ts)。
+新设置写入执行同源检查，但本次没有实现远程多用户鉴权，不能推断已具备多用户隔离。

@@ -1,14 +1,14 @@
 services:
-  vane:
+  opengeo:
     image: opengeo:local
     build:
       context: .
     ports:
-      - '3000:3000'
+      - '4327:4327'
     volumes:
-      - data:/home/vane/data
+      - data:/app/data
     restart: unless-stopped
 
 volumes:
   data:
-    name: 'vane-data'
+    name: 'opengeo-data'

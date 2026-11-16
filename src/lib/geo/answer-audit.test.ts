@@ -45,7 +45,7 @@ const negative = () => ({
 let temporary: string;
 let previousEnvironment: Array<[string, string | undefined]>;
 const previousFetch = globalThis.fetch;
-const envNames = ['DATA_DIR', 'OPENGEO_LLM_MODEL', 'OPENGEO_LLM_API_KEY', 'OPENGEO_LLM_BASE_URL', 'OPENGEO_VANE_PROVIDER_ID'];
+const envNames = ['DATA_DIR', 'OPENGEO_LLM_MODEL', 'OPENGEO_LLM_API_KEY', 'OPENGEO_LLM_BASE_URL'];
 beforeEach(() => {
   previousEnvironment = envNames.map((name) => [name, process.env[name]]);
   for (const name of envNames) delete process.env[name];

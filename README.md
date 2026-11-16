@@ -31,7 +31,7 @@ OpenGEO is built for indie SaaS teams, docs owners, and open-source maintainers 
 | What you're comparing | Where it stops | What OpenGEO adds |
 | --- | --- | --- |
 | Hosted visibility dashboards (Otterly.AI, Profound, Peec AI) | A monthly subscription and a visibility score with a trend line | The same question set, but every finding opens the saved answer and the exact pages it cited |
-| Self-hosted API trackers (Elmo, Gego, Limelit Open, GEO/AEO Tracker) | They call provider APIs, so you get the API's answer rather than the page a logged-in user sees, and the output is mostly a mention or citation list | It captures the real ChatGPT and Google AI Overview result inside your own browser session, keeps the full answer text, and stores every cited URL |
+| Self-hosted trackers & scrapers (Elmo, Gego, Limelit Open, OneGlanse, GEO/AEO Tracker) | Either call model APIs instead of the live consumer UI, or rely on heavy Docker / paid-scraper stacks that stop at monitoring scores | It captures the real ChatGPT and Google AI Overview result inside your own browser session, keeps the full answer text, and stores every cited URL |
 | Page auditors and linters (robots.txt, llms.txt, schema checks) | They report what's missing on your own pages | It reads the pages AI already cites for that question, compares their structure with yours, and then drafts the version that fills the gap |
 
 **Probably not a fit if** you only want hundreds of keywords scanned on a schedule with a weekly report waiting for you — no API key to connect, no answers to save by hand. A paid hosted monitoring service is less effort there. If what you need is to see whose pages AI actually cites, keep that evidence on your own disk, and walk away with a draft, OpenGEO is the right tool.

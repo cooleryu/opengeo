@@ -19,7 +19,7 @@
 
 [新建与诊断](#新建与诊断) · [审核、手动改稿与自动续改](#审核手动改稿与自动续改) · [实施登记](#实施登记) · [单次复测与每日任务跟测](#单次复测与每日任务跟测) · [真实效果与策略学习](#真实效果与策略学习) · [返回对象与状态字典](#返回对象与状态字典)
 
-正式入口 `view=tasks`（改进任务）与 `view=monitor`（效果追踪）共用 `TaskWorkspace → TaskPanel → WorkflowPanel/TaskTrackingPanel`，选中任务由 `task` 地址参数和 `GeoState.tasks` 定位，没有独立任务详情 GET。
+正式入口 `view=tasks`（改进任务）与 `view=monitor`（效果追踪）均在应用主工作台中以 `OptimizationStudio` 呈现（历史任务另可从任务列表打开），选中任务由 `task` 地址参数和 `GeoState.tasks` 定位，没有独立任务详情 GET。
 
 本节动作均走 `POST /api/geo`，除 create_task 外必须传 taskId；审核/实施还需要当前 proposalRevision。通用错误和受理/完成区别见[共享协议](../shared.md#错误与状态)。异步完成读取后续 task.status/error/events；200不能直接显示完成。任务忙碌时仅 pause 可绕过锁；任务观察锁按项目隔离。
 

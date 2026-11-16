@@ -21,7 +21,6 @@ const environmentNames = [
   'OPENGEO_LLM_MODEL',
   'OPENGEO_LLM_API_KEY',
   'OPENGEO_LLM_BASE_URL',
-  'OPENGEO_VANE_PROVIDER_ID',
   'DEEPSEEK_API_KEY',
   'GEMINI_API_KEY',
 ];
@@ -139,26 +138,6 @@ test('saving takes effect on the next real model request without a restart', asy
     { url: 'https://first.example.test/v1/chat/completions', key: 'Bearer synthetic-first', model: 'first' },
     { url: 'https://second.example.test/v1/chat/completions', key: 'Bearer synthetic-second', model: 'second' },
   ]);
-});
-
-test('opening settings preserves Vane compatibility and never rewrites its configuration', () => {
-  process.env.OPENGEO_VANE_PROVIDER_ID = 'legacy-provider';
-  process.env.OPENGEO_LLM_MODEL = 'legacy-model';
-  fs.mkdirSync(path.join(temporary, 'data'));
-  const configFile = path.join(temporary, 'data/config.json');
-  const original = JSON.stringify({
-    modelProviders: [{ id: 'legacy-provider', type: 'openai', config: { baseURL: 'https://api.deepseek.com/v1', apiKey: 'synthetic-legacy-key' } }],
-  });
-  fs.writeFileSync(configFile, original);
-  assert.equal(getGeoConnectionSettings().model.source, 'vane');
-  assert.equal(getGeoModelConnection().vaneProviderId, 'legacy-provider');
-  assert.equal(fs.readFileSync(configFile, 'utf8'), original);
-  assert.equal(fs.existsSync(settingsFile()), false);
-  saveGeoConnectionSettings({ section: 'model', values: { model: 'adopted-model', apiKey: '' } });
-  assert.equal(getGeoModelConnection().vaneProviderId, undefined);
-  assert.equal(getGeoModelConnection().apiKey, 'synthetic-legacy-key');
-  assert.equal(getGeoModelConnection().baseURL, 'https://api.deepseek.com/v1');
-  assert.equal(fs.readFileSync(configFile, 'utf8'), original);
 });
 
 test('shouldUseChatGPTSubscription yields to configured API model when disconnected and supports GEMINI_API_KEY and DEEPSEEK_API_KEY env', () => {

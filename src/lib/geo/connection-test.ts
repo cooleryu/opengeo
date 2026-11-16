@@ -43,9 +43,6 @@ const defaultRuntime: ConnectionTestRuntime = {
   loadModel: async (signal, timeoutMs) => {
     const connection = getGeoModelConnection();
     if (!connection.configured) throw new ConnectionTestError('请先保存完整的模型连接，再测试。', 409);
-    // Other registry providers can discover models or retry internally. Do not
-    // promise a single billed request for those legacy connections.
-    if (connection.vaneProviderId) throw new ConnectionTestError('旧 Vane 连接暂不支持单次测试，请先保存 OpenGEO 模型连接。', 409);
     return singleRequestModel(await loadGeoModel(), fetch, signal, timeoutMs);
   },
   fetch: (...args) => fetch(...args),

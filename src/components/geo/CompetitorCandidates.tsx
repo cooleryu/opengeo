@@ -670,7 +670,9 @@ export default function CompetitorCandidates({
               {questionId
                 ? (isEn ? 'Competitors found' : '本题发现的竞品')
                 : (isEn ? 'Competitor candidates' : '竞品候选')}
-              {data && <span>{candidates.length}</span>}
+              {data && (candidates.length > 0 || data.analysis?.status === 'ready') && (
+                <span>{candidates.length}</span>
+              )}
             </h2>
             {compact && (
               <a
@@ -709,9 +711,13 @@ export default function CompetitorCandidates({
           {data && !candidates.length && (
             <p className="cc-empty">
               {questionId
-                ? (isEn
+                ? data.analysis?.status !== 'ready'
+                  ? isEn
+                    ? 'Competitor extraction has not run for this batch yet (click "All candidates" to extract).'
+                    : '本批回答尚未运行竞品提取（可点右上角「全部候选」提取）。'
+                  : isEn
                     ? 'No competitor candidates found for this prompt yet.'
-                    : '这道题的已有结果中还没有可展示的竞品候选。')
+                    : '这道题的已有结果中还没有可展示的竞品候选。'
                 : (isEn
                     ? 'No competitor candidates found in search results yet.'
                     : '已有搜索结果中还没有可展示的竞品候选。')}

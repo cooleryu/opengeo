@@ -8,7 +8,7 @@ type ModelValues = { provider?: GeoModelProvider; baseURL?: string; model?: stri
 type SavedSettings = { version: 1; model?: ModelValues; search?: unknown };
 export type GeoModelConnection = {
   provider: GeoModelProvider; baseURL: string; model: string; apiKey: string;
-  configured: boolean; source: GeoSettingsSource | 'vane'; vaneProviderId?: string;
+  configured: boolean; source: GeoSettingsSource;
 };
 export type GeoStructuredModel = { generateObject<T>(input: GenerateObjectInput): Promise<unknown> };
 
@@ -52,36 +52,22 @@ function readSavedSettings(): SavedSettings {
   }
 }
 
-// Read legacy metadata without importing ConfigManager, which writes on startup.
-function legacyOpenAIConnection(providerId: string): { apiKey: string; baseURL: string } | undefined {
-  if (!providerId) return undefined;
-  try {
-    const config = JSON.parse(fs.readFileSync(dataPath('config.json'), 'utf8'));
-    const provider = Array.isArray(config.modelProviders) && config.modelProviders.find((item: { id?: string }) => item.id === providerId);
-    if (provider?.type !== 'openai') return undefined;
-    return { apiKey: stringValue(provider.config?.apiKey), baseURL: safeBaseURL(stringValue(provider.config?.baseURL) || 'https://api.openai.com/v1') };
-  } catch { return undefined; }
-}
-
 function resolveModel(saved: SavedSettings): GeoModelConnection {
-  const vaneProviderId = stringValue(process.env.OPENGEO_VANE_PROVIDER_ID);
-  const legacy = legacyOpenAIConnection(vaneProviderId);
   const values = saved.model;
-  const useVane = Boolean(vaneProviderId && !values);
   const geminiKey = stringValue(process.env.GEMINI_API_KEY);
   const explicitBaseURL = stringValue(process.env.OPENGEO_LLM_BASE_URL);
   const environmentBaseURL = explicitBaseURL
     || (geminiKey ? 'https://generativelanguage.googleapis.com/v1beta/openai' : 'https://api.openai.com/v1');
-  const baseURL = safeBaseURL(values?.baseURL ?? (useVane && legacy ? legacy.baseURL : environmentBaseURL));
+  const baseURL = safeBaseURL(values?.baseURL ?? environmentBaseURL);
   const provider = values?.provider ?? inferProvider(baseURL);
   const explicitModel = stringValue(process.env.OPENGEO_LLM_MODEL);
   const model = values?.model ?? (explicitModel || (provider === 'gemini' && geminiKey ? 'gemini-3.8-flash' : ''));
   const explicitKey = stringValue(process.env.OPENGEO_LLM_API_KEY);
   const deepseekKey = stringValue(process.env.DEEPSEEK_API_KEY);
   const envKeyForProvider = explicitKey || (provider === 'gemini' ? geminiKey : provider === 'deepseek' ? deepseekKey : '');
-  const apiKey = values?.apiKey ?? (useVane && legacy ? legacy.apiKey : envKeyForProvider);
-  return { provider, baseURL, model, apiKey, configured: Boolean(model && (useVane || (apiKey && baseURL))),
-    source: values ? 'saved' : useVane ? 'vane' : 'environment', ...(useVane ? { vaneProviderId } : {}) };
+  const apiKey = values?.apiKey ?? envKeyForProvider;
+  return { provider, baseURL, model, apiKey, configured: Boolean(model && apiKey && baseURL),
+    source: values ? 'saved' : 'environment' };
 }
 
 export function getGeoModelConnection(): GeoModelConnection { return resolveModel(readSavedSettings()); }
@@ -96,7 +82,7 @@ export function shouldUseChatGPTSubscription(
 }
 
 function publicSettings(saved: SavedSettings): GeoConnectionSettings {
-  const { apiKey, vaneProviderId: _vaneProviderId, ...model } = resolveModel(saved);
+  const { apiKey, ...model } = resolveModel(saved);
   return {
     model: { ...model, keyConfigured: Boolean(apiKey) },
   };
@@ -143,14 +129,7 @@ export function saveGeoConnectionSettings(input: unknown): GeoConnectionSettings
   if (current.apiKey && !values.apiKey && (nextBaseURL !== current.baseURL || nextProvider !== current.provider)) {
     throw new GeoSettingsError('切换模型服务或 API 地址时，请填写该服务的新 API Key；原设置尚未改变。');
   }
-  if (current.source === 'vane' && !values.apiKey && !current.apiKey) {
-    throw new GeoSettingsError('切换到 OpenGEO 模型设置时，请填写 API Key；原连接尚未改变。');
-  }
   saved.model = { ...saved.model, ...values };
-  // A supported legacy OpenAI connection can be adopted without erasing its
-  // existing key. Other legacy provider types stay on their original path.
-  if (current.source === 'vane') saved.model = { provider: current.provider, baseURL: current.baseURL,
-    model: current.model, apiKey: current.apiKey, ...saved.model };
   const file = dataPath('geo-settings.json');
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
@@ -169,10 +148,6 @@ export function saveGeoConnectionSettings(input: unknown): GeoConnectionSettings
 export async function loadGeoModel(): Promise<GeoStructuredModel> {
   const connection = getGeoModelConnection();
   if (!connection.configured) throw new GeoSettingsError('请先在设置中配置模型名称、API 地址和 API Key。');
-  if (connection.vaneProviderId) {
-    const { default: ModelRegistry } = await import('@/lib/models/registry');
-    return new ModelRegistry().loadChatModel(connection.vaneProviderId, connection.model);
-  }
   const { default: OpenAILLM } = await import('@/lib/models/providers/openai/openaiLLM');
   return new OpenAILLM({ apiKey: connection.apiKey, model: connection.model, baseURL: connection.baseURL });
 }

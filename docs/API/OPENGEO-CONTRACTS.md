@@ -38,7 +38,6 @@
 
 - [共享协议](opengeo/shared.md)：项目与语言范围、GeoState、通用动作、错误、调度、原文读取，以及当前协议边界。
 - [存储与完整数据链路](opengeo/storage.md)：SQLite 表、配置/原文文件、搜索与任务的数据流向。
-- [保留的 Vane 基础 API](opengeo/legacy-api.md)：基础聊天/搜索接口清单，与正式 GEO 页面接口的区别。
 
 ## 五环的数据生产是否接通
 
@@ -135,9 +134,5 @@
 ### 11. 当前协议边界与维护
 
 [查看当前协议边界与维护](opengeo/shared.md#当前协议边界与维护)
-
-### 12. 保留的 Vane 基础 API
-
-[查看保留的 Vane 基础 API](opengeo/legacy-api.md)
 
 </details>

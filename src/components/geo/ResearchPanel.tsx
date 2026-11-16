@@ -201,15 +201,14 @@ function SourceItem({
   );
 }
 function Evidence({ projectId, path }: { projectId: string; path: string }) {
-  const [record, setRecord] = useState<{
-    content: string;
-    format: string;
-  } | null>(null);
-  const [error, setError] = useState('');
+  const reqKey = `${projectId}:${path}`;
+  const [state, setState] = useState<{
+    key: string;
+    record: { content: string; format: string } | null;
+    error: string;
+  }>({ key: '', record: null, error: '' });
   useEffect(() => {
     const controller = new AbortController();
-    setRecord(null);
-    setError('');
     fetch(
       '/api/geo/evidence?project=' +
         encodeURIComponent(projectId) +
@@ -221,12 +220,22 @@ function Evidence({ projectId, path }: { projectId: string; path: string }) {
         if (!response.ok) throw new Error('这份记录暂时无法读取。');
         return response.json();
       })
-      .then(setRecord)
-      .catch((error) => {
-        if (!controller.signal.aborted) setError(error.message);
+      .then((record) => {
+        setState({ key: reqKey, record, error: '' });
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) {
+          setState({
+            key: reqKey,
+            record: null,
+            error: cause instanceof Error ? cause.message : '这份记录暂时无法读取。',
+          });
+        }
       });
     return () => controller.abort();
-  }, [projectId, path]);
+  }, [projectId, path, reqKey]);
+  const record = state.key === reqKey ? state.record : null;
+  const error = state.key === reqKey ? state.error : '';
   return (
     <section className="rw-evidence" aria-live="polite">
       <details className="rw-file-location">

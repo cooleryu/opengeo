@@ -1,6 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+function taggedError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
+
 export async function collectBrowserQuestion(task, input) {
   const jitterPause = (minMs, maxMs) =>
     new Promise((resolve) => setTimeout(resolve, minMs + Math.floor(Math.random() * Math.max(1, maxMs - minMs + 1))));
@@ -40,12 +46,12 @@ export async function collectBrowserQuestion(task, input) {
     const composer = composerSelectors.join(', ');
     await page.goto('https://chatgpt.com/?temporary-chat=true');
     const preBlock = await detectChatGPTBlock();
-    if (preBlock) throw new Error(`ChatGPT 触发风控/限流或人工校验（${preBlock}），已主动熔断停止，请勿高频重试，请在当前页人工确认后点击继续。`);
+    if (preBlock) throw taggedError(`ChatGPT 触发风控/限流或人工校验（${preBlock}），已主动熔断停止，请勿高频重试，请在当前页人工确认后点击继续。`, 'NEEDS_HUMAN_HANDOFF');
     try {
       await page.waitForSelector(composer, {state:'visible',timeout:30000});
     } catch (waitError) {
       const postBlock = await detectChatGPTBlock();
-      if (postBlock) throw new Error(`ChatGPT 触发风控/限流或人工校验（${postBlock}），已主动熔断停止，请勿高频重试，请在当前页人工确认后点击继续。`);
+      if (postBlock) throw taggedError(`ChatGPT 触发风控/限流或人工校验（${postBlock}），已主动熔断停止，请勿高频重试，请在当前页人工确认后点击继续。`, 'NEEDS_HUMAN_HANDOFF');
       const needsLogin = await page.evaluate(() =>
         /auth\.openai\.com|\/auth\/login/i.test(globalThis.location?.href ?? '') ||
         [...document.querySelectorAll('button,a')].some((el) =>
@@ -53,7 +59,7 @@ export async function collectBrowserQuestion(task, input) {
         ),
       ).catch(() => false);
       if (needsLogin) {
-        throw new Error('ChatGPT 需要先登录账号或完成人工验证，请在打开的浏览器窗口完成后点击继续。');
+        throw taggedError('ChatGPT 需要先登录账号或完成人工验证，请在打开的浏览器窗口完成后点击继续。', 'NEEDS_HUMAN_HANDOFF');
       }
       throw waitError;
     }
@@ -68,9 +74,9 @@ export async function collectBrowserQuestion(task, input) {
         ),
       ).catch(() => false);
       if (signedOutVisible) {
-        throw new Error('ChatGPT 需要先登录账号才能开启临时聊天采集，请在打开的浏览器窗口登录后点击继续。');
+        throw taggedError('ChatGPT 需要先登录账号才能开启临时聊天采集，请在打开的浏览器窗口登录后点击继续。', 'NEEDS_HUMAN_HANDOFF');
       }
-      throw new Error('ChatGPT 未进入临时聊天模式（可能有弹窗或人工校验待确认），请在打开的浏览器窗口确认后点击继续。');
+      throw taggedError('ChatGPT 未进入临时聊天模式（可能有弹窗或人工校验待确认），请在打开的浏览器窗口确认后点击继续。', 'NEEDS_HUMAN_HANDOFF');
     }
     const personal = await page.evaluate(() => [...document.querySelectorAll('button')].some(b => b.checkVisibility() && /^(个性化|Personalization)$/i.test(b.innerText.trim())));
     if (personal) {
@@ -170,7 +176,7 @@ export async function collectBrowserQuestion(task, input) {
           Boolean(globalThis.location?.href?.includes('/sorry/'))
           || Boolean(document.querySelector('iframe[src*="recaptcha"], #captcha-form, form[action*="sorry"]'))
           || /unusual traffic|异常流量|不是自动程序/.test(document.body?.innerText || ''));
-        if (homeBlocked) throw new Error('Google 需要人工验证，未写入失败搜索为零值。请在当前页完成验证。');
+        if (homeBlocked) throw taggedError('Google 需要人工验证，未写入失败搜索为零值。请在当前页完成验证。', 'NEEDS_HUMAN_HANDOFF');
         try {
           const boxSelector = 'textarea[name="q"]';
           await page.waitForSelector(boxSelector, { state: 'visible', timeout: 15000 });
@@ -180,7 +186,7 @@ export async function collectBrowserQuestion(task, input) {
           await page.keyboard.press('Enter');
           await page.waitForURL((url) => url.pathname === '/search' || url.pathname.startsWith('/sorry'), { timeout: 30000 });
         } catch (navErr) {
-          if (/人工验证/.test(navErr?.message ?? '')) throw navErr;
+          if (navErr?.code === 'NEEDS_HUMAN_HANDOFF' || /人工验证/.test(navErr?.message ?? '')) throw navErr;
           await page.goto(`https://www.google.com/search?q=${encodeURIComponent(input.query)}${input.language === 'en' ? '&hl=en' : ''}`);
         }
       } else {
@@ -197,7 +203,7 @@ export async function collectBrowserQuestion(task, input) {
       Boolean(globalThis.location?.href?.includes('/sorry/'))
       || Boolean(document.querySelector('iframe[src*="recaptcha"], #captcha-form, form[action*="sorry"]'))
       || /unusual traffic|异常流量|不是自动程序/.test(document.body?.innerText || ''));
-    if (blocked) throw new Error('Google 需要人工验证，未写入失败搜索为零值。请在当前页完成验证。');
+    if (blocked) throw taggedError('Google 需要人工验证，未写入失败搜索为零值。请在当前页完成验证。', 'NEEDS_HUMAN_HANDOFF');
     // Unthrottle background tab visibility/paint without stealing OS window focus,
     // then wait for the observed AI Overview turn to finish.
     if (typeof page.cdp === 'function') {
@@ -245,9 +251,13 @@ export function readChatGPTConditions({language,resume=false,temporaryChatVerifi
   const temporary=temporaryChatVerified || controls.some(button =>
     /临时聊天|temporary chat/i.test(label(button)) &&
     (button.getAttribute('aria-pressed') === 'true' || /关闭临时聊天|turn off temporary chat/i.test(label(button))));
-  const notPersonalized=controls.some(button => button.innerText.trim() === '不个性化');
+  const notPersonalized=controls.some(button =>
+    /^(不个性化|Without memory|Memory off|Off)$/i.test(button.innerText.trim()) ||
+    /不个性化|without memory|memory off/i.test(label(button)));
   const signedOut=controls.some(button => /^(登录|Log in|Sign in)$/i.test(button.innerText.trim()));
-  const model=controls.find(button => button.getAttribute('aria-label') === '选择 ChatGPT 模型')?.innerText ?? '未显示';
+  const model=controls.find(button =>
+    /选择 ChatGPT 模型|Model selector|Choose.*model/i.test(button.getAttribute('aria-label') ?? '') ||
+    button.getAttribute('data-testid') === 'model-switcher-dropdown-button')?.innerText?.trim() || (language === 'en' ? 'Not shown' : '未显示');
   return {mode:temporary ? 'temporary_chat' : 'unknown',region:'unknown',loginState:signedOut ? 'signed_out' : 'unknown',model,
     searchMode:'ChatGPT 网页回答',resultLanguage:language,
     notes:[resume ? '继续采集；以下仅为当前可见状态，发送时条件未核实。' : '已在发送前核对页面条件。',
@@ -308,8 +318,8 @@ export async function submitBrowserCapture(input, payload) {
     model:saved.audit?.analysisModel,reasoning:saved.audit?.reasoningEffort,
     mention:saved.audit?.mention,citation:saved.audit?.citation,
     overview:saved.batch?.overviewMetrics?.[`${payload.language}:${payload.engine}`]},null,2));
-  if (saved.audit?.analysisStatus === 'failed') throw new Error('回答已入库，但模型分析失败；判断保留待核实，可重试分析。');
-  if (saved.status === 'needs_review' || saved.audit?.analysisStatus === 'needs_review') throw new Error('回答已入库，但审核仍待核实；请核对证据后再结束采集。');
+  if (saved.audit?.analysisStatus === 'failed') throw taggedError('回答已入库，但模型分析失败；判断保留待核实，可重试分析。', 'REVIEW_PENDING');
+  if (saved.status === 'needs_review' || saved.audit?.analysisStatus === 'needs_review') throw taggedError('回答已入库，但审核仍待核实；请核对证据后再结束采集。', 'REVIEW_PENDING');
   return saved;
 }
 

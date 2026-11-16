@@ -15,18 +15,6 @@ OpenGEO is a local workbench for examining AI-search answers, citations, and pos
 
 For a product change, start with the relevant page in the Agent guide and API contracts. Those documents distinguish connected functionality from work still in progress. Update the affected documentation when changing an interface or its behavior; do not describe a planned workflow as an implemented capability.
 
-## Retained chat and search foundation
-
-OpenGEO builds on Vane. The following components remain useful when changing that foundation; they are separate from the OpenGEO page and Agent entry points above:
-
-- `src/lib/agents/search` contains the inherited chat/search pipeline. `classifier.ts` selects the work, `researcher/` gathers information, and `widgets/` provides structured helpers.
-- Research tools live in `src/lib/agents/search/researcher/actions` and are registered in its `index.ts`.
-- Model providers live in `src/lib/models/providers`; `src/lib/models/registry.ts` loads them.
-- `src/lib/db` contains database support; `src/lib/uploads` handles uploaded-file search.
-- `src/lib/prompts` contains inherited chat prompts; `src/lib/searxng.ts` integrates the search backend.
-
-The [architecture overview](docs/architecture/README.md), [chat/search flow](docs/architecture/WORKING.md), and [Search API](docs/API/SEARCH.md) describe this inherited foundation. For current OpenGEO routes, use the [OpenGEO API contracts](docs/API/OPENGEO-CONTRACTS.md).
-
 ## Local development
 
 Use Node.js 24. From the repository root:

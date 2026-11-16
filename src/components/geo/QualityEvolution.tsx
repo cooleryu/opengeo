@@ -86,8 +86,8 @@ function AnimatedScore({ value }: { value: number | null }) {
       from === null ||
       window.matchMedia('(prefers-reduced-motion: reduce)').matches
     ) {
-      setShown(value);
-      return;
+      const raf = requestAnimationFrame(() => setShown(value));
+      return () => cancelAnimationFrame(raf);
     }
     let raf = 0;
     const start = performance.now();
@@ -349,35 +349,48 @@ export default function QualityEvolution({
   const evolution = useMemo(() => buildQualityEvolution(task), [task]);
   const { frames, retainedFrameId } = evolution;
   const defaultId = retainedFrameId ?? frames.at(-1)?.id ?? '';
-  const [selectedId, setSelectedId] = useState(defaultId);
-  const [playing, setPlaying] = useState(false);
-  const [field, setField] = useState('');
-  const [expanded, setExpanded] = useState(false);
   const signature = frames.map((frame) => frame.id).join('|');
-  useEffect(() => {
-    setSelectedId(defaultId);
-    setPlaying(false);
-  }, [task.id, signature, defaultId]);
+  const scopeKey = `${task.id}:${signature}:${defaultId}`;
+  const [viewState, setViewState] = useState({
+    scopeKey,
+    selectedId: defaultId,
+    playing: false,
+  });
+  const selectedId =
+    viewState.scopeKey === scopeKey ? viewState.selectedId : defaultId;
+  const playing = viewState.scopeKey === scopeKey ? viewState.playing : false;
   const selected =
     frames.find((frame) => frame.id === selectedId) ??
     frames.find((frame) => frame.id === defaultId) ??
     frames.at(-1);
-  useEffect(() => {
-    setField('');
-    setExpanded(false);
-  }, [selected?.id]);
+  const frameKey = selected?.id ?? '';
+  const [detailState, setDetailState] = useState({
+    frameKey,
+    field: '',
+    expanded: false,
+  });
+  const field = detailState.frameKey === frameKey ? detailState.field : '';
+  const expanded =
+    detailState.frameKey === frameKey ? detailState.expanded : false;
   useEffect(() => {
     if (!playing || !selected) return;
     const index = frames.findIndex((frame) => frame.id === selected.id);
     const timer = setTimeout(() => {
-      if (index >= frames.length - 1) setPlaying(false);
-      else setSelectedId(frames[index + 1].id);
+      setViewState((current) => {
+        if (index >= frames.length - 1) {
+          return { scopeKey, selectedId: current.selectedId, playing: false };
+        }
+        return {
+          scopeKey,
+          selectedId: frames[index + 1].id,
+          playing: true,
+        };
+      });
     }, 2200);
     return () => clearTimeout(timer);
-  }, [playing, selected?.id, signature]);
+  }, [playing, selected, frames, scopeKey]);
   const select = (id: string) => {
-    setPlaying(false);
-    setSelectedId(id);
+    setViewState({ scopeKey, selectedId: id, playing: false });
   };
   if (!selected)
     return (
@@ -453,10 +466,19 @@ export default function QualityEvolution({
               type="button"
               className="og-evo-replay"
               onClick={() => {
-                if (playing) setPlaying(false);
-                else {
-                  setSelectedId(frames[0].id);
-                  setPlaying(true);
+                if (playing) {
+                  setViewState((current) => ({
+                    scopeKey,
+                    selectedId:
+                      current.scopeKey === scopeKey ? current.selectedId : selected.id,
+                    playing: false,
+                  }));
+                } else {
+                  setViewState({
+                    scopeKey,
+                    selectedId: frames[0].id,
+                    playing: true,
+                  });
                 }
               }}
             >
@@ -608,8 +630,11 @@ export default function QualityEvolution({
               aria-pressed={activeChange?.field === change.field}
               className={`${activeChange?.field === change.field ? 'active' : ''} ${change.changed ? 'changed' : ''}`}
               onClick={() => {
-                setField(change.field);
-                setExpanded(false);
+                setDetailState({
+                  frameKey,
+                  field: change.field,
+                  expanded: false,
+                });
               }}
             >
               <span>{fieldLabels[change.field]}</span>
@@ -675,7 +700,13 @@ export default function QualityEvolution({
                   type="button"
                   className="og-evo-expand"
                   aria-expanded={expanded}
-                  onClick={() => setExpanded(!expanded)}
+                  onClick={() =>
+                    setDetailState({
+                      frameKey,
+                      field,
+                      expanded: !expanded,
+                    })
+                  }
                 >
                   {expanded ? '收起长内容' : '展开完整对照'}
                   <ChevronDown size={14} />

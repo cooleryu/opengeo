@@ -359,12 +359,14 @@ async function runChromeDriver() {
       } catch (stepError) {
         lastByEngine[item.engine] = Date.now();
         const message = stepError?.message ?? String(stepError);
-        if (isBatch && /回答已入库.*(?:审核仍待核实|模型分析失败)/.test(message)) {
+        if (isBatch && (stepError?.code === 'REVIEW_PENDING' || /回答已入库.*(?:审核仍待核实|模型分析失败)/.test(message))) {
           reviewPendingCount += 1;
           console.log(`[已入库待核实] ${item.questionId} (${item.engine})：${message} — 继续下一题。`);
           continue;
         }
-        const needsHumanAction = /人工验证|风控|限流|人工校验|需要先登录/.test(message);
+        const needsHumanAction =
+          stepError?.code === 'NEEDS_HUMAN_HANDOFF' ||
+          /人工验证|风控|限流|人工校验|需要先登录/.test(message);
         if (needsHumanAction) {
           await activePage?.bringToFront().catch(() => {});
           console.error(message);
@@ -610,10 +612,15 @@ const { task, activePage } = await acquireCollectionSpace(${JSON.stringify(space
 try {
   await collectBrowserQuestion({ page: () => activePage }, ${JSON.stringify(item)});
 } catch (error) {
-  const needsHumanAction = /人工验证|风控|限流|人工校验|需要先登录/.test(error?.message ?? '');
+  const needsHumanAction =
+    error?.code === 'NEEDS_HUMAN_HANDOFF' ||
+    /人工验证|风控|限流|人工校验|需要先登录/.test(error?.message ?? '');
   if (needsHumanAction) {
     await task.handOff().catch(() => {});
     console.error('[NEEDS_BROWSER_HANDOFF]');
+  }
+  if (error?.code === 'REVIEW_PENDING') {
+    console.error('[REVIEW_PENDING]');
   }
   console.error(error?.message ?? String(error));
   console.error('浏览器页面已保留；可加上 --space ' + task.spaceId + ' 继续余下未采问题（已保存的会自动跳过）。');
@@ -631,7 +638,7 @@ try {
           return;
         }
         const combined = `${stepRes.errText}\n${stepRes.outText}`;
-        if (isBatch && /回答已入库.*(?:审核仍待核实|模型分析失败)/.test(combined)) {
+        if (isBatch && (combined.includes('[REVIEW_PENDING]') || /回答已入库.*(?:审核仍待核实|模型分析失败)/.test(combined))) {
           reviewPendingCount += 1;
           console.log(`[已入库待核实] ${item.questionId} (${item.engine}) — 继续下一题。`);
           continue;

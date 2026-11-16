@@ -54,7 +54,14 @@ flowchart LR
 
 <details><summary>习惯自己在终端启动？（开发者可选）</summary>
 
-完整安装与环境变量步骤在 [仓库 README](../README.zh-CN.md) 的「快速开始」一节。本机需要 Node.js 24，本地服务启动在 `4327` 端口。首次配置时手头还没有的 API Key 可以先留空，进界面后再慢慢补。
+本机需要 **Node.js 24**。在仓库根目录执行：
+
+```sh
+npm install
+npm run dev
+```
+
+随后在浏览器打开 [http://127.0.0.1:4327](http://127.0.0.1:4327)。首次配置时手头还没有的 API Key 可以先留空（或按需复制 `.env.example` 为 `.env.local`），进界面后再在「设置」里慢慢补。
 
 </details>
 

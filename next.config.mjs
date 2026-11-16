@@ -16,17 +16,11 @@ const nextConfig = {
     ],
   },
   serverExternalPackages: [
-    'pdf-parse',
     'playwright',
-    'officeparser',
-    'file-type',
   ],
   outputFileTracingIncludes: {
     '/api/**': [
       './skills/**',
-      './node_modules/@napi-rs/canvas/**',
-      './node_modules/@napi-rs/canvas-linux-x64-gnu/**',
-      './node_modules/@napi-rs/canvas-linux-x64-musl/**',
     ],
   },
   env: {

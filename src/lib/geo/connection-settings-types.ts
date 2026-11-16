@@ -9,7 +9,7 @@ export type GeoConnectionSettings = {
     model: string;
     configured: boolean;
     keyConfigured: boolean;
-    source: GeoSettingsSource | 'vane';
+    source: GeoSettingsSource;
   };
 };
 

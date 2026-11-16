@@ -348,11 +348,6 @@ export default function ConnectionSettingsPanel({
                   更换服务商或地址时，请填写对应的新 API Key。
                 </p>
               )}
-              {settings.model.source === 'vane' && (
-                <p className="cs-hint">
-                  正在沿用已有模型连接。切换到直连时请填写 API Key。
-                </p>
-              )}
               <div className="cs-actions">
                 <button
                   className="cs-button cs-primary"

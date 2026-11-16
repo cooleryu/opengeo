@@ -134,12 +134,29 @@ test('parseAwesomeInsertion inserts properly formatted Markdown table rows when 
   assert.equal(result.sectionHeading, 'GEO Monitoring & Tracking');
   assert.equal(
     result.insertedLine,
-    '| [OpenGEO](https://github.com/cooleryu/opengeo) | ⭐ 0 | 🔧 Tool | TypeScript | Local-first AI search visibility & GEO workbench. |',
+    '| [OpenGEO](https://github.com/cooleryu/opengeo) | - | 🔧 Tool | TypeScript | Local-first AI search visibility & GEO workbench. |',
   );
   const lines = result.updatedReadme.split('\n');
   const elmoIdx = lines.findIndex((l) => l.includes('elmohq/elmo'));
   const opengeoIdx = lines.findIndex((l) => l.includes('cooleryu/opengeo'));
   assert.equal(opengeoIdx, elmoIdx + 1);
+});
+
+test('parseAwesomeInsertion falls back to English description when project description contains CJK', () => {
+  const readme = [
+    '## Tools',
+    '- [Elmo](https://github.com/elmohq/elmo) - Open-source tracker.',
+  ].join('\n');
+
+  const result = parseAwesomeInsertion(readme, {
+    name: 'OpenGEO',
+    repositoryUrl: 'https://github.com/cooleryu/opengeo',
+    siteUrl: '',
+    description: '本地 AI 搜索可见性与 GEO 审计工作台',
+  });
+
+  assert.equal(/[\u3400-\u9fff]/.test(result.insertedLine), false);
+  assert.ok(result.insertedLine.includes('Open-source, local-first AI search visibility & GEO workbench.'));
 });
 
 test('parseAwesomeInsertion rejects duplicate repository links', () => {
