@@ -826,9 +826,7 @@ export default function OptimizationStudio({
   const latestProgress = progressSteps[progressSteps.length - 1] ?? null;
   const showPausedBanner = !isWorking && latestRun?.status === 'failed';
   const showEmptyDocsPrompt = !isWorking && !activeDocsRun && !showPausedBanner;
-  const shippedBatchDocsCount = activeDeliverables.filter(
-    (d) => d.status === 'applied' && d.appliedRecord?.mode !== 'local_file',
-  ).length;
+  const showDocsSection = showEmptyDocsPrompt || pendingDeliverables.length > 0;
 
   return (
     <div className="ost-shell oap-shell">
@@ -990,214 +988,197 @@ export default function OptimizationStudio({
         </section>
       )}
 
-      {/* SECTION 1: Pending Repo Docs & Multi-Angle Articles */}
-      <section className="oap-section" aria-label={t('actionPlan.docsSectionTitle')}>
-        <div className="oap-section-head">
-          <h2>{t('actionPlan.docsSectionTitle')}</h2>
-        </div>
-
-        {showEmptyDocsPrompt ? (
-          <div className="oap-empty-docs-card">
-            <div>
-              <strong>{t('actionPlan.emptyDocsTitle')}</strong>
-              <p>{t('actionPlan.emptyDocsDesc')}</p>
-            </div>
-            {questionTotal > 0 ? (
-              <button
-                type="button"
-                className="ost-btn-primary is-sm"
-                onClick={() => void executeStreamAction('start')}
-              >
-                <Sparkles size={14} />
-                <span>{t('actionPlan.startFirstBtn')}</span>
-                <ArrowRight size={14} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="ost-btn-primary is-sm"
-                onClick={onOpenQuestions}
-              >
-                <span>{t('actionPlan.needQuestionsBtn')}</span>
-                <ArrowRight size={14} />
-              </button>
-            )}
+      {/* SECTION 1: Pending Repo Docs & Multi-Angle Articles (only shown when empty or pending drafts exist) */}
+      {showDocsSection && (
+        <section className="oap-section" aria-label={t('actionPlan.docsSectionTitle')}>
+          <div className="oap-section-head">
+            <h2>{t('actionPlan.docsSectionTitle')}</h2>
           </div>
-        ) : pendingDeliverables.length === 0 ? (
-          <div className="oap-all-shipped-bar">
-            <div className="oap-all-shipped-copy">
-              <Check size={15} />
-              <span>
-                {t('actionPlan.docsAllShippedBanner', {
-                  count: shippedBatchDocsCount || activeDeliverables.length,
-                })}
-              </span>
+
+          {showEmptyDocsPrompt ? (
+            <div className="oap-empty-docs-card">
+              <div>
+                <strong>{t('actionPlan.emptyDocsTitle')}</strong>
+                <p>{t('actionPlan.emptyDocsDesc')}</p>
+              </div>
+              {questionTotal > 0 ? (
+                <button
+                  type="button"
+                  className="ost-btn-primary is-sm"
+                  onClick={() => void executeStreamAction('start')}
+                >
+                  <Sparkles size={14} />
+                  <span>{t('actionPlan.startFirstBtn')}</span>
+                  <ArrowRight size={14} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="ost-btn-primary is-sm"
+                  onClick={onOpenQuestions}
+                >
+                  <span>{t('actionPlan.needQuestionsBtn')}</span>
+                  <ArrowRight size={14} />
+                </button>
+              )}
             </div>
-            <button
-              type="button"
-              className="ost-btn-secondary is-sm"
-              onClick={() => setHistoryOpen(true)}
-            >
-              <Archive size={13} />
-              <span>{t('actionPlan.viewShippedBtn')}</span>
-            </button>
-          </div>
-        ) : (
-          <div className="oap-card-grid">
-            {pendingDeliverables.map((d) => {
-              const roleLabel = getDeliverableRoleLabel(d, uiLanguage);
-              const mins = estimateReadingMinutes(d.afterContent);
-              const purpose = extractDeliverablePurpose(d, isEn ? 110 : 68);
-              const isExt = isExternalArticleDeliverable(d);
-              const isRepoDoc =
-                !isExt &&
-                hasRepoSlug &&
-                isRepoDocDestinationPath(d.appliedRecord?.destination || d.destination);
-              const isBusy = busyDocId === d.id;
-              const isMarking = markingDocId === d.id;
-              const runIdForDoc = activeDocsRun!.id;
+          ) : (
+            <div className="oap-card-grid">
+              {pendingDeliverables.map((d) => {
+                const roleLabel = getDeliverableRoleLabel(d, uiLanguage);
+                const mins = estimateReadingMinutes(d.afterContent);
+                const purpose = extractDeliverablePurpose(d, isEn ? 110 : 68);
+                const isExt = isExternalArticleDeliverable(d);
+                const isRepoDoc =
+                  !isExt &&
+                  hasRepoSlug &&
+                  isRepoDocDestinationPath(d.appliedRecord?.destination || d.destination);
+                const isBusy = busyDocId === d.id;
+                const isMarking = markingDocId === d.id;
+                const runIdForDoc = activeDocsRun!.id;
 
-              return (
-                <article key={d.id} className="oap-action-card is-ready">
-                  <div className="oap-card-top">
-                    <div className="oap-badges">
-                      <span className="oap-kind-pill is-doc">
-                        <BookOpen size={12} />
-                        {roleLabel}
-                      </span>
-                      <span className="oap-cited-pill">
-                        {isEn
-                          ? `${d.questionIds.length} prompts · ~${mins} min`
-                          : `回应 ${d.questionIds.length} 题 · 约 ${mins} 分钟`}
-                      </span>
-                    </div>
-                    <code className="oap-dest-code">{d.destination}</code>
-                  </div>
-
-                  <h3>{d.title}</h3>
-                  {purpose && <p className="oap-card-sub">{purpose}</p>}
-
-                  {isMarking && (
-                    <div className="oap-mark-sent-box">
-                      <input
-                        type="url"
-                        value={docPublishedUrl}
-                        onChange={(e) => setDocPublishedUrl(e.target.value)}
-                        placeholder={t('actionPlan.publishedUrlPromptLabel')}
-                      />
-                      <div className="oap-mark-sent-btns">
-                        <button
-                          type="button"
-                          className="ost-btn-secondary is-sm"
-                          onClick={() => {
-                            setMarkingDocId(null);
-                            setDocPublishedUrl('');
-                          }}
-                        >
-                          {t('actionPlan.readerDrawerClose')}
-                        </button>
-                        <button
-                          type="button"
-                          className="ost-btn-primary is-sm"
-                          disabled={Boolean(busyDocId)}
-                          onClick={() => void handleMarkDocPublished(runIdForDoc, d)}
-                        >
-                          <Check size={13} />
-                          <span>{t('actionPlan.confirmPublishedBtn')}</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="oap-card-actions">
-                    <button
-                      type="button"
-                      className="ost-btn-secondary is-sm"
-                      disabled={Boolean(busyDocId)}
-                      onClick={() => void handleSkipDoc(runIdForDoc, d.id)}
-                    >
-                      {t('actionPlan.skipCardBtn')}
-                    </button>
-
-                    <button
-                      type="button"
-                      className="ost-btn-secondary is-sm"
-                      onClick={() => {
-                        setReadingTab('after');
-                        setLangVariant('default');
-                        setReaderState({ runId: runIdForDoc, deliverable: d });
-                      }}
-                    >
-                      <BookOpen size={13} />
-                      <span>
-                        {isExt
-                          ? t('actionPlan.previewArticleBtn')
-                          : t('actionPlan.previewDocBtn')}
-                      </span>
-                    </button>
-
-                    {isRepoDoc ? (
-                      <button
-                        type="button"
-                        className="ost-btn-primary is-sm"
-                        disabled={Boolean(busyDocId)}
-                        onClick={() => void handleOneClickPushToGitHub(runIdForDoc, d)}
-                      >
-                        {isBusy && busyDocOp === 'push' ? (
-                          <Loader2 size={14} className="ost-spin" />
-                        ) : (
-                          <Upload size={14} />
-                        )}
-                        <span>
-                          {isBusy && busyDocOp === 'push'
-                            ? t('actionPlan.pushingGithubBtn')
-                            : t('actionPlan.pushGithubOneStepBtn')}
+                return (
+                  <article key={d.id} className="oap-action-card is-ready">
+                    <div className="oap-card-top">
+                      <div className="oap-badges">
+                        <span className="oap-kind-pill is-doc">
+                          <BookOpen size={12} />
+                          {roleLabel}
                         </span>
-                      </button>
-                    ) : (
-                      <>
-                        {!isMarking && (
+                        <span className="oap-cited-pill">
+                          {isEn
+                            ? `${d.questionIds.length} prompts · ~${mins} min`
+                            : `回应 ${d.questionIds.length} 题 · 约 ${mins} 分钟`}
+                        </span>
+                      </div>
+                      <code className="oap-dest-code">{d.destination}</code>
+                    </div>
+
+                    <h3>{d.title}</h3>
+                    {purpose && <p className="oap-card-sub">{purpose}</p>}
+
+                    {isMarking && (
+                      <div className="oap-mark-sent-box">
+                        <input
+                          type="url"
+                          value={docPublishedUrl}
+                          onChange={(e) => setDocPublishedUrl(e.target.value)}
+                          placeholder={t('actionPlan.publishedUrlPromptLabel')}
+                        />
+                        <div className="oap-mark-sent-btns">
                           <button
                             type="button"
                             className="ost-btn-secondary is-sm"
-                            disabled={Boolean(busyDocId)}
                             onClick={() => {
-                              setMarkingDocId(d.id);
+                              setMarkingDocId(null);
                               setDocPublishedUrl('');
                             }}
+                          >
+                            {t('actionPlan.readerDrawerClose')}
+                          </button>
+                          <button
+                            type="button"
+                            className="ost-btn-primary is-sm"
+                            disabled={Boolean(busyDocId)}
+                            onClick={() => void handleMarkDocPublished(runIdForDoc, d)}
                           >
                             <Check size={13} />
                             <span>{t('actionPlan.confirmPublishedBtn')}</span>
                           </button>
-                        )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="oap-card-actions">
+                      <button
+                        type="button"
+                        className="ost-btn-secondary is-sm"
+                        disabled={Boolean(busyDocId)}
+                        onClick={() => void handleSkipDoc(runIdForDoc, d.id)}
+                      >
+                        {t('actionPlan.skipCardBtn')}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="ost-btn-secondary is-sm"
+                        onClick={() => {
+                          setReadingTab('after');
+                          setLangVariant('default');
+                          setReaderState({ runId: runIdForDoc, deliverable: d });
+                        }}
+                      >
+                        <BookOpen size={13} />
+                        <span>
+                          {isExt
+                            ? t('actionPlan.previewArticleBtn')
+                            : t('actionPlan.previewDocBtn')}
+                        </span>
+                      </button>
+
+                      {isRepoDoc ? (
                         <button
                           type="button"
                           className="ost-btn-primary is-sm"
                           disabled={Boolean(busyDocId)}
-                          onClick={() => void handleOpenExternalInEgo(d)}
+                          onClick={() => void handleOneClickPushToGitHub(runIdForDoc, d)}
                         >
-                          {isBusy && busyDocOp === 'ego' ? (
+                          {isBusy && busyDocOp === 'push' ? (
                             <Loader2 size={14} className="ost-spin" />
                           ) : (
-                            <ExternalLink size={14} />
+                            <Upload size={14} />
                           )}
                           <span>
-                            {isBusy && busyDocOp === 'ego'
-                              ? t('actionPlan.openingPublishPageBtn')
-                              : t('actionPlan.openPublishPageBtn')}
+                            {isBusy && busyDocOp === 'push'
+                              ? t('actionPlan.pushingGithubBtn')
+                              : t('actionPlan.pushGithubOneStepBtn')}
                           </span>
                         </button>
-                      </>
-                    )}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                      ) : (
+                        <>
+                          {!isMarking && (
+                            <button
+                              type="button"
+                              className="ost-btn-secondary is-sm"
+                              disabled={Boolean(busyDocId)}
+                              onClick={() => {
+                                setMarkingDocId(d.id);
+                                setDocPublishedUrl('');
+                              }}
+                            >
+                              <Check size={13} />
+                              <span>{t('actionPlan.confirmPublishedBtn')}</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="ost-btn-primary is-sm"
+                            disabled={Boolean(busyDocId)}
+                            onClick={() => void handleOpenExternalInEgo(d)}
+                          >
+                            {isBusy && busyDocOp === 'ego' ? (
+                              <Loader2 size={14} className="ost-spin" />
+                            ) : (
+                              <ExternalLink size={14} />
+                            )}
+                            <span>
+                              {isBusy && busyDocOp === 'ego'
+                                ? t('actionPlan.openingPublishPageBtn')
+                                : t('actionPlan.openPublishPageBtn')}
+                            </span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
 
-      {/* SECTION 2: High-Leverage Outreach & Repo Facade Confirmation Cards */}
+      {/* SECTION 2: High-Leverage Outreach & AI-Cited Lists (promoted to top when pending docs = 0) */}
       <section className="oap-section" aria-label={t('actionPlan.outreachSectionTitle')}>
         <div className="oap-section-head">
           <h2>{t('actionPlan.outreachSectionTitle')}</h2>
@@ -1209,6 +1190,7 @@ export default function OptimizationStudio({
           lang={uiLanguage}
           actions={activeOutreach}
           loading={outreachLoading}
+          highlightFirst={!showDocsSection && activeOutreach.length > 0}
           onActionsUpdated={setOutreachActions}
           onError={setError}
           onNotice={setNotice}

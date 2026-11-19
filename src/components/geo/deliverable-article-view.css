@@ -236,6 +236,56 @@
   color: #18181b;
 }
 
+.dav-winner-why {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #1d4ed8;
+  font-weight: 500;
+}
+
+.dav-prose-collapsed-wrap {
+  position: relative;
+  overflow: hidden;
+  padding-bottom: 18px;
+}
+
+.dav-collapse-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 76px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #ffffff 90%);
+  pointer-events: none;
+}
+
+.dav-expand-row {
+  max-width: 740px;
+  margin: 14px auto 4px;
+  display: flex;
+  justify-content: center;
+}
+
+.dav-root .dav-expand-full-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid #d4d4d8;
+  background: #ffffff;
+  color: #27272a;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dav-root .dav-expand-full-btn:hover {
+  background: #f4f4f5;
+  border-color: #a1a1aa;
+}
+
 .dav-winner-ext {
   display: inline-flex;
   align-items: center;

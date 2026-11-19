@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   extractOutreachCitedPages,
+  extractQuestionTopWinners,
   extractTopExternalCitedSources,
   isBrandPrompt,
 } from './research-view';
@@ -232,4 +233,50 @@ test('extractTopExternalCitedSources remains functional for batch summary', () =
   const res = extractTopExternalCitedSources(makeBatch([q]), null);
   assert.equal(res.length, 1);
   assert.equal(res[0].url, 'https://otterly.ai');
+});
+
+test('extractTopExternalCitedSources and extractQuestionTopWinners deduplicate brand surfaces while preserving awesome lists', () => {
+  const q = makeQuestion('Q1', 'Best GEO tools?', [
+    {
+      engine: 'chatgpt',
+      sources: [
+        { title: 'elmohq/elmo', url: 'https://github.com/elmohq/elmo', kind: 'other' },
+        { title: 'Elmo Pricing', url: 'https://elmohq.com/pricing', kind: 'other' },
+        { title: 'awesome-geo', url: 'https://github.com/deeflect/awesome-geo', kind: 'other' },
+      ],
+    },
+  ]);
+  const batch = makeBatch([q]);
+  const batchWinners = extractTopExternalCitedSources(batch, null);
+  assert.equal(batchWinners.length, 2);
+  assert.ok(batchWinners.some((w) => w.label === 'Elmo' && w.questionCount === 1));
+  assert.ok(batchWinners.some((w) => w.label === 'deeflect/awesome-geo'));
+
+  const rowWinners = extractQuestionTopWinners(q, batch);
+  assert.equal(rowWinners.length, 2);
+  assert.ok(rowWinners.some((w) => w.label === 'Elmo'));
+});
+
+test('extractTopExternalCitedSources merges on registrable domain rather than docs subdomain and drops non-repo GitHub pages', () => {
+  const q1 = makeQuestion('Q1', 'GEO tracking docs', [
+    {
+      engine: 'chatgpt',
+      sources: [
+        { title: 'Otterly Docs', url: 'https://docs.otterly.ai/quickstart', kind: 'other' },
+        { title: 'Limelit Docs', url: 'https://docs.limelit.co/overview', kind: 'other' },
+        { title: 'Limelit Repo', url: 'https://github.com/limelit-co/open', kind: 'other' },
+        { title: 'GitHub Topics', url: 'https://github.com/topics/ai-visibility-tracker', kind: 'other' },
+        { title: 'GitHub Search', url: 'https://github.com/search?q=geo', kind: 'other' },
+      ],
+    },
+  ]);
+
+  const batch = makeBatch([q1]);
+  const winners = extractTopExternalCitedSources(batch, null);
+  assert.equal(winners.some((w) => w.label === 'Docs' || w.label === 'github.com'), false);
+  assert.ok(winners.some((w) => w.label === 'Limelit' && w.url === 'https://docs.limelit.co'));
+  assert.ok(winners.some((w) => w.label === 'docs.otterly.ai' && w.key === 'otterly.ai'));
+
+  const rowWinners = extractQuestionTopWinners(q1, batch);
+  assert.equal(rowWinners.some((w) => w.label === 'Docs' || w.label === 'github.com'), false);
 });

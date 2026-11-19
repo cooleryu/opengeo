@@ -5,7 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
 import { DEFAULT_PROJECT_ID } from '../projects';
-import { parseAwesomeInsertion } from './outreach-actions';
+import type { ResearchBatch } from '../research-types';
+import {
+  buildDefaultShowHnDraft,
+  parseAwesomeInsertion,
+  sanitizeAwesomePrDraft,
+} from './outreach-actions';
 import {
   getOutreachRecord,
   readOutreachRecords,
@@ -175,4 +180,122 @@ test('parseAwesomeInsertion rejects duplicate repository links', () => {
       }),
     /已经包含你的项目链接/,
   );
+});
+
+test('sanitizeAwesomePrDraft strips zero-star badge placeholders from persisted drafts', () => {
+  const cleaned = sanitizeAwesomePrDraft({
+    upstreamOwner: 'deeflect',
+    upstreamRepo: 'awesome-geo',
+    defaultBranch: 'main',
+    sectionHeading: 'GEO Monitoring & Tracking',
+    insertedLine: '| [OpenGEO](https://github.com/cooleryu/opengeo) | ⭐ 0 | 🔧 Tool | TypeScript | Local tool. |',
+    contextSnippet: '+ | [OpenGEO](https://github.com/cooleryu/opengeo) | ⭐ 0 | 🔧 Tool | TypeScript | Local tool. |',
+    prTitle: 'Add OpenGEO',
+    prBody: 'Adding OpenGEO.',
+  });
+  assert.equal(
+    cleaned.insertedLine,
+    '| [OpenGEO](https://github.com/cooleryu/opengeo) | - | 🔧 Tool | TypeScript | Local tool. |',
+  );
+  assert.equal(
+    cleaned.contextSnippet,
+    '+ | [OpenGEO](https://github.com/cooleryu/opengeo) | - | 🔧 Tool | TypeScript | Local tool. |',
+  );
+});
+
+test('buildDefaultShowHnDraft grounds claims strictly in actual project and batch measurements', () => {
+  const genericDraft = buildDefaultShowHnDraft(
+    {
+      name: 'AcmeDB',
+      description: 'Embedded vector index in Rust',
+      repositoryUrl: 'https://github.com/acme/acmedb',
+      siteUrl: '',
+      targetLanguage: 'en',
+    },
+    null,
+  );
+  assert.match(genericDraft.draftTitle, /^Show HN: AcmeDB/);
+  assert.equal(/homonym|awesome/i.test(genericDraft.draftBody), false);
+
+  const batchWithAwesome: ResearchBatch = {
+    id: 'batch-1',
+    date: '2026-11-18',
+    projectId: 'default',
+    productSummary: '',
+    contributionSummary: '',
+    scopeNote: '',
+    reportPath: '',
+    sourceAuditPath: '',
+    reviewPath: '',
+    deferredQuestions: [],
+    nextStep: '',
+    questions: [
+      {
+        id: 'Q1',
+        category: 'problem',
+        zh: '向量库对比',
+        en: 'Best embedded vector DB',
+        decision: 'search_now',
+        valueReason: 'test',
+        evidenceBasis: 'test',
+        answerability: 'test',
+        gaps: [],
+        decisionReason: 'test',
+        reviewPath: '',
+        diagnosis: { observed: '', hypothesis: '', nextStep: '' },
+        observations: [
+          {
+            id: 'obs-1',
+            entryType: 'web_answer',
+            engine: 'chatgpt',
+            language: 'en',
+            query: 'Best embedded vector DB',
+            recordedAt: '2026-11-18T00:00:00Z',
+            status: 'found',
+            summary: '',
+            conditions: '',
+            sources: [
+              {
+                title: 'awesome-rust-ai',
+                url: 'https://github.com/example/awesome-rust-ai',
+                kind: 'other',
+              },
+            ],
+            evidencePath: '',
+          },
+        ],
+      },
+    ],
+    answerAudits: [
+      {
+        projectId: 'default',
+        batchId: 'batch-1',
+        questionId: 'Q1',
+        engine: 'chatgpt',
+        language: 'en',
+        recordedAt: '2026-11-18T00:00:00Z',
+        mention: 'no',
+        citation: 'no',
+        mentionEvidence: 'Missed',
+        citationEvidence: 'None',
+        officialUrls: [],
+        evidencePath: '',
+        answerComplete: true,
+      },
+    ],
+  };
+
+  const measuredDraft = buildDefaultShowHnDraft(
+    {
+      name: 'AcmeDB',
+      description: 'Embedded vector index in Rust',
+      repositoryUrl: 'https://github.com/acme/acmedb',
+      siteUrl: '',
+      targetLanguage: 'en',
+    },
+    batchWithAwesome,
+  );
+  assert.match(measuredDraft.draftBody, /AcmeDB in 0\/1 answers/);
+  assert.match(measuredDraft.draftBody, /GitHub list example\/awesome-rust-ai/);
+  assert.equal(/homonym|same-named/i.test(measuredDraft.draftBody), false);
 });

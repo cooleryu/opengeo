@@ -28,6 +28,8 @@ import type {
   ResearchSource,
 } from '@/lib/geo/research-types';
 import {
+  extractQuestionTopWinners,
+  extractTopExternalCitedSources,
   getResearchMetrics,
   getResearchRows,
   isBrandPrompt,
@@ -412,6 +414,8 @@ function describeTileStatus(
 
 type Props = {
   projectOptimization?: ReactNode;
+  activeOptimizationRunId?: string | null;
+  latestShippedAt?: string | null;
   project?: Pick<GeoProject, 'siteUrl' | 'repositoryUrl' | 'targetLanguage'> & {
     name?: string;
   };
@@ -449,6 +453,8 @@ const DEFAULT_VISIBLE_QUESTIONS = 3;
 
 export default function ProjectOverview({
   projectOptimization,
+  activeOptimizationRunId,
+  latestShippedAt,
   project,
   previewOnly = false,
   previewComparison,
@@ -537,10 +543,12 @@ export default function ProjectOverview({
     spaceId?: number;
     force?: boolean;
     since?: string;
+    optimizationRunId?: string;
   }) => {
     if (previewOnly || startingCollect) return;
     setStartingCollect(true);
     setCollectActionError('');
+    const effectiveRunId = opts?.optimizationRunId ?? activeOptimizationRunId ?? undefined;
     try {
       const res = await fetch('/api/geo/browser-collect', {
         method: 'POST',
@@ -552,6 +560,7 @@ export default function ProjectOverview({
           ...(opts?.force ? { force: true } : {}),
           ...(opts?.since ? { since: opts.since } : {}),
           ...(opts?.spaceId ? { spaceId: opts.spaceId } : {}),
+          ...(effectiveRunId ? { optimizationRunId: effectiveRunId } : {}),
         }),
       });
       const payload = (await res.json()) as {
@@ -609,6 +618,7 @@ export default function ProjectOverview({
       since: job.force
         ? (job.batchStartedAt ?? job.startedAt ?? undefined)
         : undefined,
+      optimizationRunId: job.optimizationRunId ?? undefined,
     });
   };
   const hasLangObs = (lang: 'zh' | 'en') =>
@@ -629,6 +639,7 @@ export default function ProjectOverview({
     focus: 'all',
     expandedQuestions: false,
   });
+  const [earlyRetestHours, setEarlyRetestHours] = useState<number | null>(null);
   const questionSectionRef = useRef<HTMLElement>(null);
 
   const inScope = uiState.scope === scopeKey;
@@ -1066,6 +1077,22 @@ export default function ProjectOverview({
 
   const dateRange = overviewObservationDates(rows, isEn);
 
+  const shippedMs = latestShippedAt ? Date.parse(latestShippedAt) : NaN;
+  const hrsSinceShip = Number.isFinite(shippedMs)
+    ? Math.max(0, (Date.now() - shippedMs) / 3_600_000)
+    : Infinity;
+
+  const isColdZeroStage =
+    !sourceOnly &&
+    mention.completed > 0 &&
+    mention.yes === 0 &&
+    citation.yes === 0 &&
+    mention.unknown === 0 &&
+    citation.unknown === 0;
+  const overviewTopWinners = isColdZeroStage
+    ? extractTopExternalCitedSources(batch, project, activeLanguage, 4)
+    : [];
+
   const mentionDisplay = sourceOnly
     ? {
         primary: pct(officialMetrics.rate),
@@ -1113,17 +1140,23 @@ export default function ProjectOverview({
           {!previewOnly && allQuestions.length > 0 && (
             <button
               type="button"
-              className="pov-secondary-btn pov-rerun-btn"
+              className="pov-secondary-btn pov-rerun-btn is-quiet"
               disabled={startingCollect || collectJob?.status === 'running'}
-              onClick={() =>
+              onClick={() => {
+                const targetEngine =
+                  selectedEngine === 'chatgpt' || selectedEngine === 'google'
+                    ? selectedEngine
+                    : 'all';
+                if (hrsSinceShip < 72) {
+                  setEarlyRetestHours(Math.max(1, Math.round(hrsSinceShip)));
+                  return;
+                }
                 void startCollect({
-                  engine:
-                    selectedEngine === 'chatgpt' || selectedEngine === 'google'
-                      ? selectedEngine
-                      : 'all',
+                  engine: targetEngine,
                   force: true,
-                })
-              }
+                  optimizationRunId: activeOptimizationRunId ?? undefined,
+                });
+              }}
             >
               {startingCollect || collectJob?.status === 'running' ? (
                 <>
@@ -1180,7 +1213,134 @@ export default function ProjectOverview({
         </div>
       </header>
 
-      {/* Row 1: 3-Card Bento Scoreboard with Symmetric Donut Rings */}
+      {earlyRetestHours !== null && (
+        <div className="pov-retest-confirm" role="alert">
+          <div className="pov-retest-confirm-copy">
+            <AlertTriangle size={16} />
+            <div>
+              <strong>
+                {isEn
+                  ? `Updates shipped ${earlyRetestHours}h ago — re-running now will likely stay 0 → 0`
+                  : `距离新内容上线仅过去 ${earlyRetestHours} 小时，现在重测大概率仍是 0 → 0`}
+              </strong>
+              <p>
+                {isEn
+                  ? 'Search engines and AI answers usually take 3–7 days to index new pages or list PRs.'
+                  : '搜索引擎与 AI 索引新推的文档或榜单 PR 通常需要 3～7 天，刚推送不久时复测仍会命中旧缓存。'}
+              </p>
+            </div>
+          </div>
+          <div className="pov-retest-confirm-actions">
+            <button
+              type="button"
+              className="pov-secondary-btn"
+              onClick={() => setEarlyRetestHours(null)}
+            >
+              {isEn ? 'Cancel' : '暂不重测'}
+            </button>
+            <button
+              type="button"
+              className="pov-secondary-btn"
+              onClick={() => {
+                setEarlyRetestHours(null);
+                void startCollect({
+                  engine:
+                    selectedEngine === 'chatgpt' || selectedEngine === 'google'
+                      ? selectedEngine
+                      : 'all',
+                  force: true,
+                  optimizationRunId: activeOptimizationRunId ?? undefined,
+                });
+              }}
+            >
+              <RefreshCw size={13} />
+              <span>{isEn ? 'Re-run Anyway' : '仍要立即重测'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isColdZeroStage ? (
+        <>
+          {/* Focused Cold-Start 0-Exposure Readout (avoids repeating 6 zeros) */}
+          <section className="pov-zero-hero" aria-label={isEn ? 'Current visibility baseline' : '当前曝光基线'}>
+            <div className="pov-zero-main">
+              <div className="pov-zero-stat">
+                <strong>0 / {mention.completed}</strong>
+                <span>
+                  {isEn
+                    ? `AI answers mentioned you across ${allQuestions.length} buyer questions (${availableEngines.map((e) => getPlatformName(e, true)).join(' & ')})`
+                    : `次 AI 回答提到你（覆盖 ${allQuestions.length} 道买家提问 · ${availableEngines.map((e) => getPlatformName(e, false)).join(' + ')}）`}
+                </span>
+              </div>
+
+              <div className="pov-zero-signals">
+                {brandSplit.total > 0 && (
+                  <button
+                    type="button"
+                    className={`pov-zero-collision ${focus === 'brand' ? 'is-active' : ''}`}
+                    onClick={() => jumpFocus(focus === 'brand' ? 'all' : 'brand')}
+                  >
+                    {isEn
+                      ? `Even searching "${brandLabel}" directly missed`
+                      : `连直接搜「${brandLabel}」也未认出`}
+                  </button>
+                )}
+
+                {overviewTopWinners.length > 0 && (
+                  <div className="pov-zero-winners">
+                    <span>{isEn ? 'Currently taking your spot:' : '当前占据推荐位：'}</span>
+                    {overviewTopWinners.map((winner) => (
+                      <a
+                        key={winner.key}
+                        href={winner.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="pov-zero-winner-chip"
+                      >
+                        <span>{winner.label}</span>
+                        <em>{winner.questionCount}{isEn ? 'q' : '题'}</em>
+                      </a>
+                    ))}
+                    <button
+                      type="button"
+                      className="pov-inline-link"
+                      onClick={onCompetitor}
+                    >
+                      {t('overview.vsCompetitor')} <ChevronRight size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* Promote #1 Next Move directly under focused baseline */}
+          {projectOptimization && (
+            <div className="pov-optimization-slot">{projectOptimization}</div>
+          )}
+
+          {previewOnly && previewComparison && (
+            <div className="pov-competitor-slot">{previewComparison}</div>
+          )}
+          {!previewOnly && (
+            <div className="pov-competitor-slot">
+              <CompetitorCandidates
+                key={`${batch.projectId}:${batch.id}`}
+                projectId={batch.projectId}
+                batchId={batch.id}
+                revision={batch.updatedAt || batch.date}
+                language={activeLanguage}
+                engine={selectedEngine}
+                presentation="overview"
+                onOpen={onCompetitor}
+              />
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Row 1: 3-Card Bento Scoreboard with Symmetric Donut Rings */}
       <section className="pov-bento" aria-label={isEn ? 'Key performance' : '核心表现'}>
         {/* Card 1: AI Mention */}
         <div
@@ -1453,6 +1613,8 @@ export default function ProjectOverview({
       {projectOptimization && (
         <div className="pov-optimization-slot">{projectOptimization}</div>
       )}
+        </>
+      )}
 
       {/* Row 3: Top-3 Collapsible Priority Questions + Colorful Platform Tile Matrix */}
       <section
@@ -1561,6 +1723,16 @@ export default function ProjectOverview({
                 const hitCount = tileItems.filter(
                   (item) => item.state === 'found',
                 ).length;
+                const qWinners =
+                  searchedCount > 0 && hitCount === 0
+                    ? extractQuestionTopWinners(
+                        question,
+                        matrixEngines,
+                        project,
+                        activeLanguage,
+                        3,
+                      )
+                    : [];
 
                 return (
                   <div key={question.id} className="pov-matrix-row">
@@ -1584,6 +1756,12 @@ export default function ProjectOverview({
                           {question[activeLanguage] || question.en || question.zh}
                         </span>
                       </div>
+                      {qWinners.length > 0 && (
+                        <div className="pov-q-winners">
+                          <span>{isEn ? 'AI cited:' : 'AI 引用了：'}</span>
+                          <b>{qWinners.map((w) => w.label).join(' · ')}</b>
+                        </div>
+                      )}
                     </button>
 
                     {/* Proud Platform Icon-Badge Matrix + Hit Counter */}

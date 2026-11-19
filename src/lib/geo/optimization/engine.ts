@@ -36,11 +36,21 @@ import {
 } from './repository';
 import { selectAndProbeReferenceWinners } from './reference-winners';
 import type {
+  DeliverableArchetypeRole,
   DeliverableCompanionFile,
   DeliverableReviewResult,
   OptimizationRun,
   ReferenceWinner,
 } from './types';
+
+function inferDeliverableArchetypeRole(
+  kind: 'update_asset' | 'new_content',
+  destination: string,
+): DeliverableArchetypeRole {
+  if (/readme/i.test(destination)) return 'readme';
+  if (/(getting[-_]?started|quickstart|setup|install)/i.test(destination)) return 'quickstart';
+  return kind === 'new_content' ? 'article' : 'quickstart';
+}
 
 function normalizeDeliverableContent(
   kind: 'update_asset' | 'new_content',
@@ -469,6 +479,7 @@ export async function startOptimizationRun(
       const referenceWinners = await winnerProber(projectId, {
         targetQuestionIds: planned.questionIds,
         targetLanguage,
+        deliverableRole: inferDeliverableArchetypeRole(planned.kind, planned.destination),
         maxWinners: 3,
         timeoutMs: 4000,
       }).catch(() => [] as ReferenceWinner[]);
@@ -783,6 +794,7 @@ export async function resumeOptimizationRun(
         referenceWinners = await winnerProber(projectId, {
           targetQuestionIds: record.questionIds,
           targetLanguage,
+          deliverableRole: inferDeliverableArchetypeRole(planned.kind, planned.destination),
           maxWinners: 3,
           timeoutMs: 4000,
         }).catch(() => [] as ReferenceWinner[]);

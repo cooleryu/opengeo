@@ -15,19 +15,49 @@ import {
   type CapturedRetestAnswer,
   type DeliverableDecisionInput,
 } from '@/lib/geo/optimization';
+import { listOutreachActionsAsync } from '@/lib/geo/outreach/outreach-actions';
 import { GeoProjectError, resolveGeoProject, withGeoProject } from '@/lib/geo/projects';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export function GET(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
     const projectId = resolveGeoProject(request.nextUrl.searchParams.get('project'));
     const runId = request.nextUrl.searchParams.get('runId') || undefined;
-    return withGeoProject(projectId, () => {
+    const langParam = request.nextUrl.searchParams.get('lang') === 'en' ? 'en' : 'zh';
+    return await withGeoProject(projectId, async () => {
       const viewModel = buildOptimizationRunViewModel(projectId, runId);
       const runs = listOptimizationRuns(projectId);
-      return NextResponse.json({ projectId, viewModel, runs }, { headers: { 'Cache-Control': 'no-store' } });
+      const outreachActions = await listOutreachActionsAsync(projectId, langParam);
+      const nextOutreach = outreachActions.find(
+        (item) => item.status === 'suggested' || item.status === 'prepared',
+      );
+      const topNextOutreach = nextOutreach
+        ? {
+            id: nextOutreach.id,
+            kind: nextOutreach.kind,
+            title: nextOutreach.title,
+            citedCount: nextOutreach.citedCount ?? 0,
+            targetUrl: nextOutreach.targetUrl,
+          }
+        : null;
+      const shippedTimestamps = runs
+        .flatMap((r) =>
+          r.status === 'failed'
+            ? []
+            : r.deliverables
+                .filter((d) => d.status === 'applied' && d.appliedRecord?.mode !== 'local_file')
+                .map((d) => d.appliedRecord?.appliedAt || d.updatedAt),
+        )
+        .filter((iso): iso is string => Boolean(iso && Number.isFinite(Date.parse(iso))))
+        .sort((a, b) => Date.parse(b) - Date.parse(a));
+      const latestShippedAt = shippedTimestamps[0] ?? null;
+
+      return NextResponse.json(
+        { projectId, viewModel, runs, topNextOutreach, latestShippedAt },
+        { headers: { 'Cache-Control': 'no-store' } },
+      );
     });
   } catch (error) {
     return errorResponse(error);

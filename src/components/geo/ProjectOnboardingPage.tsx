@@ -7,13 +7,11 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
-  Building2,
   Check,
   CircleAlert,
   Github,
   Globe2,
   Loader2,
-  Lock,
   PencilLine,
   Plus,
   X,
@@ -21,33 +19,14 @@ import {
 import { resolveProjectUiLanguage } from '@/lib/geo/i18n';
 import type { GeoProject } from '@/lib/geo/types';
 import type { QuestionGenerationJob } from '@/lib/geo/question-types';
-import type {
-  OnboardingRecord,
-  ProjectEntryKind,
+import {
+  inferProjectEntryKind,
+  type OnboardingRecord,
 } from '@/lib/geo/project-onboarding-types';
 import BackgroundPreparationStatus from './BackgroundPreparationStatus';
 import OpenGeoBrandMark from './OpenGeoBrandMark';
 import { UiLanguageProvider, useUiLanguage } from './UiLanguageContext';
 import './project-onboarding.css';
-
-const entryTypes = [
-  {
-    id: 'repository' as const,
-    titleKey: 'onboarding.typeRepoTitle' as const,
-    hintKey: 'onboarding.typeRepoHint' as const,
-    labelKey: 'onboarding.typeRepoLabel' as const,
-    placeholderKey: 'onboarding.typeRepoPlaceholder' as const,
-    Icon: Github,
-  },
-  {
-    id: 'company' as const,
-    titleKey: 'onboarding.typeProductTitle' as const,
-    hintKey: 'onboarding.typeProductHint' as const,
-    labelKey: 'onboarding.typeProductLabel' as const,
-    placeholderKey: 'onboarding.typeProductPlaceholder' as const,
-    Icon: Building2,
-  },
-];
 
 type ProjectResponse = {
   project: GeoProject;
@@ -72,7 +51,6 @@ function CapabilityText({ text }: { text: string }) {
 
 function ProjectOnboardingPageInner() {
   const { uiLanguage, setUiLanguage, t } = useUiLanguage();
-  const [kind, setKind] = useState<ProjectEntryKind>('repository');
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
   const [projectId, setProjectId] = useState('');
@@ -92,7 +70,7 @@ function ProjectOnboardingPageInner() {
   const requestId = useRef('');
   const submittedInput = useRef('');
   const syncedProjectLang = useRef('');
-  const selection = entryTypes.find((item) => item.id === kind)!;
+  const inferredKind = inferProjectEntryKind(url);
   const record = result?.onboarding;
   const working = Boolean(
     record && ['queued', 'reading', 'analyzing'].includes(record.status),
@@ -311,8 +289,9 @@ function ProjectOnboardingPageInner() {
     setBusy(true);
     setError('');
     setMatchedExisting(false);
+    const detectedKind = inferProjectEntryKind(url);
     const key = JSON.stringify({
-      kind,
+      kind: detectedKind,
       url: url.trim(),
       notes: notes.trim(),
     });
@@ -328,7 +307,7 @@ function ProjectOnboardingPageInner() {
           retry
             ? { action: 'retry', projectId, uiLanguage }
             : {
-                kind,
+                kind: detectedKind,
                 targetLanguage: 'en',
                 uiLanguage,
                 url: url.trim(),
@@ -433,97 +412,64 @@ function ProjectOnboardingPageInner() {
                 void create();
               }}
             >
-              <section
-                className="og-onboarding-lang-commitment"
-                aria-label={t('onboarding.uiLangHeading')}
-              >
-                <div className="og-onboarding-lang-head">
-                  <strong>{t('onboarding.uiLangHeading')}</strong>
-                  <span className="og-onboarding-lock-pill">
-                    <Lock size={12} aria-hidden="true" />
-                    {t('onboarding.uiLangLockBadge')}
-                  </span>
-                </div>
-                <p className="og-onboarding-lang-desc">
-                  {t('onboarding.uiLangCommitmentDesc')}
-                </p>
+              <div className="og-onboarding-lang-inline">
+                <label className="og-onboarding-field is-inline">
+                  {t('onboarding.uiLangPrompt')}
+                </label>
                 <div
-                  className="og-onboarding-lang-cards"
+                  className="og-lang-switch"
                   role="group"
-                  aria-label={t('onboarding.uiLangHeading')}
+                  aria-label={t('onboarding.uiLangPrompt')}
                 >
                   <button
                     type="button"
-                    className={uiLanguage === 'en' ? 'selected' : ''}
                     aria-pressed={uiLanguage === 'en'}
                     disabled={busy}
                     onClick={() => setUiLanguage('en')}
                   >
-                    <strong>{t('onboarding.uiLangEnTitle')}</strong>
-                    <small>{t('onboarding.uiLangEnHint')}</small>
-                    {uiLanguage === 'en' && (
-                      <Check size={15} className="og-onboarding-selected" />
-                    )}
+                    English
                   </button>
                   <button
                     type="button"
-                    className={uiLanguage === 'zh' ? 'selected' : ''}
                     aria-pressed={uiLanguage === 'zh'}
                     disabled={busy}
                     onClick={() => setUiLanguage('zh')}
                   >
-                    <strong>{t('onboarding.uiLangZhTitle')}</strong>
-                    <small>{t('onboarding.uiLangZhHint')}</small>
-                    {uiLanguage === 'zh' && (
-                      <Check size={15} className="og-onboarding-selected" />
-                    )}
+                    简体中文
                   </button>
                 </div>
-              </section>
-              <div
-                className="og-onboarding-types og-onboarding-types-two"
-                role="group"
-                aria-label={t('onboarding.step1')}
-              >
-                {entryTypes.map(({ id, titleKey, hintKey, Icon }) => (
-                  <button
-                    className={kind === id ? 'selected' : ''}
-                    type="button"
-                    key={id}
-                    aria-pressed={kind === id}
-                    disabled={busy}
-                    onClick={() => {
-                      setKind(id);
-                      setError('');
-                    }}
-                  >
-                    <span className="og-onboarding-type-icon">
-                      <Icon size={25} strokeWidth={1.6} />
-                    </span>
-                    <strong>{t(titleKey)}</strong>
-                    <small>{t(hintKey)}</small>
-                    {kind === id && (
-                      <Check size={15} className="og-onboarding-selected" />
-                    )}
-                  </button>
-                ))}
               </div>
+
               <label
                 className="og-onboarding-field"
                 htmlFor="project-entry-url"
               >
-                {t(selection.labelKey)}
+                {t('onboarding.unifiedUrlLabel')}
+                {url.trim() && (
+                  <span>
+                    {inferredKind === 'repository'
+                      ? t('onboarding.typeRepoTitle')
+                      : t('onboarding.typeProductTitle')}
+                  </span>
+                )}
               </label>
               <div className="og-onboarding-url">
-                <Globe2 size={19} aria-hidden="true" />
+                {url.trim() && inferredKind === 'repository' ? (
+                  <Github size={19} aria-hidden="true" />
+                ) : (
+                  <Globe2 size={19} aria-hidden="true" />
+                )}
                 <input
                   id="project-entry-url"
                   type="url"
                   required
                   maxLength={2048}
-                  placeholder={t(selection.placeholderKey)}
+                  placeholder={t('onboarding.unifiedUrlPlaceholder')}
                   value={url}
-                  onChange={(event) => setUrl(event.target.value)}
+                  onChange={(event) => {
+                    setUrl(event.target.value);
+                    if (error) setError('');
+                  }}
                   disabled={busy}
                   autoComplete="url"
                   aria-describedby={error ? 'onboarding-error' : undefined}

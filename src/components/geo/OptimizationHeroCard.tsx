@@ -34,6 +34,14 @@ export interface HeroCitedSource {
   questionCount: number;
 }
 
+export interface HeroNextOutreach {
+  id: string;
+  kind: 'awesome_pr' | 'repo_meta' | 'community_post';
+  title: string;
+  citedCount: number;
+  targetUrl: string;
+}
+
 export interface OptimizationHeroCardProps {
   projectId: string;
   questionCount: number;
@@ -144,10 +152,14 @@ export default function OptimizationHeroCard({
   const [includeChineseCompanion, setIncludeChineseCompanion] =
     useChineseCompanionPreference();
   const [viewModel, setViewModel] = useState<OptimizationRunViewModel | null>(null);
+  const [topNextOutreach, setTopNextOutreach] = useState<HeroNextOutreach | null>(null);
+  const [latestShippedAt, setLatestShippedAt] = useState<string | null>(null);
+  const [mountNowMs] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [streamingStatus, setStreamingStatus] = useState<OptimizationRunStatus | null>(null);
   const [streamingSteps, setStreamingSteps] = useState<HumanProgressStep[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [startingRetest, setStartingRetest] = useState(false);
   const [error, setError] = useState('');
   const statusCallbackRef = useRef(onStatusChange);
   statusCallbackRef.current = onStatusChange;
@@ -157,16 +169,24 @@ export default function OptimizationHeroCard({
       if (!projectId) return;
       try {
         const res = await fetch(
-          `/api/geo/optimization?project=${encodeURIComponent(projectId)}`,
+          `/api/geo/optimization?project=${encodeURIComponent(projectId)}&lang=${uiLanguage}`,
           { cache: 'no-store', signal },
         );
         if (!res.ok) return;
         const payload = (await res.json()) as {
           viewModel?: OptimizationRunViewModel;
+          topNextOutreach?: HeroNextOutreach | null;
+          latestShippedAt?: string | null;
         };
         if (signal?.aborted) return;
         const nextVm = payload.viewModel ?? null;
         setViewModel(nextVm);
+        if (payload.topNextOutreach !== undefined) {
+          setTopNextOutreach(payload.topNextOutreach);
+        }
+        if (payload.latestShippedAt !== undefined) {
+          setLatestShippedAt(payload.latestShippedAt);
+        }
         statusCallbackRef.current?.(nextVm);
       } catch {
         // Keep last loaded state on transient network errors
@@ -174,7 +194,7 @@ export default function OptimizationHeroCard({
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [projectId],
+    [projectId, uiLanguage],
   );
 
   useEffect(() => {
@@ -342,6 +362,9 @@ export default function OptimizationHeroCard({
     const appliedCount = deliverables.filter((d) => d.status === 'applied').length;
     const readyCount = deliverables.filter((d) => d.status === 'ready').length;
     const allReviewed = deliverables.every((d) => d.review?.verdict === 'pass');
+    const allAuthorVerified =
+      allReviewed &&
+      deliverables.every((d) => d.review?.reviewerModel === 'author-verified');
     const uniqueQuestionCount = new Set(deliverables.flatMap((d) => d.questionIds)).size;
     const totalTables = deliverables.reduce(
       (sum, d) => sum + d.mediaManifest.filter((m) => m.type === 'table').length,
@@ -456,7 +479,13 @@ export default function OptimizationHeroCard({
                 {allReviewed && (
                   <span className="ohc-paper-verified">
                     <ShieldCheck size={12.5} />
-                    {isEn ? 'Reviewed for accuracy & clarity' : '已核对事实与可读性'}
+                    {allAuthorVerified
+                      ? isEn
+                        ? 'Author verified'
+                        : '作者已核对'
+                      : isEn
+                        ? 'Reviewed for accuracy & clarity'
+                        : '已核对事实与可读性'}
                   </span>
                 )}
               </div>
@@ -535,7 +564,13 @@ export default function OptimizationHeroCard({
                 {primary.review?.verdict === 'pass' && (
                   <span className="ohc-paper-verified">
                     <ShieldCheck size={12.5} />
-                    {isEn ? 'Verified facts' : '已核对事实'}
+                    {primary.review.reviewerModel === 'author-verified'
+                      ? isEn
+                        ? 'Author verified'
+                        : '作者已核对'
+                      : isEn
+                        ? 'Verified facts'
+                        : '已核对事实'}
                   </span>
                 )}
               </div>
@@ -559,7 +594,108 @@ export default function OptimizationHeroCard({
     );
   }
 
-  // 3. Awaiting retest: distinguish local-only vs published waiting for search engine indexing
+  // 3. Awaiting retest & Completed helpers (action-type-aware copy + post-indexing retest trigger)
+  const formatNextOutreachCta = (next: HeroNextOutreach | null): string => {
+    if (!next) return isEn ? 'Open Action Plan' : '查看优化方案';
+    if (next.kind === 'awesome_pr') {
+      return isEn ? `Next: Submit PR to ${next.title}` : `下一步：向 ${next.title} 提榜单 PR`;
+    }
+    if (next.kind === 'repo_meta') {
+      return isEn ? 'Next: Sync GitHub About & Topics' : '下一步：补齐 GitHub 仓库简介与标签';
+    }
+    if (next.id.startsWith('post:thread:')) {
+      return isEn ? `Next: Reply in ${next.title}` : `下一步：参与高引用讨论`;
+    }
+    return isEn ? `Next: Share on ${next.title}` : `下一步：前往「${next.title}」发布分享`;
+  };
+
+  const formatNextOutreachHeadline = (
+    next: HeroNextOutreach,
+    stage: 'awaiting' | 'indexing' | 'post_window',
+  ): string => {
+    const prefixEn =
+      stage === 'awaiting'
+        ? 'Docs are live'
+        : stage === 'indexing'
+          ? 'Recent updates are still indexing'
+          : 'No lift yet';
+    const prefixZh =
+      stage === 'awaiting'
+        ? '内容已上线'
+        : stage === 'indexing'
+          ? '最近上线的内容还在收录期内'
+          : '暂未新增提及';
+
+    if (next.kind === 'awesome_pr') {
+      if (isEn) {
+        return stage === 'awaiting'
+          ? `Docs are live — next, submit your PR to ${next.title}`
+          : stage === 'indexing'
+            ? `Recent updates are still indexing — next, submit a PR to ${next.title}`
+            : `No lift yet — next, submit your PR to ${next.title}`;
+      }
+      return stage === 'awaiting'
+        ? `内容已上线，趁收录期间先提交「${next.title}」榜单 PR`
+        : stage === 'indexing'
+          ? `最近上线的内容还在收录期内；这期间先去提交「${next.title}」PR`
+          : `暂未新增提及；下一步先提「${next.title}」榜单 PR`;
+    }
+
+    if (next.kind === 'repo_meta') {
+      return isEn
+        ? `${prefixEn} — next, sync your GitHub repo description & topics`
+        : `${prefixZh}；下一步先补齐 GitHub 仓库简介与 Topics`;
+    }
+
+    if (next.id.startsWith('post:thread:')) {
+      return isEn
+        ? `${prefixEn} — next, join cited thread "${next.title}"`
+        : `${prefixZh}；下一步可参与高引用讨论「${next.title}」`;
+    }
+
+    return isEn
+      ? `${prefixEn} — next, share on ${next.title}`
+      : `${prefixZh}；下一步可去「${next.title}」发布分享`;
+  };
+
+  const triggerPostIndexingRetest = async (runId: string) => {
+    if (startingRetest || !projectId) return;
+    setStartingRetest(true);
+    setError('');
+    try {
+      const res = await fetch('/api/geo/browser-collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'start',
+          projectId,
+          engine: 'all',
+          force: true,
+          optimizationRunId: runId,
+        }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        throw new Error(
+          payload.error ||
+            (isEn ? 'Failed to start post-indexing retest.' : '启动原题复测失败，请稍后重试。'),
+        );
+      }
+      window.dispatchEvent(new Event('focus'));
+      await loadStatus();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : isEn
+            ? 'Failed to start post-indexing retest.'
+            : '启动原题复测失败，请稍后重试。',
+      );
+    } finally {
+      setStartingRetest(false);
+    }
+  };
+
   if (effectiveStatus === 'awaiting_retest' && run) {
     const appliedList = deliverables.filter((d) => d.status === 'applied');
     const unpushedLocalCount = appliedList.filter((d) => d.appliedRecord?.mode === 'local_file').length;
@@ -567,22 +703,40 @@ export default function OptimizationHeroCard({
     const needsGitHubPushFirst = unpushedLocalCount > 0 && onlineCount === 0;
 
     return (
-      <section className="ohc-stage is-retest" aria-label="下一步：发布上线与等待复测">
+      <section className="ohc-stage is-retest" aria-label={isEn ? 'Next step: publish and wait for indexing' : '下一步：发布上线与等待复测'}>
         <div className="ohc-single-layout">
           <div className="ohc-story">
             <div className="ohc-eyebrow">
               <RefreshCw size={13} />
-              <span>{needsGitHubPushFirst ? '下一步 · 推送到线上仓库' : '观察窗口 · 等待搜索引擎收录'}</span>
+              <span>
+                {needsGitHubPushFirst
+                  ? isEn
+                    ? 'Next · Push to GitHub'
+                    : '下一步 · 推送到线上仓库'
+                  : isEn
+                    ? 'Indexing window · Waiting for search engines'
+                    : '收录观察期 · 等待搜索引擎更新'}
+              </span>
             </div>
             <h2 className="ohc-headline">
               {needsGitHubPushFirst
-                ? `已采用 ${unpushedLocalCount} 套本地文档，尚未推送到 GitHub 线上仓库`
-                : '新内容已上线，建议等待 3～7 天抓取引流后再按原题复测'}
+                ? isEn
+                  ? `${unpushedLocalCount} local draft(s) ready to push to GitHub`
+                  : `已采用 ${unpushedLocalCount} 套本地文档，尚未推送到 GitHub 线上仓库`
+                : topNextOutreach
+                  ? formatNextOutreachHeadline(topNextOutreach, 'awaiting')
+                  : isEn
+                    ? 'Updates are live — wait 3–7 days for indexing before retesting'
+                    : '新内容已上线，建议等待 3～7 天收录后再按原题复测'}
             </h2>
             <p className="ohc-why">
               {needsGitHubPushFirst
-                ? '目前改动只保存在你的本机电脑上，AI 搜索还抓取不到。前往工作台可一键推送到 GitHub 默认分支，上线后再进入收录观察期。'
-                : '搜索引擎与 AI 检索重建网页索引通常需要 3～7 天。刚上线就立刻重测多半仍会命中旧缓存，等收录稳定后用原题复查才准确。'}
+                ? isEn
+                  ? 'Local edits are not visible to AI search yet. Open Action Plan to push them cleanly to your default branch.'
+                  : '目前改动只保存在本机电脑上，AI 搜索还抓取不到。点击右侧即可一键推送到 GitHub。'
+                : isEn
+                  ? 'Search engines typically take 3–7 days to re-index new pages. Tackle external AI-cited lists while indexing settles.'
+                  : '搜索引擎建立网页索引通常需要 3～7 天；等待期间可以先拿下已经被 AI 直接引用的外部榜单或社区渠道。'}
             </p>
             {renderTopCitedStrip(topCitedSources, isEn)}
           </div>
@@ -591,7 +745,13 @@ export default function OptimizationHeroCard({
             className="ohc-cta-primary"
             onClick={() => onOpenStudio(run.id)}
           >
-            <span>{needsGitHubPushFirst ? '前往优化方案推送' : '查看优化方案'}</span>
+            <span>
+              {needsGitHubPushFirst
+                ? isEn
+                  ? 'Push docs to GitHub'
+                  : '前往优化方案推送'
+                : formatNextOutreachCta(topNextOutreach)}
+            </span>
             <ArrowRight size={16} />
           </button>
         </div>
@@ -599,7 +759,7 @@ export default function OptimizationHeroCard({
     );
   }
 
-  // 4. Completed: show honest before -> after summary (only green when measurable lift occurred)
+  // 4. Completed: distinguish indexing window, overdue stale retest ("Retest due"), and genuine post-window re-audit
   if (effectiveStatus === 'completed' && run) {
     const hasImprovement = retestSummary
       ? retestSummary.afterMentionYes > retestSummary.beforeMentionYes ||
@@ -610,6 +770,123 @@ export default function OptimizationHeroCard({
     const afterM = retestSummary?.afterMentionYes ?? 0;
     const beforeC = retestSummary?.beforeCitationYes ?? 0;
     const afterC = retestSummary?.afterCitationYes ?? 0;
+
+    const shippedMs = latestShippedAt ? Date.parse(latestShippedAt) : NaN;
+    const elapsedHours = Number.isFinite(shippedMs)
+      ? Math.max(0, (mountNowMs - shippedMs) / 3_600_000)
+      : null;
+    const retestIso = retestSummary?.latestRetestAt ?? run.updatedAt;
+    const retestMs = retestIso ? Date.parse(retestIso) : NaN;
+    const retestAfterShipHours =
+      Number.isFinite(shippedMs) && Number.isFinite(retestMs)
+        ? (retestMs - shippedMs) / 3_600_000
+        : null;
+    const retestRanAfterWindow =
+      elapsedHours === null ? true : retestAfterShipHours !== null && retestAfterShipHours >= 72;
+
+    const withinIndexingWindow =
+      !hasImprovement && !retestRanAfterWindow && elapsedHours !== null && elapsedHours < 7 * 24;
+    const retestDue =
+      !hasImprovement && !retestRanAfterWindow && elapsedHours !== null && elapsedHours >= 7 * 24;
+    const indexingDay =
+      elapsedHours !== null ? Math.min(7, Math.max(1, Math.floor(elapsedHours / 24) + 1)) : 1;
+
+    if (withinIndexingWindow) {
+      return (
+        <section
+          className="ohc-stage is-retest"
+          aria-label={isEn ? 'Indexing window in progress' : '等待搜索引擎收录观察期'}
+        >
+          <div className="ohc-single-layout">
+            <div className="ohc-story">
+              <div className="ohc-eyebrow">
+                <Clock size={13} />
+                <span>
+                  {isEn
+                    ? `Day ${indexingDay} since publish · Waiting for search indexing (3–7 days)`
+                    : `已上线第 ${indexingDay} 天 · 等待搜索引擎收录（通常需 3～7 天）`}
+                </span>
+              </div>
+              <h2 className="ohc-headline">
+                {topNextOutreach
+                  ? formatNextOutreachHeadline(topNextOutreach, 'indexing')
+                  : isEn
+                    ? 'Updates are still inside the 3–7 day search indexing window'
+                    : '新内容仍在搜索引擎收录观察期内，满 3～7 天后再重测更有意义'}
+              </h2>
+              <p className="ohc-why">
+                {isEn
+                  ? `Early re-checks (${beforeM} → ${afterM} across ${compared} answers) hit pre-index caches rather than reflecting the new docs.${topNextOutreach ? ' Tackle the top AI-cited outreach channel next while indexing settles.' : ''}`
+                  : `刚推送完不久重测（${beforeM} → ${afterM}，共 ${compared} 条）多半命中旧缓存，不代表改稿无效。${topNextOutreach ? '等待期间建议先推进排名第一的外链/榜单曝光渠道。' : ''}`}
+              </p>
+              {renderTopCitedStrip(topCitedSources, isEn)}
+            </div>
+            <button
+              type="button"
+              className="ohc-cta-primary"
+              onClick={() => onOpenStudio(run.id)}
+            >
+              <span>{formatNextOutreachCta(topNextOutreach)}</span>
+              <ArrowRight size={16} />
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (retestDue && elapsedHours !== null) {
+      const liveDays = Math.floor(elapsedHours / 24);
+      const earlyCheckHours = Math.max(1, Math.round(Math.max(0, retestAfterShipHours ?? 0)));
+      return (
+        <section
+          className="ohc-stage is-retest"
+          aria-label={isEn ? 'Post-indexing retest due' : '收录期已满 · 待运行复测'}
+        >
+          <div className="ohc-single-layout">
+            <div className="ohc-story">
+              <div className="ohc-eyebrow">
+                <RefreshCw size={13} />
+                <span>
+                  {isEn
+                    ? 'Indexing window complete · Retest due'
+                    : '收录观察期已满 · 可按原题复测'}
+                </span>
+              </div>
+              <h2 className="ohc-headline">
+                {isEn
+                  ? `Updates have been live ${liveDays} days — run a fresh post-indexing retest`
+                  : `内容已上线满 ${liveDays} 天，现在可以跑一轮正式复测了`}
+              </h2>
+              <p className="ohc-why">
+                {isEn
+                  ? `Your previous re-check (${beforeM} → ${afterM} across ${compared} answers) ran ~${earlyCheckHours}h after shipping, before search engines could index the changes. Run a fresh retest now to measure actual movement.`
+                  : `上次复测（${beforeM} → ${afterM}，共 ${compared} 条）是在上线约 ${earlyCheckHours} 小时后跑的，当时还没完成收录；现在重测才能看到真实变化。`}
+              </p>
+              {renderTopCitedStrip(topCitedSources, isEn)}
+            </div>
+            <button
+              type="button"
+              className="ohc-cta-primary"
+              disabled={startingRetest}
+              onClick={() => void triggerPostIndexingRetest(run.id)}
+            >
+              {startingRetest ? (
+                <>
+                  <Loader2 size={15} className="ohc-spin" />
+                  <span>{isEn ? 'Starting retest…' : '正在启动复测…'}</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={15} />
+                  <span>{isEn ? 'Run post-indexing retest' : '立即运行原题复测'}</span>
+                </>
+              )}
+            </button>
+          </div>
+          {error && <p className="ohc-error">{error}</p>}
+        </section>
+      );
+    }
 
     return (
       <section
@@ -626,8 +903,8 @@ export default function OptimizationHeroCard({
                     ? 'Re-audit completed'
                     : '本轮改进已完成复测'
                   : isEn
-                    ? 'Re-audit · No change yet'
-                    : '复测结果 · 暂未见变化'}
+                    ? 'Re-audit · No lift after indexing window'
+                    : '收录期后复测 · 暂未见明显提升'}
               </span>
             </div>
             <h2 className="ohc-headline">
@@ -635,19 +912,21 @@ export default function OptimizationHeroCard({
                 ? isEn
                   ? 'Before vs after comparison shows movement'
                   : '已完成改进前后的同题表现对比'
-                : isEn
-                  ? 'No mention or citation lift yet'
-                  : '本轮上线并复测后，暂未出现新增提及或引用'}
+                : topNextOutreach
+                  ? formatNextOutreachHeadline(topNextOutreach, 'post_window')
+                  : isEn
+                    ? 'No mention or citation lift yet'
+                    : '本轮上线并复测后，暂未出现新增提及或引用'}
             </h2>
             <p className="ohc-why">
               {retestSummary
                 ? isEn
                   ? hasImprovement
                     ? `Retested ${compared} answers: mentions ${beforeM} → ${afterM}, official citations ${beforeC} → ${afterC}.`
-                    : `Retested ${compared} answers: mentions ${beforeM} → ${afterM}, official citations ${beforeC} → ${afterC}. Open Action Plan for one-click Awesome list PRs, repo metadata sync, and multi-angle posts.`
+                    : `Retested ${compared} answers: mentions ${beforeM} → ${afterM}, official citations ${beforeC} → ${afterC}. Open Action Plan to tackle the highest-impact cited lists next.`
                   : hasImprovement
                     ? `共复测 ${compared} 条问答：AI 提及从 ${beforeM} 条变为 ${afterM} 条，官网引用从 ${beforeC} 条变为 ${afterC} 条。`
-                    : `共复测 ${compared} 条问答：提及 ${beforeM} → ${afterM} 条，引用 ${beforeC} → ${afterC} 条。打开「优化方案」即可用 AI 预写好的一键卡片补齐榜单 PR、社区发声和仓库门面。`
+                    : `共复测 ${compared} 条问答：提及 ${beforeM} → ${afterM} 条，引用 ${beforeC} → ${afterC} 条。打开「优化方案」按推荐顺序逐项拿下外部高引用渠道。`
                 : run.statusMessage ||
                   (isEn
                     ? 'Inspect answer-by-answer comparisons or start a new round.'
@@ -665,9 +944,7 @@ export default function OptimizationHeroCard({
                 ? isEn
                   ? 'Open Action Plan'
                   : '查看优化方案'
-                : isEn
-                  ? 'Open Action Plan'
-                  : '查看优化方案'}
+                : formatNextOutreachCta(topNextOutreach)}
             </span>
             <ArrowRight size={16} />
           </button>

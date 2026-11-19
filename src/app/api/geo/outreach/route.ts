@@ -3,7 +3,7 @@ import { requireChatGPTLocalRequest } from '@/lib/geo/chatgpt-local-request';
 import type { GeoLanguage } from '@/lib/geo/i18n';
 import { OptimizationStateError } from '@/lib/geo/optimization';
 import {
-  listOutreachActions,
+  listOutreachActionsAsync,
   markOutreachStatusAction,
   openDraftInEgoLiteAction,
   prepareAwesomePrAction,
@@ -20,16 +20,15 @@ function parseLang(value: unknown): GeoLanguage {
   return value === 'en' ? 'en' : 'zh';
 }
 
-export function GET(request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
     requireChatGPTLocalRequest(request, false);
     const projectId = resolveGeoProject(request.nextUrl.searchParams.get('project'));
     const lang = parseLang(request.nextUrl.searchParams.get('lang'));
-    return withGeoProject(projectId, () =>
-      NextResponse.json(
-        { projectId, actions: listOutreachActions(projectId, lang) },
-        { headers: { 'Cache-Control': 'no-store' } },
-      ),
+    const actions = await withGeoProject(projectId, () => listOutreachActionsAsync(projectId, lang));
+    return NextResponse.json(
+      { projectId, actions },
+      { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (error) {
     return errorResponse(error);
@@ -56,7 +55,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         projectId,
         record: updated,
-        actions: withGeoProject(projectId, () => listOutreachActions(projectId, lang)),
+        actions: await withGeoProject(projectId, () => listOutreachActionsAsync(projectId, lang)),
       });
     }
 
@@ -71,7 +70,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         projectId,
         record: updated,
-        actions: withGeoProject(projectId, () => listOutreachActions(projectId, lang)),
+        actions: await withGeoProject(projectId, () => listOutreachActionsAsync(projectId, lang)),
       });
     }
 
@@ -82,7 +81,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         projectId,
         record: updated,
-        actions: withGeoProject(projectId, () => listOutreachActions(projectId, lang)),
+        actions: await withGeoProject(projectId, () => listOutreachActionsAsync(projectId, lang)),
       });
     }
 
@@ -109,7 +108,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         projectId,
         record: updated,
-        actions: withGeoProject(projectId, () => listOutreachActions(projectId, lang)),
+        actions: await withGeoProject(projectId, () => listOutreachActionsAsync(projectId, lang)),
       });
     }
 
@@ -124,7 +123,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         projectId,
         record: updated,
-        actions: withGeoProject(projectId, () => listOutreachActions(projectId, lang)),
+        actions: await withGeoProject(projectId, () => listOutreachActionsAsync(projectId, lang)),
       });
     }
 

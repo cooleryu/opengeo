@@ -14,6 +14,8 @@ import {
   BookOpen,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Copy,
   CornerDownLeft,
   ExternalLink,
@@ -508,6 +510,75 @@ export function extractDeliverablePurpose(
   return extractPlainLeadExcerpt(deliverable.afterContent, maxChars);
 }
 
+export function splitMarkdownForCollapsedIntro(
+  markdown: string,
+  hasCenteredHero: boolean,
+): { previewMarkdown: string; hasMore: boolean } {
+  const lines = markdown.split(/\r?\n/);
+  const h2Indices: number[] = [];
+  let inCodeFence = false;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+    if (/^```/.test(trimmed)) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+    if (!inCodeFence && /^##\s+/.test(trimmed)) {
+      h2Indices.push(i);
+    }
+  }
+
+  if (h2Indices.length === 0) {
+    return { previewMarkdown: markdown, hasMore: false };
+  }
+
+  const introProseChars = lines
+    .slice(0, h2Indices[0])
+    .filter((raw) => {
+      const t = raw.trim();
+      return (
+        Boolean(t) &&
+        !/^#/.test(t) &&
+        !/^!\[/.test(t) &&
+        !/^[-=]{3,}$/.test(t) &&
+        !/^<\/?[a-z]/i.test(t)
+      );
+    })
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim().length;
+
+  let cutIdx: number | null = null;
+  if (introProseChars >= 120 || (hasCenteredHero && h2Indices.length === 1)) {
+    cutIdx = h2Indices[0];
+  } else if (h2Indices.length >= 2) {
+    cutIdx = h2Indices[1];
+  }
+
+  if (cutIdx === null) {
+    return { previewMarkdown: markdown, hasMore: false };
+  }
+
+  const previewMarkdown = lines.slice(0, cutIdx).join('\n').trim();
+  const restMarkdown = lines.slice(cutIdx).join('\n').trim();
+  if (restMarkdown.length < 400 || (!hasCenteredHero && !previewMarkdown)) {
+    return { previewMarkdown: markdown, hasMore: false };
+  }
+
+  return { previewMarkdown, hasMore: true };
+}
+
+function formatWinnerDisplayName(winner: { url: string; domain: string }): string {
+  const ghMatch = winner.url.match(
+    /^https?:\/\/(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+)/i,
+  );
+  if (ghMatch) {
+    return `${ghMatch[1]}/${ghMatch[2].replace(/\.git$/i, '')}`;
+  }
+  return winner.domain;
+}
+
 export function githubHeadingSlug(text: string): string {
   return text
     .trim()
@@ -549,6 +620,7 @@ export default function DeliverableArticleView({
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [showReviewChecks, setShowReviewChecks] = useState(false);
   const [activeWinnerUrl, setActiveWinnerUrl] = useState<string | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const referenceWinners = deliverable.referenceWinners ?? [];
   const activeWinner =
     referenceWinners.find((w) => w.url === activeWinnerUrl) ?? null;
@@ -565,6 +637,13 @@ export default function DeliverableArticleView({
     () => estimateReadingMinutes(rawMarkdown),
     [rawMarkdown],
   );
+  const collapsedSplit = useMemo(
+    () => splitMarkdownForCollapsedIntro(renderedMarkdown, Boolean(centeredHero)),
+    [renderedMarkdown, centeredHero],
+  );
+  const draftKey = `${deliverable.id}:${effectiveDestination}:${rawMarkdown.length}`;
+  const isLongCollapsible = showMetaStrip && readingMinutes >= 6 && collapsedSplit.hasMore;
+  const bodyExpanded = expandedKey === draftKey;
 
   useEffect(() => {
     return () => {
@@ -689,7 +768,11 @@ export default function DeliverableArticleView({
                 onClick={() => setShowReviewChecks((v) => !v)}
               >
                 <ShieldCheck size={13} />
-                <span>{t('dav.verifiedFactReadability')}</span>
+                <span>
+                  {review.reviewerModel === 'author-verified'
+                    ? t('dav.verifiedByAuthor')
+                    : t('dav.verifiedFactReadability')}
+                </span>
               </button>
             )}
           </div>
@@ -795,11 +878,19 @@ export default function DeliverableArticleView({
                     setActiveWinnerUrl((curr) => (curr === winner.url ? null : winner.url))
                   }
                 >
-                  <span className="dav-winner-domain">{winner.domain}</span>
+                  <span className="dav-winner-domain">
+                    {formatWinnerDisplayName(winner)}
+                  </span>
                   <span className="dav-winner-status">
-                    {winner.probeStatus === 'local_fallback'
-                      ? t('dav.winnerLocalFallback')
-                      : t('dav.winnerFullRead')}
+                    {uiLanguage === 'en'
+                      ? `${winner.citedQuestionCount}q`
+                      : `${winner.citedQuestionCount}题`}
+                    {typeof winner.stars === 'number' && winner.stars > 0
+                      ? ` · ★ ${winner.stars.toLocaleString('en-US')}`
+                      : ''}
+                    {winner.probeStatus !== 'local_fallback'
+                      ? ` · ${t('dav.winnerFullRead')}`
+                      : ''}
                   </span>
                 </button>
               );
@@ -819,6 +910,12 @@ export default function DeliverableArticleView({
                   <ExternalLink size={12} />
                 </a>
               </div>
+              <p className="dav-winner-why">
+                {activeWinner.whyWon ||
+                  (uiLanguage === 'en'
+                    ? `Cited in ${activeWinner.citedQuestionCount} ${activeWinner.citedQuestionCount === 1 ? 'prompt' : 'prompts'}`
+                    : `被 AI 在 ${activeWinner.citedQuestionCount} 道问题中直接引用`)}
+              </p>
               {activeWinner.probeStatus !== 'local_fallback' &&
                 activeWinner.headings.length > 0 && (
                   <div className="dav-winner-block">
@@ -850,7 +947,8 @@ export default function DeliverableArticleView({
         </section>
       )}
 
-      <article className="dav-prose">
+      <div className={isLongCollapsible && !bodyExpanded ? 'dav-prose-collapsed-wrap' : undefined}>
+        <article className="dav-prose">
         {centeredHero && (
           <header className="dav-readme-hero">
             {centeredHero.logo && (
@@ -955,9 +1053,34 @@ export default function DeliverableArticleView({
             },
           }}
         >
-          {renderedMarkdown}
+          {isLongCollapsible && !bodyExpanded ? collapsedSplit.previewMarkdown : renderedMarkdown}
         </Markdown>
-      </article>
+        </article>
+        {isLongCollapsible && !bodyExpanded && (
+          <div className="dav-collapse-fade" aria-hidden="true" />
+        )}
+      </div>
+
+      {isLongCollapsible && (
+        <div className="dav-expand-row">
+          <button
+            type="button"
+            className="dav-expand-full-btn"
+            onClick={() => setExpandedKey(bodyExpanded ? null : draftKey)}
+          >
+            {bodyExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            <span>
+              {bodyExpanded
+                ? uiLanguage === 'en'
+                  ? 'Collapse full draft'
+                  : '收起正文，仅看重点'
+                : uiLanguage === 'en'
+                  ? `Expand full draft (~${readingMinutes} min read · tables & visuals)`
+                  : `展开查看完整全文（约 ${readingMinutes} 分钟读完 · 含对照表与配图）`}
+            </span>
+          </button>
+        </div>
+      )}
 
       {lightbox && (
         <div

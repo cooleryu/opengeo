@@ -69,29 +69,164 @@ const GITHUB_NON_REPO_OWNERS = new Set([
   'sponsors',
   'collections',
   'events',
+  'login',
+  'signup',
+  'trending',
+  'blog',
+  'customer-stories',
+  'security',
+  'enterprise',
+  'readme',
+  'pulls',
+  'issues',
+  'notifications',
 ]);
 
-function normalizeExternalCitedSource(rawUrl: string): { key: string; label: string; url: string } | null {
+const TWO_PART_PUBLIC_SUFFIXES = new Set([
+  'co.uk',
+  'org.uk',
+  'ac.uk',
+  'gov.uk',
+  'com.au',
+  'net.au',
+  'org.au',
+  'co.jp',
+  'ne.jp',
+  'or.jp',
+  'com.cn',
+  'net.cn',
+  'org.cn',
+  'com.br',
+  'co.in',
+  'co.kr',
+  'co.nz',
+  'com.sg',
+  'com.hk',
+  'com.tw',
+  'github.io',
+  'gitlab.io',
+  'vercel.app',
+  'netlify.app',
+  'pages.dev',
+  'readthedocs.io',
+  'gitbook.io',
+  'substack.com',
+]);
+
+function extractRegistrableDomainParts(
+  host: string,
+): { registrableDomain: string; sld: string } | null {
+  const labels = host.split('.').filter(Boolean);
+  if (labels.length < 2) return null;
+  if (labels.length >= 3) {
+    const tailTwo = `${labels[labels.length - 2]}.${labels[labels.length - 1]}`;
+    if (TWO_PART_PUBLIC_SUFFIXES.has(tailTwo)) {
+      const sld = labels[labels.length - 3] ?? '';
+      return sld
+        ? { registrableDomain: `${sld}.${tailTwo}`, sld }
+        : { registrableDomain: tailTwo, sld: tailTwo.split('.')[0] ?? '' };
+    }
+  }
+  const sld = labels[labels.length - 2] ?? '';
+  const tld = labels[labels.length - 1] ?? '';
+  return sld && tld ? { registrableDomain: `${sld}.${tld}`, sld } : null;
+}
+
+const MULTI_TENANT_HOSTS = new Set([
+  'github.com',
+  'reddit.com',
+  'dev.to',
+  'medium.com',
+  'news.ycombinator.com',
+  'youtube.com',
+  'youtu.be',
+  'substack.com',
+  'linkedin.com',
+  'producthunt.com',
+  'alternativeto.net',
+  'wikipedia.org',
+  'en.wikipedia.org',
+  'x.com',
+  'twitter.com',
+  'npm.im',
+  'npmjs.com',
+  'pypi.org',
+]);
+
+function stripVendorSuffix(raw: string): string {
+  const lower = raw.toLowerCase().trim();
+  const stripped = lower.replace(/(?:[-_]?(?:hq|co|ai|io|app|dev|labs|inc|official))$/i, '');
+  return stripped.length >= 3 ? stripped : lower;
+}
+
+function capitalizeBrand(stem: string): string {
+  const clean = stem.replace(/[-_]+/g, ' ').trim();
+  if (!clean) return stem;
+  return clean.replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+}
+
+function normalizeExternalCitedSource(
+  rawUrl: string,
+): { key: string; entityKey: string; mergedLabel?: string; label: string; url: string } | null {
   try {
     const u = new URL(rawUrl.trim());
     if ((u.protocol !== 'http:' && u.protocol !== 'https:') || u.username || u.password) return null;
     const host = u.hostname.replace(/^www\./i, '').toLowerCase();
     if (!host || SKIP_INTERNAL_HOST_RE.test(host)) return null;
-    if (host === 'github.com') {
+    if (host === 'github.com' || host.endsWith('.github.com')) {
+      if (host !== 'github.com') return null;
       const parts = u.pathname.split('/').filter(Boolean);
       const owner = parts[0];
       const repo = parts[1]?.replace(/\.git$/i, '');
-      if (owner && repo && !GITHUB_NON_REPO_OWNERS.has(owner.toLowerCase())) {
-        const key = `github.com/${owner.toLowerCase()}/${repo.toLowerCase()}`;
+      if (!owner || !repo || GITHUB_NON_REPO_OWNERS.has(owner.toLowerCase())) {
+        return null;
+      }
+      const key = `github.com/${owner.toLowerCase()}/${repo.toLowerCase()}`;
+      const isAwesomeOrList = /awesome|list|directory|curated/i.test(`${owner}/${repo}`);
+      const ownerStem = stripVendorSuffix(owner);
+      const entityKey =
+        !isAwesomeOrList && ownerStem.length >= 4 ? `brand:${ownerStem}` : key;
+      return {
+        key,
+        entityKey,
+        ...(entityKey.startsWith('brand:')
+          ? { mergedLabel: capitalizeBrand(ownerStem) }
+          : {}),
+        label: `${owner}/${repo}`,
+        url: `https://github.com/${owner}/${repo}`,
+      };
+    }
+
+    const domainParts = extractRegistrableDomainParts(host);
+    if (!domainParts) return null;
+
+    const isMultiTenant =
+      MULTI_TENANT_HOSTS.has(host) ||
+      (MULTI_TENANT_HOSTS.has(domainParts.registrableDomain) &&
+        domainParts.registrableDomain !== 'substack.com');
+
+    if (!isMultiTenant) {
+      const domainStem = stripVendorSuffix(domainParts.sld);
+      if (domainStem.length >= 4) {
         return {
-          key,
-          label: `${owner}/${repo}`,
-          url: `https://github.com/${owner}/${repo}`,
+          key: domainParts.registrableDomain,
+          entityKey: `brand:${domainStem}`,
+          mergedLabel: capitalizeBrand(domainStem),
+          label: host,
+          url: `${u.protocol}//${u.hostname}`,
         };
       }
+      return {
+        key: domainParts.registrableDomain,
+        entityKey: domainParts.registrableDomain,
+        label: host,
+        url: `${u.protocol}//${u.hostname}`,
+      };
     }
+
     return {
       key: host,
+      entityKey: host,
       label: host,
       url: `${u.protocol}//${u.hostname}`,
     };
@@ -100,24 +235,27 @@ function normalizeExternalCitedSource(rawUrl: string): { key: string; label: str
   }
 }
 
-/**
- * Aggregates the top external domains / GitHub repositories currently cited in AI answers
- * (using the latest `web_answer` observation per question/engine).
- */
-export function extractTopExternalCitedSources(
-  batch: ResearchBatch | null | undefined,
+function collectCitedSourcesForQuestions(
+  questions: ResearchQuestion[],
+  engines: ResearchEngine[],
   project: Pick<GeoProject, 'repositoryUrl' | 'siteUrl'> | null | undefined,
-  language?: 'en' | 'zh',
-  limit = 4,
+  language: 'en' | 'zh' | undefined,
+  limit: number,
 ): TopExternalCitedSource[] {
-  if (!batch?.questions?.length) return [];
   const counts = new Map<
     string,
-    { label: string; url: string; questionIds: Set<string>; totalMentions: number }
+    {
+      rawKey: string;
+      label: string;
+      mergedLabel?: string;
+      url: string;
+      rawUrls: Set<string>;
+      questionIds: Set<string>;
+      totalMentions: number;
+    }
   >();
-  const engines = getBatchResearchEngines(batch);
 
-  for (const question of batch.questions) {
+  for (const question of questions) {
     for (const engine of engines) {
       const matching = question.observations.filter(
         (obs) =>
@@ -140,22 +278,37 @@ export function extractTopExternalCitedSources(
         if (project && isProjectOwnedUrl(ref.url, project)) continue;
         const normalized = normalizeExternalCitedSource(ref.url);
         if (!normalized) continue;
-        const entry = counts.get(normalized.key) ?? {
-          label: normalized.label,
-          url: normalized.url,
-          questionIds: new Set<string>(),
-          totalMentions: 0,
-        };
-        entry.questionIds.add(question.id);
-        entry.totalMentions += 1;
-        counts.set(normalized.key, entry);
+        const entry = counts.get(normalized.entityKey);
+        if (!entry) {
+          counts.set(normalized.entityKey, {
+            rawKey: normalized.key,
+            label: normalized.label,
+            mergedLabel: normalized.mergedLabel,
+            url: normalized.url,
+            rawUrls: new Set([normalized.url]),
+            questionIds: new Set([question.id]),
+            totalMentions: 1,
+          });
+        } else {
+          entry.rawUrls.add(normalized.url);
+          if (entry.rawUrls.size > 1 && entry.mergedLabel) {
+            entry.label = entry.mergedLabel;
+            if (!normalized.url.includes('github.com')) {
+              if (entry.url.includes('github.com') || normalized.url.length < entry.url.length) {
+                entry.url = normalized.url;
+              }
+            }
+          }
+          entry.questionIds.add(question.id);
+          entry.totalMentions += 1;
+        }
       }
     }
   }
 
   return [...counts.entries()]
-    .map(([key, entry]) => ({
-      key,
+    .map(([entityKey, entry]) => ({
+      key: entry.rawUrls.size > 1 ? entityKey : entry.rawKey,
       label: entry.label,
       url: entry.url,
       questionCount: entry.questionIds.size,
@@ -164,6 +317,42 @@ export function extractTopExternalCitedSources(
     .sort((a, b) => b.questionCount - a.questionCount || b.totalMentions - a.totalMentions)
     .slice(0, limit)
     .map(({ key, label, url, questionCount }) => ({ key, label, url, questionCount }));
+}
+
+/**
+ * Aggregates the top external domains / GitHub repositories currently cited in AI answers
+ * (using the latest `web_answer` observation per question/engine) with canonical entity deduplication.
+ */
+export function extractTopExternalCitedSources(
+  batch: ResearchBatch | null | undefined,
+  project: Pick<GeoProject, 'repositoryUrl' | 'siteUrl'> | null | undefined,
+  language?: 'en' | 'zh',
+  limit = 4,
+): TopExternalCitedSource[] {
+  if (!batch?.questions?.length) return [];
+  return collectCitedSourcesForQuestions(
+    batch.questions,
+    getBatchResearchEngines(batch),
+    project,
+    language,
+    limit,
+  );
+}
+
+/**
+ * Extracts up to `limit` canonical external winners cited on a single prompt's latest web answers.
+ */
+export function extractQuestionTopWinners(
+  question: ResearchQuestion,
+  batchOrEngines: ResearchBatch | ResearchEngine[],
+  project?: Pick<GeoProject, 'repositoryUrl' | 'siteUrl'> | null,
+  language?: 'en' | 'zh',
+  limit = 3,
+): TopExternalCitedSource[] {
+  const engines = Array.isArray(batchOrEngines)
+    ? batchOrEngines
+    : getBatchResearchEngines(batchOrEngines);
+  return collectCitedSourcesForQuestions([question], engines, project, language, limit);
 }
 
 export type OutreachPageKind = 'directory' | 'community' | 'roundup' | 'other';

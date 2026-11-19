@@ -1122,6 +1122,17 @@ function OpenGeoAppInner() {
   );
 
   const optStatus = optViewModel?.run?.status ?? null;
+  const activeOptimizationRunId =
+    optViewModel?.run &&
+    ['awaiting_retest', 'remeasuring', 'completed'].includes(optViewModel.run.status)
+      ? optViewModel.run.id
+      : null;
+  const latestDeliverableShippedAt =
+    (optViewModel?.run?.deliverables ?? [])
+      .filter((d) => d.status === 'applied' && d.appliedRecord?.mode !== 'local_file')
+      .map((d) => d.appliedRecord?.appliedAt || d.updatedAt)
+      .filter((iso): iso is string => Boolean(iso && Number.isFinite(Date.parse(iso))))
+      .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
   const optNavBadge =
     optStatus === 'awaiting_approval'
       ? { label: t('status.awaitingApproval'), tone: 'emerald' }
@@ -1482,6 +1493,8 @@ function OpenGeoAppInner() {
                     }
                     batch={data.latestResearch}
                     project={data.project}
+                    activeOptimizationRunId={activeOptimizationRunId}
+                    latestShippedAt={latestDeliverableShippedAt}
                     view={page === 'overview' ? 'overview' : 'questions'}
                     detailsOnly={page === 'question-plan'}
                     tasks={groups.tasks}

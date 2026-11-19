@@ -227,3 +227,81 @@ test('selectAndProbeReferenceWinners filters owned URLs, deduplicates utm params
   assert.ok(full.some((w) => w.domain === 'opendocs.example' && w.headings.length === 1));
   assert.ok(full.some((w) => w.domain === 'secondopen.example' && w.headings.length === 1));
 });
+
+test('selectAndProbeReferenceWinners reads GitHub README via API with stars and ranks guides ahead of root homepages for quickstart', async () => {
+  const projectId = 'sample-project';
+  ensureProjectRelationalData(projectId);
+  const qRow = withProjectDb(projectId, (db, id) =>
+    db
+      .prepare(
+        "SELECT id FROM opengeo_questions WHERE project_id = ? AND status = 'active' AND COALESCE(category, '') != 'brand' ORDER BY sort_order LIMIT 1",
+      )
+      .get(id) as { id: string },
+  );
+
+  withProjectDb(projectId, (db, id) => {
+    const now = new Date().toISOString();
+    db.prepare("UPDATE opengeo_observations SET sources_json = '[]' WHERE project_id = ?").run(id);
+    db.prepare(`
+      INSERT INTO opengeo_observations (
+        project_id, id, batch_id, question_id, optimization_run_id, run_id,
+        engine, language, entry_type, overview_status, query_text, status,
+        summary, answer_path, evidence_path, sources_json, conditions_text, recorded_at, collected_at, created_at
+      ) VALUES (?, 'obs-gh-1', 'batch-1', ?, NULL, NULL, 'chatgpt', 'en', 'web_answer', NULL, 'quickstart test', 'found', 'summary', NULL, '', ?, 'test', ?, ?, ?)
+    `).run(
+      id,
+      qRow.id,
+      JSON.stringify([
+        { title: 'Commercial Root', url: 'https://saasmarketing.example/', kind: 'other' },
+        { title: 'Elmo Repo', url: 'https://github.com/elmohq/elmo', kind: 'other' },
+      ]),
+      now,
+      now,
+      now,
+    );
+  });
+
+  const apiPaths: string[] = [];
+  const runtime: PublicSourceRuntime = {
+    lookup: async () => [{ address: '93.184.215.14', family: 4 }],
+    request: async (url) => {
+      if (url.hostname === 'api.github.com') {
+        apiPaths.push(url.pathname);
+        if (url.pathname.endsWith('/readme')) {
+          return {
+            status: 200,
+            headers: { 'content-type': 'text/markdown' },
+            body: '# Elmo\n\nOpen-source toolkit to inspect brand mentions in ChatGPT and Perplexity answers.\n\n## Quick Start\n\nRun locally using Node or Docker in a few minutes.\n',
+          };
+        }
+        return {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ stargazers_count: 598, description: 'Open-source AEO monitor' }),
+        };
+      }
+      return {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+        body: '<!doctype html><html><head><title>SaaS Marketing</title></head><body><p>Generic marketing landing page copy describing enterprise plans and sales demos.</p></body></html>',
+      };
+    },
+  };
+
+  const winners = await selectAndProbeReferenceWinners(projectId, {
+    targetQuestionIds: [qRow.id],
+    targetLanguage: 'en',
+    deliverableRole: 'quickstart',
+    maxWinners: 2,
+    timeoutMs: 1000,
+    runtime,
+  });
+
+  assert.ok(apiPaths.includes('/repos/elmohq/elmo/readme'));
+  assert.ok(winners.length >= 2);
+  assert.equal(winners[0].domain, 'github.com');
+  assert.equal(winners[0].probeStatus, 'full_read');
+  assert.equal(winners[0].stars, 598);
+  assert.match(winners[0].whyWon || '', /★ 598/);
+  assert.ok(winners[0].headings.includes('Quick Start'));
+});

@@ -445,10 +445,12 @@ export function computeRetestComparison(
           mention: 'yes' | 'no' | 'unknown';
           citation: 'yes' | 'no' | 'unknown';
           evidence: string;
+          observedAt: string | null;
         }
       >();
       const stmt = db.prepare(
         `SELECT o.id, o.question_id, o.query_text, o.engine, o.language,
+                o.collected_at, o.recorded_at, o.created_at,
                 a.mention, a.citation, a.mention_evidence
          FROM opengeo_observations o
          LEFT JOIN opengeo_answer_audits a
@@ -463,6 +465,9 @@ export function computeRetestComparison(
               query_text: string;
               engine: ResearchEngine;
               language: string;
+              collected_at: string | null;
+              recorded_at: string;
+              created_at: string;
               mention: 'yes' | 'no' | 'unknown' | null;
               citation: 'yes' | 'no' | 'unknown' | null;
               mention_evidence: string | null;
@@ -476,6 +481,7 @@ export function computeRetestComparison(
           mention: row.mention ?? 'unknown',
           citation: row.citation ?? 'unknown',
           evidence: row.mention_evidence ?? '',
+          observedAt: row.collected_at || row.recorded_at || row.created_at || null,
         });
       }
       return map;
@@ -499,12 +505,19 @@ export function computeRetestComparison(
       });
     }
 
+    const latestRetestAt =
+      [...followupMap.values()]
+        .map((entry) => entry.observedAt)
+        .filter((iso): iso is string => Boolean(iso && Number.isFinite(Date.parse(iso))))
+        .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? run.updatedAt ?? null;
+
     return {
       comparedCount: items.length,
       beforeMentionYes: items.filter((i) => i.beforeMention === 'yes').length,
       afterMentionYes: items.filter((i) => i.afterMention === 'yes').length,
       beforeCitationYes: items.filter((i) => i.beforeCitation === 'yes').length,
       afterCitationYes: items.filter((i) => i.afterCitation === 'yes').length,
+      latestRetestAt,
       items,
     };
   });

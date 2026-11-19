@@ -7,7 +7,6 @@ import {
   GitPullRequest,
   Loader2,
   MessageSquarePlus,
-  RefreshCw,
   Settings2,
   Sparkles,
 } from 'lucide-react';
@@ -20,6 +19,7 @@ export interface OutreachActionCardsProps {
   lang: GeoLanguage;
   actions: OutreachActionRecord[];
   loading: boolean;
+  highlightFirst?: boolean;
   onActionsUpdated: (nextActions: OutreachActionRecord[]) => void;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
@@ -46,6 +46,7 @@ export default function OutreachActionCards({
   lang,
   actions,
   loading,
+  highlightFirst = false,
   onActionsUpdated,
   onError,
   onNotice,
@@ -154,14 +155,20 @@ export default function OutreachActionCards({
 
   return (
     <div className="oap-card-grid">
-      {actions.map((item) => {
+      {actions.map((item, idx) => {
         const isBusy = busyId === item.id;
+        const isTopPriority = highlightFirst && idx === 0;
 
         if (item.kind === 'repo_meta' && item.repoMetaDraft) {
           return (
             <article key={item.id} className="oap-action-card is-meta">
               <div className="oap-card-top">
                 <div className="oap-badges">
+                  {isTopPriority && (
+                    <span className="oap-priority-pill">
+                      {isEn ? 'Do this next' : '最优先一步'}
+                    </span>
+                  )}
                   <span className="oap-kind-pill is-meta">
                     <Settings2 size={12} />
                     {t('actionPlan.repoMetaBadge')}
@@ -275,6 +282,11 @@ export default function OutreachActionCards({
             <article key={item.id} className={`oap-action-card ${draft ? 'is-ready' : ''}`}>
               <div className="oap-card-top">
                 <div className="oap-badges">
+                  {isTopPriority && (
+                    <span className="oap-priority-pill">
+                      {isEn ? 'Do this next' : '最优先一步'}
+                    </span>
+                  )}
                   <span className="oap-kind-pill is-pr">
                     <GitPullRequest size={12} />
                     {t('actionPlan.awesomeBadge')}
@@ -377,49 +389,36 @@ export default function OutreachActionCards({
                     </span>
                   </button>
                 ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="ost-btn-secondary is-sm"
-                      disabled={Boolean(busyId)}
-                      onClick={() =>
-                        void callOutreach(item.id, 'prepare', { action: 'prepare_awesome_pr' })
+                  <button
+                    type="button"
+                    className="ost-btn-primary is-sm"
+                    disabled={Boolean(busyId)}
+                    onClick={async () => {
+                      const res = await callOutreach(item.id, 'submit', {
+                        action: 'submit_awesome_pr',
+                        insertedLine: edit.insertedLine,
+                        prTitle: edit.prTitle,
+                      });
+                      if (res?.record?.resultUrl) {
+                        onNotice(
+                          isEn
+                            ? `Submitted PR cleanly: ${res.record.resultUrl}`
+                            : `PR 已提交成功并记入已上线记录：${res.record.resultUrl}`,
+                        );
                       }
-                    >
-                      <RefreshCw size={13} />
-                      <span>{t('actionPlan.prepareDiffBtn')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="ost-btn-primary is-sm"
-                      disabled={Boolean(busyId)}
-                      onClick={async () => {
-                        const res = await callOutreach(item.id, 'submit', {
-                          action: 'submit_awesome_pr',
-                          insertedLine: edit.insertedLine,
-                          prTitle: edit.prTitle,
-                        });
-                        if (res?.record?.resultUrl) {
-                          onNotice(
-                            isEn
-                              ? `Submitted PR cleanly: ${res.record.resultUrl}`
-                              : `PR 已提交成功并记入已上线记录：${res.record.resultUrl}`,
-                          );
-                        }
-                      }}
-                    >
-                      {isBusy && busyOp === 'submit' ? (
-                        <Loader2 size={14} className="ost-spin" />
-                      ) : (
-                        <GitPullRequest size={14} />
-                      )}
-                      <span>
-                        {isBusy && busyOp === 'submit'
-                          ? t('actionPlan.submittingPrBtn')
-                          : t('actionPlan.submitPrBtn')}
-                      </span>
-                    </button>
-                  </>
+                    }}
+                  >
+                    {isBusy && busyOp === 'submit' ? (
+                      <Loader2 size={14} className="ost-spin" />
+                    ) : (
+                      <GitPullRequest size={14} />
+                    )}
+                    <span>
+                      {isBusy && busyOp === 'submit'
+                        ? t('actionPlan.submittingPrBtn')
+                        : t('actionPlan.submitPrBtn')}
+                    </span>
+                  </button>
                 )}
               </div>
             </article>
@@ -438,6 +437,11 @@ export default function OutreachActionCards({
           <article key={item.id} className={`oap-action-card ${postDraft ? 'is-ready' : ''}`}>
             <div className="oap-card-top">
               <div className="oap-badges">
+                {isTopPriority && (
+                  <span className="oap-priority-pill">
+                    {isEn ? 'Do this next' : '最优先一步'}
+                  </span>
+                )}
                 <span className="oap-kind-pill is-post">
                   <MessageSquarePlus size={12} />
                   {t('actionPlan.communityBadge')}

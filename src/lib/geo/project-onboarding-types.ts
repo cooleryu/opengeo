@@ -1,5 +1,29 @@
 export type ProjectEntryKind = 'repository' | 'store' | 'company' | 'creator';
 
+const NON_REPO_GH_OWNERS = new Set([
+  'topics',
+  'orgs',
+  'users',
+  'features',
+  'about',
+  'collections',
+  'sponsors',
+  'marketplace',
+  'explore',
+  'settings',
+  'search',
+]);
+
+/** Infers open-source repository vs company/product site directly from the pasted entry URL. */
+export function inferProjectEntryKind(rawUrl: string): 'repository' | 'company' {
+  const trimmed = rawUrl.trim();
+  const match = trimmed.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+)/i);
+  if (match && !NON_REPO_GH_OWNERS.has(match[1].toLowerCase())) {
+    return 'repository';
+  }
+  return 'company';
+}
+
 export interface OnboardingAnalysis {
   summary: string;
   audience: string;

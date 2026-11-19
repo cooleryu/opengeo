@@ -53,6 +53,8 @@ import { useUiLanguage } from './UiLanguageContext';
 
 type Props = {
   projectOptimization?: ReactNode;
+  activeOptimizationRunId?: string | null;
+  latestShippedAt?: string | null;
   batch: ResearchBatch;
   project?: GeoProject;
   tasks?: GeoTask[];
@@ -294,6 +296,8 @@ export default function ResearchPanel({
   onRefresh,
   onImprove,
   projectOptimization,
+  activeOptimizationRunId,
+  latestShippedAt,
   onPlan,
   claimReviews = [],
   onClaimReview,
@@ -796,6 +800,8 @@ export default function ResearchPanel({
       <div className="rw-body">
           <ProjectOverview
             projectOptimization={projectOptimization}
+            activeOptimizationRunId={activeOptimizationRunId}
+            latestShippedAt={latestShippedAt}
             project={project}
             batch={batch}
             filters={filters}

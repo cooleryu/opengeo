@@ -4,7 +4,7 @@ import { isPublicProjectAddress, lookupPublicProjectHost, PublicProjectNetworkEr
 import { loadProjectSeed, readRuntimeProjects, writeRuntimeProjects } from './project-data';
 import { listGeoProjects, resolveGeoProject } from './projects';
 import type { GeoProject, GeoSeed } from './types';
-import type { OnboardingAnalysis, OnboardingRecord, ProjectEntryKind } from './project-onboarding-types';
+import { inferProjectEntryKind, type OnboardingAnalysis, type OnboardingRecord, type ProjectEntryKind } from './project-onboarding-types';
 
 export class ProjectOnboardingError extends Error {
   constructor(message: string, public status = 400) { super(message); }
@@ -59,7 +59,12 @@ export function validateProjectCreation(input: CreateInput): {
   targetLanguage?: 'en' | 'zh';
   uiLanguage?: 'en' | 'zh';
 } {
-  if (!['repository', 'store', 'company', 'creator'].includes(input.kind as string)) throw new ProjectOnboardingError('请选择入口类型。');
+  const normalizedUrl = normalizeProjectEntryUrl(input.url);
+  const rawKind =
+    input.kind === undefined || input.kind === ''
+      ? inferProjectEntryKind(normalizedUrl)
+      : input.kind;
+  if (!['repository', 'store', 'company', 'creator'].includes(rawKind as string)) throw new ProjectOnboardingError('请选择入口类型。');
   if (input.notes !== undefined && (typeof input.notes !== 'string' || input.notes.length > 4000)) {
     throw new ProjectOnboardingError('补充说明不能超过 4000 字符。');
   }
@@ -81,8 +86,8 @@ export function validateProjectCreation(input: CreateInput): {
     uiLanguage = input.uiLanguage as 'en' | 'zh';
   }
   return {
-    kind: input.kind as ProjectEntryKind,
-    url: normalizeProjectEntryUrl(input.url),
+    kind: rawKind as ProjectEntryKind,
+    url: normalizedUrl,
     notes: (input.notes as string || '').trim(),
     requestId: input.requestId as string | undefined,
     ...(targetLanguage ? { targetLanguage } : {}),

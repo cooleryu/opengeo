@@ -286,8 +286,17 @@ export const deliverableWriterAgent: AgentSpec<WriterInput, WriterOutput> = {
             '- Avoid English AI-slop clichés (`delve into`, `rich tapestry`, `testament to`, `in today’s rapidly evolving`, `game-changer`, `unlock the power of`).',
           ].join('\n')
         : '';
+    const structuralGuardrail = [
+      '## REFERENCE WINNERS & LENGTH GUARDRAIL',
+      '- Only adopt H2/opening structural patterns from `referenceWinners` whose `probeStatus !== "local_fallback"` and `headings.length > 0`. NEVER invent or claim structural patterns across winners marked `local_fallback`.',
+      /readme/i.test(input.deliverable.destination)
+        ? '- Target length for README updates: keep total length crisp and scannable (~650-1,100 words, ~4-6 min read max). Lead with sharp positioning and link out to dedicated docs instead of padding a 15-minute manual.'
+        : '- Keep sections tight, scannable, and concrete—avoid repeating the same pitch across multiple headings.',
+    ].join('\n');
     return {
-      system: [commonPrompt, archetypePrompt, languageDirective].filter(Boolean).join('\n\n'),
+      system: [commonPrompt, archetypePrompt, structuralGuardrail, languageDirective]
+        .filter(Boolean)
+        .join('\n\n'),
       user: JSON.stringify({
         targetLanguage,
         project: {
@@ -301,6 +310,8 @@ export const deliverableWriterAgent: AgentSpec<WriterInput, WriterOutput> = {
           domain: w.domain,
           title: w.title,
           probeStatus: w.probeStatus,
+          ...(w.stars !== undefined ? { stars: w.stars } : {}),
+          ...(w.whyWon ? { whyWon: w.whyWon } : {}),
           headings: w.headings,
           openingParagraphs: w.openingParagraphs,
           localSnippet: w.localSnippet,

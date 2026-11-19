@@ -8,6 +8,8 @@ import type {
 } from '../db/schema';
 import type { ResearchEngine } from '../research-types';
 
+export type DeliverableArchetypeRole = 'readme' | 'quickstart' | 'article';
+
 export interface ReferenceWinner {
   url: string;
   domain: string;
@@ -18,6 +20,8 @@ export interface ReferenceWinner {
   headings: string[];
   openingParagraphs: string[];
   localSnippet: string;
+  stars?: number;
+  whyWon?: string;
   probedAt: string;
 }
 
@@ -129,6 +133,7 @@ export interface RetestComparisonSummary {
   afterMentionYes: number;
   beforeCitationYes: number;
   afterCitationYes: number;
+  latestRetestAt?: string | null;
   items: RetestQuestionComparison[];
 }
 

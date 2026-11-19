@@ -7,7 +7,44 @@ import { loadProjectSeed } from '../project-data';
 import { readPublicSource, type PublicSourceRuntime } from '../project-public-source';
 import { evidenceLocation, withGeoProject } from '../projects';
 import type { ResearchEngine } from '../research-types';
-import type { ReferenceWinner } from './types';
+import type { DeliverableArchetypeRole, ReferenceWinner } from './types';
+
+const GITHUB_NON_REPO_OWNERS = new Set([
+  'topics',
+  'orgs',
+  'users',
+  'features',
+  'about',
+  'collections',
+  'sponsors',
+  'marketplace',
+  'explore',
+  'settings',
+  'search',
+]);
+
+const DOC_OR_GUIDE_RE =
+  /\b(docs|guide|quickstart|getting[-_]?started|tutorial|manual|how[-_]?to|walkthrough|playbook|checklist|awesome)\b/i;
+
+export function parseGitHubRepoCandidate(rawUrl: string): { owner: string; repo: string } | null {
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.hostname.replace(/^www\./i, '').toLowerCase() !== 'github.com') return null;
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (segments.length < 2) return null;
+    const owner = segments[0];
+    const repo = segments[1].replace(/\.git$/i, '');
+    if (!owner || !repo || GITHUB_NON_REPO_OWNERS.has(owner.toLowerCase())) return null;
+    if (segments.length === 2) return { owner, repo };
+    if (segments[2] === 'tree') return { owner, repo };
+    if (segments[2] === 'blob' && /readme/i.test(segments[segments.length - 1] ?? '')) {
+      return { owner, repo };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export interface WinnerStructure {
   title: string;
@@ -279,11 +316,113 @@ interface CandidateBucket {
   domain: string;
   title: string;
   isDeepPath: boolean;
+  ghRepo: { owner: string; repo: string } | null;
+  isDocOrGuide: boolean;
+  isCommercialRootHomepage: boolean;
   questionIds: Set<string>;
   engines: Set<ResearchEngine>;
   matchesTargetLanguage: boolean;
   localSnippet: string;
   score: number;
+}
+
+async function probeGitHubRepoReadme(
+  ghRepo: { owner: string; repo: string },
+  timeoutMs: number,
+  runtime?: PublicSourceRuntime,
+): Promise<WinnerStructure | null> {
+  try {
+    const source = await readPublicSource(
+      `https://api.github.com/repos/${encodeURIComponent(ghRepo.owner)}/${encodeURIComponent(ghRepo.repo)}/readme`,
+      {
+        maxBytes: 256 * 1024,
+        timeoutMs,
+        maxRedirects: 2,
+        accept: 'application/vnd.github.raw+json, text/markdown;q=0.9, application/json;q=0.8',
+      },
+      runtime,
+    );
+    let markdown = source.text;
+    if (/json/i.test(source.contentType) || markdown.trimStart().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(markdown) as { content?: unknown };
+        if (typeof parsed.content === 'string' && parsed.content.trim()) {
+          markdown = Buffer.from(parsed.content.replace(/\s+/g, ''), 'base64').toString('utf8');
+        }
+      } catch {
+        // Keep raw response if not valid JSON payload
+      }
+    }
+    if (!markdown.trim()) return null;
+    return extractWinnerStructureFromMarkdown(markdown, `${ghRepo.owner}/${ghRepo.repo}`);
+  } catch {
+    return null;
+  }
+}
+
+async function probeGitHubRepoMeta(
+  ghRepo: { owner: string; repo: string },
+  timeoutMs: number,
+  runtime?: PublicSourceRuntime,
+): Promise<{ stars?: number; repoDescription?: string }> {
+  try {
+    const source = await readPublicSource(
+      `https://api.github.com/repos/${encodeURIComponent(ghRepo.owner)}/${encodeURIComponent(ghRepo.repo)}`,
+      {
+        maxBytes: 128 * 1024,
+        timeoutMs: Math.min(timeoutMs, 2500),
+        maxRedirects: 2,
+        accept: 'application/vnd.github+json',
+      },
+      runtime,
+    );
+    const parsed = JSON.parse(source.text) as {
+      stargazers_count?: unknown;
+      description?: unknown;
+    };
+    const stars =
+      typeof parsed.stargazers_count === 'number' && parsed.stargazers_count > 0
+        ? parsed.stargazers_count
+        : undefined;
+    const repoDescription =
+      typeof parsed.description === 'string' && parsed.description.trim()
+        ? cleanText(parsed.description)
+        : undefined;
+    return { stars, repoDescription };
+  } catch {
+    return {};
+  }
+}
+
+function buildWhyWonSummary(params: {
+  citedQuestionCount: number;
+  citedEngines: ResearchEngine[];
+  stars?: number;
+  ghRepo: { owner: string; repo: string } | null;
+  repoDescription?: string;
+  isDocOrGuide: boolean;
+}): string {
+  const enginesLabel = params.citedEngines
+    .map((engine) => (engine === 'chatgpt' ? 'ChatGPT' : 'Google'))
+    .join(' + ');
+  const parts = [
+    `Cited in ${params.citedQuestionCount} ${params.citedQuestionCount === 1 ? 'prompt' : 'prompts'}${enginesLabel ? ` (${enginesLabel})` : ''}`,
+  ];
+  if (typeof params.stars === 'number' && params.stars > 0) {
+    parts.push(`★ ${params.stars.toLocaleString('en-US')}`);
+  }
+  if (params.ghRepo) {
+    if (/awesome/i.test(params.ghRepo.repo)) {
+      parts.push('Curated GitHub list');
+    } else if (params.repoDescription) {
+      parts.push(truncateExcerpt(params.repoDescription, 90));
+    } else {
+      parts.push('Open-source GitHub repo');
+    }
+  } else if (params.isDocOrGuide) {
+    parts.push('Structured guide');
+  }
+  return parts.join(' · ');
 }
 
 /**
@@ -295,6 +434,7 @@ export async function selectAndProbeReferenceWinners(
   options?: {
     targetQuestionIds?: string[];
     targetLanguage?: 'en' | 'zh';
+    deliverableRole?: DeliverableArchetypeRole;
     maxWinners?: number;
     timeoutMs?: number;
     runtime?: PublicSourceRuntime;
@@ -303,6 +443,7 @@ export async function selectAndProbeReferenceWinners(
   const maxWinners = options?.maxWinners ?? 3;
   const timeoutMs = options?.timeoutMs ?? 4000;
   const targetLang = options?.targetLanguage ?? 'en';
+  const deliverableRole = options?.deliverableRole;
   const targetQuestionSet = new Set(options?.targetQuestionIds ?? []);
 
   const seed = loadProjectSeed(projectId);
@@ -372,11 +513,18 @@ export async function selectAndProbeReferenceWinners(
           if (!existing.title && src.title) existing.title = cleanText(src.title);
           if (snippet.length > existing.localSnippet.length) existing.localSnippet = snippet;
         } else {
+          const ghRepo = parseGitHubRepoCandidate(norm.normalized);
+          const cleanTitle = cleanText(src.title || norm.domain);
+          const isDocOrGuide = DOC_OR_GUIDE_RE.test(`${norm.normalized} ${cleanTitle}`);
+          const isCommercialRootHomepage = !norm.isDeepPath && norm.domain !== 'github.com';
           buckets.set(norm.normalized, {
             url: norm.normalized,
             domain: norm.domain,
-            title: cleanText(src.title || norm.domain),
+            title: cleanTitle,
             isDeepPath: norm.isDeepPath,
+            ghRepo,
+            isDocOrGuide,
+            isCommercialRootHomepage,
             questionIds: new Set([row.question_id]),
             engines: new Set([row.engine]),
             matchesTargetLanguage: row.language === targetLang,
@@ -389,12 +537,25 @@ export async function selectAndProbeReferenceWinners(
 
     for (const bucket of buckets.values()) {
       const targetOverlap = [...bucket.questionIds].filter((q) => targetQuestionSet.has(q)).length;
+      let roleScore = 0;
+      if (deliverableRole === 'quickstart') {
+        if (bucket.isCommercialRootHomepage) roleScore -= 8;
+        if (bucket.isDocOrGuide) roleScore += 4;
+        if (bucket.ghRepo) roleScore += 3;
+      } else if (deliverableRole === 'readme') {
+        if (bucket.ghRepo) roleScore += 5;
+        if (bucket.isCommercialRootHomepage) roleScore -= 4;
+      } else if (deliverableRole === 'article') {
+        if (bucket.isDeepPath) roleScore += 3;
+        if (bucket.isCommercialRootHomepage) roleScore -= 5;
+      }
       bucket.score =
         targetOverlap * 4 +
         bucket.questionIds.size * 3 +
         bucket.engines.size * 2 +
         (bucket.matchesTargetLanguage ? 2 : 0) +
-        (bucket.isDeepPath ? 2 : 0) -
+        (bucket.isDeepPath ? 2 : 0) +
+        roleScore -
         (GENERIC_CONSOLE_HOSTS.has(bucket.domain) ? 4 : 0);
     }
 
@@ -407,40 +568,59 @@ export async function selectAndProbeReferenceWinners(
   const probed = await Promise.all(
     topCandidates.map(async (candidate): Promise<ReferenceWinner> => {
       const now = new Date().toISOString();
+      const citedEngines = [...candidate.engines];
+      const citedQuestionCount = candidate.questionIds.size;
       const baseWinner: Omit<ReferenceWinner, 'probeStatus' | 'headings' | 'openingParagraphs'> = {
         url: candidate.url,
         domain: candidate.domain,
         title: candidate.title || candidate.domain,
-        citedEngines: [...candidate.engines],
-        citedQuestionCount: candidate.questionIds.size,
+        citedEngines,
+        citedQuestionCount,
         localSnippet: candidate.localSnippet,
         probedAt: now,
       };
 
       let extracted: WinnerStructure | null = null;
       let status: ReferenceWinner['probeStatus'] = 'local_fallback';
+      let stars: number | undefined;
+      let repoDescription: string | undefined;
 
-      try {
-        const source = await readPublicSource(
-          candidate.url,
-          {
-            maxBytes: 256 * 1024,
-            timeoutMs,
-            maxRedirects: 3,
-            accept: 'text/html, text/markdown, text/plain;q=0.9',
-          },
-          options?.runtime,
-        );
-        if (/markdown|plain/i.test(source.contentType)) {
-          extracted = extractWinnerStructureFromMarkdown(source.text, baseWinner.title);
-        } else {
-          extracted = extractWinnerStructureFromHtml(source.text, source.url);
-        }
-        if (extracted) {
+      if (candidate.ghRepo) {
+        const [ghExtracted, ghMeta] = await Promise.all([
+          probeGitHubRepoReadme(candidate.ghRepo, timeoutMs, options?.runtime),
+          probeGitHubRepoMeta(candidate.ghRepo, timeoutMs, options?.runtime),
+        ]);
+        stars = ghMeta.stars;
+        repoDescription = ghMeta.repoDescription;
+        if (ghExtracted) {
+          extracted = ghExtracted;
           status = 'full_read';
         }
-      } catch {
-        extracted = null;
+      }
+
+      if (!extracted) {
+        try {
+          const source = await readPublicSource(
+            candidate.url,
+            {
+              maxBytes: 256 * 1024,
+              timeoutMs,
+              maxRedirects: 3,
+              accept: 'text/html, text/markdown, text/plain;q=0.9',
+            },
+            options?.runtime,
+          );
+          if (/markdown|plain/i.test(source.contentType)) {
+            extracted = extractWinnerStructureFromMarkdown(source.text, baseWinner.title);
+          } else {
+            extracted = extractWinnerStructureFromHtml(source.text, source.url);
+          }
+          if (extracted) {
+            status = 'full_read';
+          }
+        } catch {
+          extracted = null;
+        }
       }
 
       if (!extracted && !options?.runtime) {
@@ -450,6 +630,15 @@ export async function selectAndProbeReferenceWinners(
         }
       }
 
+      const whyWon = buildWhyWonSummary({
+        citedQuestionCount,
+        citedEngines,
+        stars,
+        ghRepo: candidate.ghRepo,
+        repoDescription,
+        isDocOrGuide: candidate.isDocOrGuide,
+      });
+
       if (extracted) {
         return {
           ...baseWinner,
@@ -457,6 +646,8 @@ export async function selectAndProbeReferenceWinners(
           probeStatus: status,
           headings: extracted.headings,
           openingParagraphs: extracted.openingParagraphs,
+          ...(stars !== undefined ? { stars } : {}),
+          whyWon,
         };
       }
       return {
@@ -464,6 +655,8 @@ export async function selectAndProbeReferenceWinners(
         probeStatus: 'local_fallback',
         headings: [],
         openingParagraphs: [],
+        ...(stars !== undefined ? { stars } : {}),
+        whyWon,
       };
     }),
   );

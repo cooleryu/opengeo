@@ -8,6 +8,7 @@ import { NextRequest } from 'next/server';
 import { GET, POST } from '@/app/api/geo/projects/route';
 import { loadProjectSeed, readProjectCatalog, readRuntimeProjects, writeRuntimeProjects } from './project-data';
 import { listGeoProjectIds, listGeoProjects, projectDataDirectory, resolveGeoProject, withGeoProject } from './projects';
+import { inferProjectEntryKind } from './project-onboarding-types';
 import { createProjectOnboarding, getProjectOnboarding, isPublicProjectAddress, normalizeProjectEntryUrl,
   completeProjectOnboarding, getProjectOnboardingPlanningContext, retryProjectOnboarding, reviseProjectOnboarding,
   updateProjectOnboarding, updateRuntimeProjectSeed } from './project-onboarding-store';
@@ -246,4 +247,24 @@ test('targetLanguage persists on created projects when specified and rejects inv
       }),
     /推广目标语言/,
   );
+});
+
+test('inferProjectEntryKind and createProjectOnboarding auto-detect repository vs website URLs when kind is omitted', () => {
+  assert.equal(inferProjectEntryKind('https://github.com/owner/repo'), 'repository');
+  assert.equal(inferProjectEntryKind('https://github.com/topics/geo'), 'company');
+  assert.equal(inferProjectEntryKind('https://acme.example.com'), 'company');
+
+  const repoCreated = createProjectOnboarding({
+    kind: '',
+    url: 'https://github.com/synthetic/auto-repo',
+    requestId: 'auto-kind-1',
+  });
+  assert.equal(repoCreated.onboarding?.kind, 'repository');
+
+  const siteCreated = createProjectOnboarding({
+    kind: undefined,
+    url: 'https://product.example.org',
+    requestId: 'auto-kind-2',
+  });
+  assert.equal(siteCreated.onboarding?.kind, 'company');
 });

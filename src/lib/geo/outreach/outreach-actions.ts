@@ -1,8 +1,9 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { z } from 'zod';
 import { getChatGPTStatus } from '../chatgpt-auth';
 import ChatGPTModel from '../chatgpt-model';
@@ -29,13 +30,16 @@ import {
 const SAFE_GH_SEGMENT_RE = /^[A-Za-z0-9_.-]{1,100}$/;
 const HAS_CJK_RE = /[\u3400-\u9fff]/;
 const RELEVANT_OUTREACH_TOPIC_RE =
-  /\b(ai|llm|gpt|chatgpt|perplexity|gemini|claude|overview|search|seo|aeo|geo|citation|cite|visibility|brand|mention|track|monitor|rank|tool|open[- ]source|benchmark|saas|discover)\b/i;
+  /\b(geo|aeo|generative[- ]engine|ai[- ]search|ai[- ]overviews?|ai[- ]visibility|llm[- ]visibility|llm[- ]seo|ai[- ]seo|citation[- ]track\w*|brand[- ]mention\w*|chatgpt[- ]search|perplexity[- ]seo)\b/i;
 const LIST_HEADING_PRIORITY_RE =
   /tools|open[- ]source|monitoring|analytics|tracking|visibility|platforms|software|projects|resources|trackers|utilities/i;
 const SKIP_HEADING_RE = /table of contents|contents|contributing|license|acknowledg/i;
 const LIST_ITEM_RE = /^\s*([-*])\s+(.*)$/;
 
+const execFileAsync = promisify(execFile);
+
 interface RepoMetaSnapshot {
+  ok: boolean;
   description: string;
   homepage: string;
   topics: string[];
@@ -43,7 +47,12 @@ interface RepoMetaSnapshot {
 }
 
 const repoMetaCache = new Map<string, RepoMetaSnapshot>();
-const REPO_META_CACHE_TTL_MS = 60_000;
+const inFlightRepoMeta = new Map<
+  string,
+  Promise<{ description: string; homepage: string; topics: string[] } | null>
+>();
+const REPO_META_CACHE_TTL_MS = 5 * 60_000;
+const REPO_META_FAILURE_TTL_MS = 60_000;
 
 function assertSafeGitHubSlug(owner: string, repo: string): { owner: string; repo: string } {
   const cleanOwner = owner.trim();
@@ -116,43 +125,68 @@ function runGit(args: string[], cwd?: string, timeout = 30_000): string {
   }).trim();
 }
 
+function parseRepoMetaPayload(raw: string): RepoMetaSnapshot {
+  const parsed = JSON.parse(raw) as {
+    description?: unknown;
+    homepage?: unknown;
+    topics?: unknown;
+  };
+  return {
+    ok: true,
+    description: typeof parsed.description === 'string' ? parsed.description : '',
+    homepage: typeof parsed.homepage === 'string' ? parsed.homepage : '',
+    topics: Array.isArray(parsed.topics)
+      ? parsed.topics.filter((t): t is string => typeof t === 'string')
+      : [],
+    fetchedAt: Date.now(),
+  };
+}
+
+function readRepoMetaCache(key: string): {
+  hit: boolean;
+  value: { description: string; homepage: string; topics: string[] } | null;
+} {
+  const cached = repoMetaCache.get(key);
+  if (!cached) return { hit: false, value: null };
+  const ttl = cached.ok ? REPO_META_CACHE_TTL_MS : REPO_META_FAILURE_TTL_MS;
+  if (Date.now() - cached.fetchedAt >= ttl) return { hit: false, value: null };
+  return {
+    hit: true,
+    value: cached.ok
+      ? {
+          description: cached.description,
+          homepage: cached.homepage,
+          topics: cached.topics,
+        }
+      : null,
+  };
+}
+
+function storeRepoMetaFailure(key: string): void {
+  repoMetaCache.set(key, {
+    ok: false,
+    description: '',
+    homepage: '',
+    topics: [],
+    fetchedAt: Date.now(),
+  });
+}
+
 function fetchLiveRepoMeta(owner: string, repo: string): {
   description: string;
   homepage: string;
   topics: string[];
 } | null {
   const key = `${owner.toLowerCase()}/${repo.toLowerCase()}`;
-  const cached = repoMetaCache.get(key);
-  if (cached && Date.now() - cached.fetchedAt < REPO_META_CACHE_TTL_MS) {
-    return {
-      description: cached.description,
-      homepage: cached.homepage,
-      topics: cached.topics,
-    };
-  }
+  const cached = readRepoMetaCache(key);
+  if (cached.hit) return cached.value;
+
   try {
     const raw = runGh(
-      [
-        'api',
-        `repos/${owner}/${repo}`,
-        '--jq',
-        '{description, homepage, topics}',
-      ],
+      ['api', `repos/${owner}/${repo}`, '--jq', '{description, homepage, topics}'],
       4_500,
     );
-    const parsed = JSON.parse(raw) as {
-      description?: unknown;
-      homepage?: unknown;
-      topics?: unknown;
-    };
-    const snapshot: RepoMetaSnapshot = {
-      description: typeof parsed.description === 'string' ? parsed.description : '',
-      homepage: typeof parsed.homepage === 'string' ? parsed.homepage : '',
-      topics: Array.isArray(parsed.topics)
-        ? parsed.topics.filter((t): t is string => typeof t === 'string')
-        : [],
-      fetchedAt: Date.now(),
-    };
+    const snapshot = parseRepoMetaPayload(raw);
     repoMetaCache.set(key, snapshot);
     return {
       description: snapshot.description,
@@ -160,8 +194,47 @@ function fetchLiveRepoMeta(owner: string, repo: string): {
       topics: snapshot.topics,
     };
   } catch {
+    storeRepoMetaFailure(key);
     return null;
   }
+}
+
+async function fetchLiveRepoMetaAsync(owner: string, repo: string): Promise<{
+  description: string;
+  homepage: string;
+  topics: string[];
+} | null> {
+  const key = `${owner.toLowerCase()}/${repo.toLowerCase()}`;
+  const cached = readRepoMetaCache(key);
+  if (cached.hit) return cached.value;
+
+  const existingFlight = inFlightRepoMeta.get(key);
+  if (existingFlight) return existingFlight;
+
+  const promise = (async () => {
+    try {
+      const { stdout } = await execFileAsync(
+        'gh',
+        ['api', `repos/${owner}/${repo}`, '--jq', '{description, homepage, topics}'],
+        { encoding: 'utf8', timeout: 3_500 },
+      );
+      const snapshot = parseRepoMetaPayload(stdout.trim());
+      repoMetaCache.set(key, snapshot);
+      return {
+        description: snapshot.description,
+        homepage: snapshot.homepage,
+        topics: snapshot.topics,
+      };
+    } catch {
+      storeRepoMetaFailure(key);
+      return null;
+    } finally {
+      inFlightRepoMeta.delete(key);
+    }
+  })();
+
+  inFlightRepoMeta.set(key, promise);
+  return promise;
 }
 
 async function generateStructuredJson<T>(
@@ -532,52 +605,95 @@ function discoverCitedAwesomeRepos(
     }));
 }
 
-function buildDefaultShowHnDraft(project: GeoProject): CommunityPostDraft {
+export function sanitizeAwesomePrDraft(draft: AwesomePrDraft): AwesomePrDraft {
+  return {
+    ...draft,
+    insertedLine: draft.insertedLine.replace(/\|\s*⭐\s*0\s*\|/g, '| - |'),
+    contextSnippet: draft.contextSnippet.replace(/\|\s*⭐\s*0\s*\|/g, '| - |'),
+  };
+}
+
+export function buildDefaultShowHnDraft(
+  project: Pick<GeoProject, 'name' | 'description' | 'repositoryUrl' | 'siteUrl' | 'targetLanguage'>,
+  latestBatch: ResearchBatch | null = null,
+): CommunityPostDraft {
   const repoSlug = parseGitHubRepoSlug(project.repositoryUrl);
   const repoLabel = repoSlug ? `${repoSlug.owner}/${repoSlug.repo}` : project.name;
   const rawSummary = (project.description || '').replace(/\s+/g, ' ').trim();
-  const cleanSummary = rawSummary && !HAS_CJK_RE.test(rawSummary) ? rawSummary : '';
-  const shortAngle = cleanSummary
-    ? cleanSummary.replace(/\.+$/, '')
-    : 'Local-first AI search visibility & GEO audit workbench';
+  const cleanSummary =
+    rawSummary && !HAS_CJK_RE.test(rawSummary) ? rawSummary.replace(/\.+$/, '') : '';
+  const shortAngle = cleanSummary || 'Open-source tool';
+
+  const questionCount = latestBatch?.questions?.length ?? 0;
+  const preferredScopeKey = project.targetLanguage === 'en' ? 'en:all' : 'zh:all';
+  const fallbackScopeKey = preferredScopeKey === 'en:all' ? 'zh:all' : 'en:all';
+  const scope =
+    latestBatch?.overviewMetrics?.[preferredScopeKey] ??
+    latestBatch?.overviewMetrics?.[fallbackScopeKey];
+  const audits = latestBatch?.answerAudits ?? [];
+  const observedEngines = new Set<ResearchEngine>();
+  let totalObservations = 0;
+  for (const q of latestBatch?.questions ?? []) {
+    for (const obs of q.observations ?? []) {
+      observedEngines.add(obs.engine);
+      totalObservations += 1;
+    }
+  }
+  const completedAnswers =
+    scope?.mention?.completed ?? (audits.length > 0 ? audits.length : totalObservations);
+  const mentionYes =
+    scope?.mention?.yes ?? audits.filter((a) => a.mention === 'yes').length;
+
+  const awesomeRepos = discoverCitedAwesomeRepos(latestBatch, repoSlug);
+  const citedPages = latestBatch
+    ? extractOutreachCitedPages(
+        latestBatch,
+        { repositoryUrl: project.repositoryUrl ?? '', siteUrl: project.siteUrl ?? '' },
+        { limit: 10 },
+      )
+    : [];
+
+  const engineLabels: string[] = [];
+  if (observedEngines.has('chatgpt')) engineLabels.push('ChatGPT');
+  if (observedEngines.has('google')) engineLabels.push('Google AI');
+  const enginePhrase =
+    engineLabels.length > 0 ? ` across ${engineLabels.join(' & ')}` : '';
+
+  const citationTail =
+    awesomeRepos.length > 0
+      ? `, while answers cited ${
+          awesomeRepos.length === 1
+            ? `GitHub list ${awesomeRepos[0].owner}/${awesomeRepos[0].repo}`
+            : `${awesomeRepos.length} curated GitHub lists (including ${awesomeRepos[0].owner}/${awesomeRepos[0].repo})`
+        }`
+      : citedPages.length > 0
+        ? `, while citing ${citedPages.length} external pages`
+        : '';
+
+  const introParagraph = cleanSummary
+    ? `Hey HN — we built ${project.name} (${repoLabel}): ${cleanSummary}.`
+    : `Hey HN — sharing ${project.name} (${repoLabel}).`;
+
+  const measuredParagraph =
+    questionCount > 0 && completedAnswers > 0
+      ? `Running ${questionCount} buyer prompts${enginePhrase} (${completedAnswers} answers) surfaced ${project.name} in ${mentionYes}/${completedAnswers} answers${citationTail}.`
+      : '';
+
+  const projectLink = project.repositoryUrl || project.siteUrl || '';
+  const bodySections = [
+    introParagraph,
+    ...(measuredParagraph ? ['', measuredParagraph] : []),
+    '',
+    ...(projectLink ? [`Code and docs: ${projectLink}`, ''] : []),
+    'Would love candid feedback on what works and what is missing.',
+  ];
 
   return {
     channelLabel: 'Hacker News · Show HN',
     submitUrl: 'https://news.ycombinator.com/submit',
-    draftUrl: project.repositoryUrl || project.siteUrl || '',
+    draftUrl: projectLink,
     draftTitle: `Show HN: ${project.name} – ${shortAngle.slice(0, 62)}`,
-    draftBody: [
-      `Hey HN, I built ${project.name} (${repoLabel}) because I got frustrated paying or wiring SaaS trackers that only hit raw model APIs and show opaque 0–100 visibility scores.`,
-      ``,
-      `Instead of API proxies, ${project.name} uses your local browser session (temporary chat / incognito) to ask buyer-intent prompts on ChatGPT web & Google AI Overviews, captures the actual cited URLs and prose verbatim, and runs strict attribution checks (including excluding same-named projects).`,
-      ``,
-      `Would love blunt feedback from other maintainers trying to see whether LLMs actually recognize their project or cite someone else.`,
-    ].join('\n'),
-  };
-}
-
-function buildDefaultDevtoDraft(project: GeoProject): CommunityPostDraft {
-  const targetUrl = project.repositoryUrl || project.siteUrl || '';
-  return {
-    channelLabel: 'Dev.to · Technical Post',
-    submitUrl: 'https://dev.to/new',
-    draftUrl: targetUrl,
-    draftTitle: `How to Audit Why ChatGPT Confuses Your Open-Source Project (and Fix It Locally)`,
-    draftBody: [
-      `When we asked ChatGPT directly about **${project.name}**, it didn't say "I don't know"—it pulled up three unrelated projects with the same name.`,
-      ``,
-      `## What actually happens in AI search answers`,
-      `1. **Same-name collision beats your README**: Until external lists or write-ups point clearly to your repository, models merge similar names.`,
-      `2. **API answers != web search answers**: Model APIs don't reproduce what real users see in ChatGPT Search or Google AI Overviews with live source citations.`,
-      ``,
-      `## Checking citations locally without SaaS scores`,
-      `I packaged our audit loop into an open-source local workbench (**[${project.name}](${targetUrl})**) that:`,
-      `- Captures real browser answers in temporary chat / incognito mode`,
-      `- Records exact cited domains vs. your published pages`,
-      `- Tracks before/after changes across indexing windows`,
-      ``,
-      `Repo & setup guide: ${targetUrl}`,
-    ].join('\n'),
+    draftBody: bodySections.join('\n'),
   };
 }
 
@@ -596,13 +712,18 @@ export function listOutreachActions(
   const records: OutreachActionRecord[] = [];
   const ownSlug = parseGitHubRepoSlug(project.repositoryUrl);
 
-  // 1. GitHub Repo Facade / Metadata Card
+  // 1. GitHub Repo Facade / Metadata Card (only surfaced when repo metadata actually needs syncing)
   if (ownSlug) {
     const saved = persistedMap.get('repo-meta');
     const liveMeta = fetchLiveRepoMeta(ownSlug.owner, ownSlug.repo);
     const currentDescription = liveMeta?.description ?? project.description ?? '';
     const currentHomepage = liveMeta?.homepage ?? project.siteUrl ?? '';
     const currentTopics = liveMeta?.topics ?? [];
+
+    const ownRepoStem = `github.com/${ownSlug.owner.toLowerCase()}/${ownSlug.repo.toLowerCase()}`;
+    const rawSiteUrl = (project.siteUrl || '').trim();
+    const externalSiteUrl =
+      rawSiteUrl && !rawSiteUrl.toLowerCase().includes(ownRepoStem) ? rawSiteUrl : '';
 
     const recommendedTopics = Array.from(
       new Set([
@@ -613,10 +734,13 @@ export function listOutreachActions(
         'geo',
       ]),
     );
-    const suggestedHomepage =
-      currentHomepage.trim() ||
-      project.siteUrl?.trim() ||
-      `https://github.com/${ownSlug.owner}/${ownSlug.repo}#readme`;
+    const suggestedHomepage = currentHomepage.trim() || externalSiteUrl || '';
+    const savedSuggestedHome = saved?.repoMetaDraft?.suggestedHomepage?.trim() || '';
+    const cleanSavedHome =
+      savedSuggestedHome && !/github\.com\/[^/]+\/[^/]+#readme$/i.test(savedSuggestedHome)
+        ? savedSuggestedHome
+        : suggestedHomepage;
+
     const cleanSavedDesc =
       saved?.repoMetaDraft?.suggestedDescription &&
       !HAS_CJK_RE.test(saved.repoMetaDraft.suggestedDescription)
@@ -632,61 +756,63 @@ export function listOutreachActions(
       `${project.name} (${ownSlug.owner}/${ownSlug.repo}): Open-source, local-first AI search visibility workbench to audit real ChatGPT & Google AI citations.`;
 
     const needsSync =
-      !currentHomepage.trim() ||
-      currentTopics.length < 4 ||
-      currentDescription.trim().length < 20 ||
-      HAS_CJK_RE.test(currentDescription);
+      liveMeta !== null &&
+      ((Boolean(externalSiteUrl) && !currentHomepage.trim()) ||
+        currentTopics.length < 3 ||
+        currentDescription.trim().length < 20 ||
+        HAS_CJK_RE.test(currentDescription));
 
-    const draft: RepoMetaDraft = {
-      owner: ownSlug.owner,
-      repo: ownSlug.repo,
-      currentDescription,
-      currentHomepage,
-      currentTopics,
-      suggestedDescription: saved?.repoMetaDraft?.suggestedDescription ?? suggestedDescription,
-      suggestedHomepage: saved?.repoMetaDraft?.suggestedHomepage ?? suggestedHomepage,
-      suggestedTopics: saved?.repoMetaDraft?.suggestedTopics ?? recommendedTopics,
-    };
+    if (needsSync || saved?.status === 'completed' || saved?.status === 'skipped') {
+      const draft: RepoMetaDraft = {
+        owner: ownSlug.owner,
+        repo: ownSlug.repo,
+        currentDescription,
+        currentHomepage,
+        currentTopics,
+        suggestedDescription: saved?.repoMetaDraft?.suggestedDescription ?? suggestedDescription,
+        suggestedHomepage: cleanSavedHome,
+        suggestedTopics: saved?.repoMetaDraft?.suggestedTopics ?? recommendedTopics,
+      };
 
-    records.push({
-      id: 'repo-meta',
-      kind: 'repo_meta',
-      title: isEn
-        ? `GitHub About & Topics (${ownSlug.owner}/${ownSlug.repo})`
-        : `GitHub 仓库门面与 Topics（${ownSlug.owner}/${ownSlug.repo}）`,
-      subtitle: isEn
-        ? !currentHomepage.trim()
-          ? 'Homepage URL is blank and topic pages like /topics/generative-engine-optimization are directly cited by ChatGPT.'
-          : 'Keep repo description, Homepage link, and AI-search topics crisp so search engines stop mixing homonyms.'
-        : !currentHomepage.trim()
-          ? '检测到当前 Homepage 为空；实测 ChatGPT 会直接引用 GitHub Topic 页，补齐主页与简介有助快速建索引。'
-          : '保持仓库 About 简介、Homepage 链接与 GEO Topics 标签清晰，防止同名项目混淆。',
-      targetUrl: `https://github.com/${ownSlug.owner}/${ownSlug.repo}`,
-      status: saved?.status ?? (needsSync ? 'prepared' : 'suggested'),
-      repoMetaDraft: draft,
-      ...(saved?.resultUrl ? { resultUrl: saved.resultUrl } : {}),
-      ...(saved?.completedAt ? { completedAt: saved.completedAt } : {}),
-      updatedAt: saved?.updatedAt ?? now,
-    });
+      records.push({
+        id: 'repo-meta',
+        kind: 'repo_meta',
+        title: isEn
+          ? `GitHub About & Topics (${ownSlug.owner}/${ownSlug.repo})`
+          : `GitHub 仓库简介与 Topics（${ownSlug.owner}/${ownSlug.repo}）`,
+        subtitle: isEn
+          ? 'Keep repo About description and GEO topics up to date so GitHub search and topic pages match your project.'
+          : '检测到仓库简介或 GEO Topics 标签尚未补齐，补充后有助于搜索索引与榜单核验。',
+        targetUrl: `https://github.com/${ownSlug.owner}/${ownSlug.repo}`,
+        status: saved?.status ?? (needsSync ? 'prepared' : 'suggested'),
+        repoMetaDraft: draft,
+        ...(saved?.resultUrl ? { resultUrl: saved.resultUrl } : {}),
+        ...(saved?.completedAt ? { completedAt: saved.completedAt } : {}),
+        updatedAt: saved?.updatedAt ?? now,
+      });
+    }
   }
 
-  // 2. Discovered AI-cited Awesome GitHub Repositories
+  // 2. Discovered AI-cited Awesome GitHub Repositories (Highest-leverage external citations)
   const awesomeRepos = discoverCitedAwesomeRepos(latestBatch, ownSlug);
   for (const repo of awesomeRepos) {
     const id = `awesome:${repo.owner}/${repo.repo}`;
     const saved = persistedMap.get(id);
+    const sanitizedDraft = saved?.awesomePrDraft
+      ? sanitizeAwesomePrDraft(saved.awesomePrDraft)
+      : undefined;
     records.push({
       id,
       kind: 'awesome_pr',
       title: `${repo.owner}/${repo.repo}`,
       subtitle: isEn
-        ? 'AI answers directly cite this GitHub list—preview the 1-line PR diff and submit cleanly.'
-        : 'AI 回答直接引用了这个 GitHub 榜单仓库——生成单行 Diff 预览后可一键 Fork 并提交 PR。',
+        ? 'Already cited in AI answers — adding your repo places it inside a source ChatGPT & Google read directly.'
+        : 'AI 回答已直接引用这份榜单——收录后可借助这个高权重列表进入搜索回答来源。',
       targetUrl: repo.url,
       citedCount: repo.citedCount,
       citedEngines: repo.citedEngines,
       status: saved?.status ?? 'suggested',
-      ...(saved?.awesomePrDraft ? { awesomePrDraft: saved.awesomePrDraft } : {}),
+      ...(sanitizedDraft ? { awesomePrDraft: sanitizedDraft } : {}),
       ...(saved?.resultUrl ? { resultUrl: saved.resultUrl } : {}),
       ...(saved?.note ? { note: saved.note } : {}),
       ...(saved?.completedAt ? { completedAt: saved.completedAt } : {}),
@@ -694,18 +820,18 @@ export function listOutreachActions(
     });
   }
 
-  // 3. Multi-Angle Community / Social Launch Drafts (Show HN + Dev.to)
+  // 3. Founder Show HN Post (+ preserve legacy completed devto-angle only if already logged)
   const showHnSaved = persistedMap.get('post:show-hn');
   records.push({
     id: 'post:show-hn',
     kind: 'community_post',
     title: isEn ? 'Hacker News · Show HN Post' : 'Hacker News · Show HN 发布帖',
     subtitle: isEn
-      ? 'Understated founder launch angle focused on real browser evidence vs. opaque SaaS scores.'
-      : '克制不吹牛的技术创始人口吻：聊“为何弃用黑盒 SaaS 跑分”，在已登录的 Ego Lite 打开提交页即可发布。',
+      ? 'Share a factual launch note anchored in your measured results.'
+      : '克制不夸大的技术发布口吻，基于真实实测数据生成发布稿并在已登录的 Ego Lite 打开。',
     targetUrl: 'https://news.ycombinator.com/submit',
     status: showHnSaved?.status ?? 'prepared',
-    postDraft: showHnSaved?.postDraft ?? buildDefaultShowHnDraft(project),
+    postDraft: showHnSaved?.postDraft ?? buildDefaultShowHnDraft(project, latestBatch),
     ...(showHnSaved?.resultUrl ? { resultUrl: showHnSaved.resultUrl } : {}),
     ...(showHnSaved?.note ? { note: showHnSaved.note } : {}),
     ...(showHnSaved?.completedAt ? { completedAt: showHnSaved.completedAt } : {}),
@@ -713,23 +839,11 @@ export function listOutreachActions(
   });
 
   const devtoSaved = persistedMap.get('post:devto-angle');
-  records.push({
-    id: 'post:devto-angle',
-    kind: 'community_post',
-    title: isEn ? 'Dev.to · Technical Walkthrough Angle' : 'Dev.to · 多角度技术复盘长文',
-    subtitle: isEn
-      ? 'Practical how-to angle explaining homonym collision and real citation capture.'
-      : '从“怎么排查大模型把开源项目张冠李戴”切入的实战长文角度，多铺一条外部索引来源。',
-    targetUrl: 'https://dev.to/new',
-    status: devtoSaved?.status ?? 'prepared',
-    postDraft: devtoSaved?.postDraft ?? buildDefaultDevtoDraft(project),
-    ...(devtoSaved?.resultUrl ? { resultUrl: devtoSaved.resultUrl } : {}),
-    ...(devtoSaved?.note ? { note: devtoSaved.note } : {}),
-    ...(devtoSaved?.completedAt ? { completedAt: devtoSaved.completedAt } : {}),
-    updatedAt: devtoSaved?.updatedAt ?? now,
-  });
+  if (devtoSaved?.status === 'completed') {
+    records.push(devtoSaved);
+  }
 
-  // 4. Cited External Threads / Articles (Reddit, HN, blogs)
+  // 4. Cited External Threads / Articles strictly matching GEO / AI search topics
   const citedPages = extractOutreachCitedPages(
     latestBatch,
     { repositoryUrl: project.repositoryUrl ?? '', siteUrl: project.siteUrl ?? '' },
@@ -751,7 +865,7 @@ export function listOutreachActions(
       title: page.title,
       subtitle: isEn
         ? `${page.host} page already cited by AI — draft an honest developer note and open in Ego Lite.`
-        : `${page.host} 页面已被 AI 直接引用 — 生成一段不带广告味的开发者补充说明，并在 Ego Lite 打开原网页。`,
+        : `${page.host} 页面已被 AI 直接引用 — 生成一段克制的开发者补充说明并在 Ego Lite 打开。`,
       targetUrl: page.url,
       citedCount: page.questionCount,
       citedEngines: page.engines,
@@ -764,7 +878,34 @@ export function listOutreachActions(
     });
   }
 
-  return records;
+  // Rank strictly by leverage: AI-cited Awesome PRs first, then repo metadata, then cited threads, then Show HN
+  const priorityWeight = (item: OutreachActionRecord) => {
+    if (item.kind === 'awesome_pr') return 0;
+    if (item.kind === 'repo_meta') return 1;
+    if (item.id.startsWith('post:thread:')) return 2;
+    return 3;
+  };
+  return records.sort(
+    (a, b) =>
+      priorityWeight(a) - priorityWeight(b) ||
+      (b.citedCount ?? 0) - (a.citedCount ?? 0),
+  );
+}
+
+/**
+ * Non-blocking variant of `listOutreachActions` for API GET routes:
+ * warms the in-memory `gh` metadata cache via async `execFile` before composing cards.
+ */
+export async function listOutreachActionsAsync(
+  projectId: string,
+  lang: GeoLanguage = 'zh',
+): Promise<OutreachActionRecord[]> {
+  const seed = loadProjectSeed(projectId);
+  const ownSlug = parseGitHubRepoSlug(seed.project.repositoryUrl);
+  if (ownSlug) {
+    await fetchLiveRepoMetaAsync(ownSlug.owner, ownSlug.repo);
+  }
+  return listOutreachActions(projectId, lang);
 }
 
 const awesomeAiSuggestionSchema = z.object({
@@ -881,7 +1022,9 @@ export async function submitAwesomePrAction(
   if (!existing || existing.kind !== 'awesome_pr') {
     throw new OptimizationStateError('未找到该 Awesome 榜单 PR 任务。', 404);
   }
-  const draft = existing.awesomePrDraft;
+  const draft = existing.awesomePrDraft
+    ? sanitizeAwesomePrDraft(existing.awesomePrDraft)
+    : undefined;
   if (!draft) {
     throw new OptimizationStateError('请先生成推荐行 Diff 预览，确认无误后再提交 PR。', 400);
   }
@@ -916,9 +1059,12 @@ export async function submitAwesomePrAction(
     );
   }
 
+  const cleanOverrideLine = overrides?.insertedLine
+    ?.trim()
+    .replace(/\|\s*⭐\s*0\s*\|/g, '| - |');
   const insertion = parseAwesomeInsertion(freshReadme, seed.project, {
     sectionHeading: draft.sectionHeading,
-    insertedLine: overrides?.insertedLine?.trim() || draft.insertedLine,
+    insertedLine: cleanOverrideLine || draft.insertedLine,
   });
 
   const cleanPrTitle = (overrides?.prTitle?.trim() || draft.prTitle).slice(0, 180);
@@ -1234,7 +1380,13 @@ export function updateRepoMetaAction(
     );
   }
 
-  repoMetaCache.delete(`${owner.toLowerCase()}/${repo.toLowerCase()}`);
+  repoMetaCache.set(`${owner.toLowerCase()}/${repo.toLowerCase()}`, {
+    ok: true,
+    description,
+    homepage,
+    topics: cleanTopics,
+    fetchedAt: Date.now(),
+  });
 
   return upsertOutreachRecord(projectId, {
     ...existing,
