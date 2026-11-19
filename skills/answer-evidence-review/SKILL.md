@@ -46,8 +46,15 @@ description: 审核已采集的 AI 回答是否真正识别目标品牌，以及
 
 只有当回答正文截断不完整（`answer.evidence.answerComplete=false`）时，`mention` 和 `citation` 才返回 `unknown` 并说明原因。
 
+## 顺带提取回答中实际推荐的外部竞品（`recommendedCompetitors`）
+
+在审核同一篇回答时，顺手把回答正文或来源中**真正作为同类方案/工具推荐或引用的外部产品、开源项目或品牌**提取到 `recommendedCompetitors`（最多 8 个，每项 `{ "name": "产品或仓库名", "url"?: "直达官网或仓库链接" }`）：
+
+- **只填回答里真正出现的竞品/替代方案**（包括纯文字提到但没挂链接的对手，以及 Google AI 概览里真实推荐的产品名）；**排除**当前目标项目本身、通用搜索/百科/社媒平台首页（如 Google、Wikipedia、Reddit 首页），也**不要**填写 `google.com/goto` 等跳转包装链接（若原文没有干净直达链接，直接省略 `url`，只填 `name`）。
+- 回答中没有推荐任何具体竞争产品时返回空数组 `[]`。
+
 ## 输出要求
 
-按提供的结构化 Schema 返回全部必填字段：`mention`、`citation`、`identity`、`mentionQuote`、`mentionEvidence`、`citationEvidence`、`officialUrls`、`answerComplete`、`limitations`。
+按提供的结构化 Schema 返回全部字段：`mention`、`citation`、`identity`、`mentionQuote`、`mentionEvidence`、`citationEvidence`、`officialUrls`、`recommendedCompetitors`、`answerComplete`、`limitations`。
 
 两项 Evidence 和 `limitations` 会直接展示给终端用户看，请一律用自然、通俗、简短的中文解释具体理由（判断必须有原文或来源依据），**禁止**在正文里输出内部代码字段名或英文枚举值（如 `nativeCitations`、`candidateCitations`、`citationSource`、`citationsComplete`、`observedSourceHints`、`evidence`、`unknown`、`false`、`true`、`yes`、`no`）。只在回答截断不完整时才会在 `limitations` 说明原因；不得返回项目、批次、问题或观测身份字段，不输出额外说明。

@@ -33,6 +33,7 @@ export interface RelationalAuditInput {
   mentionEvidence: string;
   citationEvidence: string;
   officialUrls: string[];
+  recommendedCompetitors?: AnswerAuditRecord['recommendedCompetitors'];
   answerComplete: boolean;
   analysisStatus?: 'complete' | 'needs_review' | 'failed' | 'not_applicable';
   method?: 'model' | 'legacy' | 'unavailable';
@@ -164,6 +165,11 @@ type JoinedAuditRow = RelationalAuditRow & {
 
 function joinedRowToAudit(row: JoinedAuditRow): AnswerAuditRecord {
   const limitations = parseJsonArray<string>(row.limitations_json);
+  const recommendedCompetitors = row.recommended_competitors_json
+    ? parseJsonArray<{ name: string; url?: string }>(row.recommended_competitors_json).filter(
+        (item) => item && typeof item.name === 'string' && item.name.trim(),
+      )
+    : [];
   return {
     projectId: row.project_id,
     batchId: row.batch_id,
@@ -176,6 +182,7 @@ function joinedRowToAudit(row: JoinedAuditRow): AnswerAuditRecord {
     mentionEvidence: row.mention_evidence,
     citationEvidence: row.citation_evidence,
     officialUrls: parseJsonArray<string>(row.official_urls_json),
+    ...(recommendedCompetitors.length ? { recommendedCompetitors } : {}),
     evidencePath: row.resolved_evidence_path,
     answerComplete: row.answer_complete === 1,
     schemaVersion: 1,
@@ -437,10 +444,11 @@ export function saveRelationalAuditRevision(
           .prepare(
             `INSERT INTO opengeo_answer_audits (
               project_id, observation_id, is_current, mention, citation,
-              mention_evidence, citation_evidence, official_urls_json, answer_complete,
+              mention_evidence, citation_evidence, official_urls_json,
+              recommended_competitors_json, answer_complete,
               analysis_status, method, analysis_model, reasoning_effort,
               limitations_json, reviewed_at, audited_at
-            ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             id,
@@ -450,6 +458,7 @@ export function saveRelationalAuditRevision(
             input.mentionEvidence.trim(),
             input.citationEvidence.trim(),
             JSON.stringify(input.officialUrls),
+            JSON.stringify(input.recommendedCompetitors ?? []),
             input.answerComplete ? 1 : 0,
             input.analysisStatus ?? null,
             input.method ?? null,
@@ -611,6 +620,7 @@ export async function ingestRelationalObservation(
               mentionEvidence: auditRecord.mentionEvidence,
               citationEvidence: auditRecord.citationEvidence,
               officialUrls: auditRecord.officialUrls,
+              recommendedCompetitors: auditRecord.recommendedCompetitors,
               answerComplete: auditRecord.answerComplete,
               analysisStatus: auditRecord.analysisStatus,
               method: auditRecord.method,

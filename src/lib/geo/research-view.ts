@@ -94,7 +94,7 @@ function capitalizeBrand(stem: string): string {
   return clean.replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
 }
 
-function normalizeExternalCitedSource(
+export function normalizeExternalCitedSource(
   rawUrl: string,
 ): { key: string; entityKey: string; mergedLabel?: string; label: string; url: string } | null {
   try {
@@ -644,16 +644,17 @@ export function extractOverviewGapSources(
           obs.entryType === 'web_answer' &&
           (!language || obs.language === language),
       );
-      const fallback =
+      const pool =
         matching.length > 0
           ? matching
           : question.observations.filter(
               (obs) => obs.engine === engine && obs.entryType === 'web_answer',
             );
-      const latest = getLatestResearchObservation(fallback);
-      if (!latest) continue;
+      if (!pool.length) continue;
 
-      for (const ref of latest.sources ?? []) {
+      const seenInQuestion = new Set<string>();
+      for (const obs of pool) {
+        for (const ref of obs.sources ?? []) {
         const rawTitle = (ref?.title ?? '').replace(/\s+/g, ' ').trim();
         if (!rawTitle || !isUsefulOutreachTitle(rawTitle)) continue;
         const normalized = normalizeOutreachSourceUrl(ref.url ?? '');
@@ -685,6 +686,8 @@ export function extractOverviewGapSources(
         } else {
           dedupKey = `page:${displayHost}:${title.toLowerCase().slice(0, 56)}`;
         }
+        if (seenInQuestion.has(dedupKey)) continue;
+        seenInQuestion.add(dedupKey);
 
         const subtitle = gh
           ? 'github.com'
@@ -712,6 +715,7 @@ export function extractOverviewGapSources(
           if (existing.url.includes('google.com/goto') && !normalized.url.includes('google.com/goto')) {
             existing.url = normalized.url;
           }
+        }
         }
       }
     }

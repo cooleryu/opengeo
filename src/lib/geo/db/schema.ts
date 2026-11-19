@@ -121,6 +121,7 @@ export interface RelationalAuditRow {
   mention_evidence: string;
   citation_evidence: string;
   official_urls_json: string;
+  recommended_competitors_json?: string;
   answer_complete: 0 | 1;
   analysis_status: 'complete' | 'needs_review' | 'failed' | 'not_applicable' | null;
   method: 'model' | 'legacy' | 'unavailable' | null;
@@ -309,6 +310,7 @@ export const RELATIONAL_SCHEMA_SQL = `
     mention_evidence TEXT NOT NULL,
     citation_evidence TEXT NOT NULL,
     official_urls_json TEXT NOT NULL DEFAULT '[]',
+    recommended_competitors_json TEXT NOT NULL DEFAULT '[]',
     answer_complete INTEGER NOT NULL CHECK (answer_complete IN (0, 1)),
     analysis_status TEXT CHECK (
       analysis_status IS NULL OR analysis_status IN ('complete', 'needs_review', 'failed', 'not_applicable')
@@ -509,6 +511,12 @@ export function configureSqliteConnection(db: Database.Database): Database.Datab
   }
   if (!delivColumns.some((col) => col.name === 'reference_winners_json')) {
     db.exec("ALTER TABLE opengeo_deliverables ADD COLUMN reference_winners_json TEXT NOT NULL DEFAULT '[]';");
+  }
+  const auditColumns = db
+    .prepare("PRAGMA table_info('opengeo_answer_audits')")
+    .all() as Array<{ name: string }>;
+  if (!auditColumns.some((col) => col.name === 'recommended_competitors_json')) {
+    db.exec("ALTER TABLE opengeo_answer_audits ADD COLUMN recommended_competitors_json TEXT NOT NULL DEFAULT '[]';");
   }
   return db;
 }

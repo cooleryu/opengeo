@@ -200,11 +200,17 @@
   transition: border-color 0.15s, background 0.15s;
 }
 .qd-platform.selected {
+  border-color: #3f3f46;
+  background: #fafafa;
+  box-shadow: inset 0 -2px #3f3f46;
+}
+.qd-platform.found.selected {
   border-color: #5b8f79;
   background: #f3f8f5;
   box-shadow: inset 0 -2px #5b8f79;
 }
-.qd-platform:hover { border-color: #8aab9d; }
+.qd-platform:hover { border-color: #a1a1aa; }
+.qd-platform.found:hover { border-color: #8aab9d; }
 .qd-platform-select {
   display: block;
   width: 100%;

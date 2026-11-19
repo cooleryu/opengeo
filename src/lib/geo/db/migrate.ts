@@ -153,10 +153,11 @@ function appendAuditIfMissing(
   db.prepare(
     `INSERT INTO opengeo_answer_audits (
       project_id, observation_id, is_current, mention, citation,
-      mention_evidence, citation_evidence, official_urls_json, answer_complete,
+      mention_evidence, citation_evidence, official_urls_json,
+      recommended_competitors_json, answer_complete,
       analysis_status, method, analysis_model, reasoning_effort,
       limitations_json, reviewed_at, audited_at
-    ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     record.projectId,
     observationId,
@@ -165,6 +166,7 @@ function appendAuditIfMissing(
     record.mentionEvidence,
     record.citationEvidence,
     JSON.stringify(record.officialUrls ?? []),
+    JSON.stringify(record.recommendedCompetitors ?? []),
     record.answerComplete ? 1 : 0,
     record.analysisStatus ?? null,
     record.method ?? null,

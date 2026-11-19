@@ -512,3 +512,96 @@ details[open] > summary > .cs-disclosure-chevron {
     padding: 4px 0;
   }
 }
+
+.cs-context-icon {
+  background: #f4f2ff;
+  color: #5b4bb7;
+}
+
+.cs-traffic-icon {
+  background: #fff4eb;
+  color: #b45309;
+}
+
+.cs-context-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cs-context-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cs-context-meta .cs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cs-status.is-saved {
+  background: #ecfdf5;
+  color: #15803d;
+  font-weight: 500;
+}
+
+.cs-context-editor {
+  width: 100%;
+  min-height: 220px;
+  padding: 12px 14px;
+  border: 1px solid #dfe1e6;
+  border-radius: 8px;
+  background: #fafafa;
+  color: #18181b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+
+.cs-context-editor:focus {
+  background: #ffffff;
+  border-color: #737b8a;
+  box-shadow: 0 0 0 2px #737b8a12;
+}
+
+.cs-traffic-opt-card {
+  padding: 20px 22px;
+  border: 1px solid #dfe4ec;
+  border-radius: 10px;
+  background: #fcfdff;
+}
+
+.cs-traffic-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.cs-traffic-title-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.cs-traffic-title-line strong {
+  font-size: 14.5px;
+  color: #18181b;
+}
+
+.cs-traffic-row p {
+  margin: 0;
+  max-width: 740px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #586170;
+}

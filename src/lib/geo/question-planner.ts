@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import { readAgentParameters, readAgentText } from './agent-files';
+import { projectContextExists, readProjectContext } from './project-context';
 import { getProjectOnboardingPlanningContext } from './project-onboarding-store';
 import { projectResearchContext } from './project-research-context';
 import type { GeoAsset, GeoSeed } from './types';
@@ -330,6 +331,9 @@ function projectContext(seed: GeoSeed, positioning: string) {
   const { id, name, owner, description, siteUrl, repositoryUrl, targetLanguage } = seed.project;
   const understanding = getProjectOnboardingPlanningContext(id);
   const research = projectResearchContext(id);
+  const projectFactSheet = projectContextExists(id)
+    ? readProjectContext(id).markdown.trim().slice(0, 2400)
+    : '';
   return {
     project: {
       id,
@@ -343,6 +347,7 @@ function projectContext(seed: GeoSeed, positioning: string) {
     positioning,
     ...(understanding ? { projectUnderstanding: understanding } : {}),
     ...(research ? { projectResearch: research } : {}),
+    ...(projectFactSheet ? { projectFactSheet } : {}),
   };
 }
 

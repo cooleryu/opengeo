@@ -43,7 +43,7 @@ import ProjectOverview, {
   OverviewAudit,
   overviewObservationDates,
 } from './ProjectOverview';
-import ClaimReviewPanel, { type ClaimReviewInput } from './ClaimReviewPanel';
+import type { ClaimReviewInput } from './ClaimReviewPanel';
 import { overviewProgress } from '@/lib/geo/overview-progress';
 import { resolveProjectTargetLanguage } from '@/lib/geo/i18n';
 import { isAiAnswerRow } from '@/lib/geo/overview-metrics';
@@ -303,8 +303,6 @@ export default function ResearchPanel({
   activeOptimizationRunId,
   latestShippedAt,
   onPlan,
-  claimReviews = [],
-  onClaimReview,
 }: Props) {
   const { uiLanguage } = useUiLanguage();
   const isEn = uiLanguage === 'en';
@@ -1342,21 +1340,6 @@ export default function ResearchPanel({
                                 <p>{row.observation.conditions}</p>
                                 <p>{row.observation.recordedAt}</p>
                               </details>
-                              {onClaimReview &&
-                                row.engine === 'chatgpt' &&
-                                row.observation.answerPath && (
-                                  <ClaimReviewPanel
-                                    projectId={batch.projectId}
-                                    batchId={batch.id}
-                                    question={row.question}
-                                    observationIndex={row.question.observations.indexOf(
-                                      row.observation,
-                                    )}
-                                    observation={row.observation}
-                                    records={claimReviews}
-                                    onSave={onClaimReview}
-                                  />
-                                )}
                             </>
                           ) : (
                             <p className="rw-summary">

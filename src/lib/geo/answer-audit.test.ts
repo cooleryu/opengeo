@@ -685,3 +685,26 @@ test('personal memory references cannot count as natural unauthenticated exposur
   assert.equal(validPersonalMemory.analysisStatus, 'complete');
   assert.equal(validPersonalMemory.mention, 'no');
 });
+
+test('single-pass answer audit persists sanitized AI-extracted recommendedCompetitors without google/goto or self links', async () => {
+  const collected = answer({
+    text: 'Top alternatives include Otterly AI and Profound for AI visibility tracking.',
+    citations: [],
+  });
+  const saved = await review(
+    {
+      ...negative(),
+      recommendedCompetitors: [
+        { name: 'Otterly AI', url: 'https://www.google.com/goto?url=https://otterly.ai' },
+        { name: 'Profound', url: 'https://tryprofound.com' },
+        { name: 'SampleProject', url: 'https://example.org' },
+      ],
+    },
+    collected,
+  );
+  assert.equal(saved.analysisStatus, 'complete');
+  assert.deepEqual(saved.recommendedCompetitors, [
+    { name: 'Otterly AI' },
+    { name: 'Profound', url: 'https://tryprofound.com/' },
+  ]);
+});

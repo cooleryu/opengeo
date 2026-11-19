@@ -1256,6 +1256,100 @@ export default function OptimizationStudio({
         />
       </section>
 
+      {/* SECTION 3: Automatically tracked shipped outputs (replaces legacy manual Content Assets ledger) */}
+      {shippedItems.length > 0 && (
+        <section
+          className="oap-section"
+          aria-label={isEn ? 'Published outputs' : '已上线产出'}
+        >
+          <div className="oap-section-head oap-section-head-row">
+            <div>
+              <h2>
+                {isEn
+                  ? `Published outputs (${shippedItems.length})`
+                  : `已上线产出（${shippedItems.length}）`}
+              </h2>
+              <p>
+                {isEn
+                  ? 'Logged automatically whenever you push repo edits, confirm articles, or submit outreach—no manual tracking needed.'
+                  : '由系统在你推送仓库文档、确认文章发布或提交外链时自动记录，无需手工维护台账。'}
+              </p>
+            </div>
+            {shippedItems.length > 4 && (
+              <button
+                type="button"
+                className="oap-shipped-all-btn"
+                onClick={() => setHistoryOpen(true)}
+              >
+                {isEn
+                  ? `View all ${shippedItems.length}`
+                  : `查看全部 ${shippedItems.length} 条`}
+              </button>
+            )}
+          </div>
+
+          <div className="oap-shipped-grid">
+            {shippedItems.slice(0, 4).map((entry) => (
+              <article key={entry.key} className="oap-shipped-card">
+                <div className="oap-history-top">
+                  <span className={`oap-kind-pill is-${entry.sourceKind}`}>
+                    {entry.sourceKind === 'awesome_pr' ? (
+                      <GitPullRequest size={11} />
+                    ) : entry.sourceKind === 'repo_meta' ? (
+                      <Settings2 size={11} />
+                    ) : entry.sourceKind === 'community_post' ? (
+                      <MessageSquarePlus size={11} />
+                    ) : (
+                      <GitCommit size={11} />
+                    )}
+                    {entry.sourceKind === 'awesome_pr'
+                      ? t('actionPlan.awesomeBadge')
+                      : entry.sourceKind === 'repo_meta'
+                        ? t('actionPlan.repoMetaBadge')
+                        : entry.sourceKind === 'community_post'
+                          ? t('actionPlan.communityBadge')
+                          : entry.sourceKind === 'article'
+                            ? getDeliverableRoleLabel(entry.deliverable!, uiLanguage)
+                            : isEn
+                              ? 'Repo Doc'
+                              : '仓库文档'}
+                  </span>
+                  <time>{formatShortDate(entry.at, isEn)}</time>
+                </div>
+
+                <strong className="oap-shipped-title">{entry.title}</strong>
+                <p className="oap-shipped-sub">{entry.subtitle}</p>
+
+                <div className="oap-history-links">
+                  {entry.liveUrl && (
+                    <a href={entry.liveUrl} target="_blank" rel="noreferrer">
+                      {t('actionPlan.openLiveLinkBtn')} <ExternalLink size={11} />
+                    </a>
+                  )}
+                  {entry.deliverable && entry.run && (
+                    <button
+                      type="button"
+                      className="oap-snapshot-btn"
+                      onClick={() => {
+                        setReadingTab('after');
+                        setLangVariant('default');
+                        setReaderState({
+                          runId: entry.run!.id,
+                          deliverable: entry.deliverable!,
+                        });
+                      }}
+                    >
+                      <BookOpen size={12} />
+                      <span>{t('actionPlan.viewSnapshotBtn')}</span>
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* DRAWER A: Right Slide-Over Full Article / Snapshot Reader */}
       {activeReaderDeliverable && (() => {
         const { runId, deliverable } = activeReaderDeliverable;

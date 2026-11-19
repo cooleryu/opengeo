@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { CheckCircle2, CircleDashed, CircleMinus } from 'lucide-react';
 import type { QuestionDetail } from '@/lib/geo/question-detail-types';
 import type { ResearchEngine } from '@/lib/geo/research-types';
-import CompetitorCandidates from './CompetitorCandidates';
 import { useUiLanguage } from './UiLanguageContext';
 
 type Props = {
@@ -231,16 +230,6 @@ export default function QuestionDetailVisual(props: Props) {
           );
         })}
       </div>
-      <CompetitorCandidates
-        key={`${projectId}:${batchId}:${questionId}`}
-        projectId={projectId}
-        batchId={batchId}
-        questionId={questionId}
-        revision={revision}
-        language={language}
-        engine={engine}
-        compact
-      />
     </section>
   );
 }

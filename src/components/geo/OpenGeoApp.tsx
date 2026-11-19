@@ -13,37 +13,32 @@ import {
   AlertTriangle,
   ArrowRight,
   ArrowUpRight,
-  BookOpen,
   ChevronDown,
   LayoutDashboard,
   Check,
-  CheckCheck,
   FileText,
   ListChecks,
   Loader2,
-  Play,
   Plus,
   Search,
   Settings2,
-  ShieldCheck,
   GitCompareArrows,
-  MousePointer2,
   X,
 } from 'lucide-react';
 import type { GeoAsset, GeoState } from '@/lib/geo/types';
-import {
-  getBatchResearchEngines,
-  RESEARCH_ENGINES,
-} from '@/lib/geo/research-engines';
+import { getBatchResearchEngines } from '@/lib/geo/research-engines';
 import { auditRows, isAiAnswerRow } from '@/lib/geo/overview-metrics';
 import {
   extractTopExternalCitedSources,
   getResearchRows,
   type TopExternalCitedSource,
 } from '@/lib/geo/research-view';
-import type { ResearchBatch } from '@/lib/geo/research-types';
+import type {
+  ResearchBatch,
+  ResearchEngine,
+  ResearchQuestion,
+} from '@/lib/geo/research-types';
 import VisibilityPanel from './VisibilityPanel';
-import ContentPanel from './ContentPanel';
 import {
   getTaskWorkspaceGroups,
   isHistoricalTask,
@@ -51,16 +46,14 @@ import {
 import OptimizationHeroCard from './OptimizationHeroCard';
 import OptimizationStudio from './OptimizationStudio';
 import type { OptimizationRunViewModel } from '@/lib/geo/optimization/types';
-import ImplementationRecordForm from './ImplementationRecordForm';
 import QuestionPlanPanel from './QuestionPlanPanel';
 import { readQuestionGenerationStream } from './question-generation-stream';
 import type { QuestionGenerationProgress } from '@/lib/geo/question-types';
 import QuestionManagementPanel from './QuestionManagementPanel';
 import ResearchPanel, { clearResearchDetailParams } from './ResearchPanel';
-import CompetitorPanel from './CompetitorPanel';
+import ObservedCompetitorView from './ObservedCompetitorView';
 import TrafficPanel from './TrafficPanel';
 import ConnectionSettingsPanel from './ConnectionSettingsPanel';
-import GeoSelect from './GeoSelect';
 import { normalizeQuestionMonitoringUrl } from './question-monitoring-url';
 import {
   resolveProjectTargetLanguage,
@@ -93,12 +86,7 @@ const pages: Page[] = [
   'monitor',
   'settings',
 ];
-type Dialog =
-  | 'implementation'
-  | 'monitor'
-  | 'live'
-  | 'questions'
-  | null;
+type Dialog = 'questions' | null;
 const assetTypeLabel = (type: string) =>
   (
     ({
@@ -119,15 +107,6 @@ const assetStatusLabel = (status: string) =>
   )[status] ?? status;
 const shortPath = (path: string) => path.split('/').slice(-2).join('/');
 
-function Badge({
-  children,
-  tone = 'neutral',
-}: {
-  children: ReactNode;
-  tone?: string;
-}) {
-  return <span className={`og-tag ${tone}`}>{children}</span>;
-}
 function Modal({
   title,
   description,
@@ -250,7 +229,6 @@ function OpenGeoAppInner() {
   const [questionGenerationProgress, setQuestionGenerationProgress] = useState<QuestionGenerationProgress>();
   const [optViewModel, setOptViewModel] = useState<OptimizationRunViewModel | null>(null);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
-  const [detailsNavOpen, setDetailsNavOpen] = useState(false);
   const projectButton = useRef<HTMLButtonElement>(null);
   const [storedData, setData] = useState<GeoState | null>(null),
     [page, setPage] = useState<Page>('overview'),
@@ -316,21 +294,6 @@ function OpenGeoAppInner() {
       content: string;
       format: string;
     } | null>(null);
-  const [implementationKind, setImplementationKind] = useState<
-      'rehearsal' | 'user_confirmed'
-    >('rehearsal'),
-    [note, setNote] = useState(''),
-    [implementationUrl, setImplementationUrl] = useState(''),
-    [implementationOccurredAt, setImplementationOccurredAt] = useState(''),
-    [implementationRevision, setImplementationRevision] = useState<
-      number | undefined
-    >();
-  const [monitorMode, setMonitorMode] = useState<'replay' | 'live'>('replay'),
-    [monitorTime, setMonitorTime] = useState('09:00'),
-    [monitorDays, setMonitorDays] = useState(7),
-    [monitorBudget, setMonitorBudget] = useState(1),
-    [monitorEnabled, setMonitorEnabled] = useState(true),
-    [costConsent, setCostConsent] = useState(false);
   const refresh = useCallback(
     async (options?: { signal?: AbortSignal; onSuccess?: () => void }) => {
       const requestedProject = projectRef.current;
@@ -650,22 +613,6 @@ function OpenGeoAppInner() {
     void refresh();
     projectButton.current?.focus();
   };
-  const taskProvider =
-    task?.workflow?.collection?.provider ??
-    task?.collectionProvider ??
-    'chatgpt';
-  const providerOptions = data?.settings.collectionProviders ?? [];
-  const taskProviderStatus = providerOptions.find((p) => p.id === taskProvider);
-  const taskProviderLabel =
-    taskProviderStatus?.label ??
-    (taskProvider === 'google' ? 'Google' : 'ChatGPT');
-  const taskProviderConfigured = taskProviderStatus?.configured ?? false;
-  const answerCollection = taskProvider !== 'google';
-  const monitorQuestionCount =
-    task?.workflow?.questions.length ??
-    (task?.monitor.queryIds.length || data?.questions.length || 0);
-  const monitorRunCost =
-    monitorQuestionCount * (answerCollection ? 0.1 : 0.005);
   const act = async (
     action: string,
     payload: Record<string, unknown> = {},
@@ -707,20 +654,6 @@ function OpenGeoAppInner() {
   };
   const openTask = (id?: string) => {
     navigate('tasks', id ?? '');
-  };
-  const openImplementation = (kind: 'rehearsal' | 'user_confirmed') => {
-    setImplementationKind(kind);
-    setNote(
-      task?.implementation?.kind === 'user_confirmed'
-        ? task.implementation.note
-        : '',
-    );
-    setImplementationUrl(
-      task?.implementation?.url || task?.proposal?.targetUrl || '',
-    );
-    setImplementationOccurredAt('');
-    setImplementationRevision(task?.workflow?.proposalRevision);
-    setDialog('implementation');
   };
   const autoConfirmedPlanKeyRef = useRef<string>('');
   useEffect(() => {
@@ -787,16 +720,6 @@ function OpenGeoAppInner() {
       ))}
     </div>
   );
-  const openMonitor = () => {
-    if (!task) return;
-    setMonitorMode(answerCollection ? 'live' : task.monitor.mode);
-    setMonitorTime(task.monitor.timeOfDay);
-    setMonitorDays(task.monitor.days);
-    setMonitorBudget(task.monitor.budgetLimit);
-    setMonitorEnabled(task.monitor.enabled);
-    setCostConsent(false);
-    setDialog('monitor');
-  };
   const openActionPlanRef = useRef<() => void>(() => {});
   openActionPlanRef.current = () => navigate('tasks');
 
@@ -808,59 +731,65 @@ function OpenGeoAppInner() {
     window.addEventListener('geo-competitor-improve', handler);
     return () => window.removeEventListener('geo-competitor-improve', handler);
   }, []);
-  const confirmImplementation = async () => {
-    const actualDate =
-      implementationKind === 'user_confirmed'
-        ? new Date(implementationOccurredAt)
-        : null;
-    if (actualDate && !Number.isFinite(actualDate.getTime())) {
-      setToast('请填写真实实施时间。');
-      return;
+  useEffect(() => {
+    if (page === 'assets') {
+      openActionPlanRef.current();
     }
-    const result = await act(
-      'confirm_implementation',
-      {
-        kind: implementationKind,
-        note,
-        url: implementationUrl,
-        ...(actualDate ? { occurredAt: actualDate.toISOString() } : {}),
-        ...(implementationRevision !== undefined
-          ? { proposalRevision: implementationRevision }
-          : {}),
-      },
-      implementationKind === 'rehearsal'
-        ? '已进入演练观察，不会修改线上内容'
-        : '已记录你的实施确认',
+  }, [page]);
+  const openQuestionDetail = (
+    question: ResearchQuestion,
+    language: 'zh' | 'en',
+    engine: 'all' | ResearchEngine = 'all',
+    record?: { batch: ResearchBatch; recordKey: string },
+  ) => {
+    if (!data) return;
+    if (record) {
+      if (record.batch.projectId !== data.project.id) return;
+      setData((current) =>
+        current?.project.id === record.batch.projectId
+          ? { ...current, latestResearch: record.batch }
+          : current,
+      );
+    }
+    const url = new URL(window.location.href);
+    clearResearchDetailParams(url);
+    url.searchParams.set('project', data.project.id);
+    const returnTo = url.pathname + url.search;
+    url.searchParams.set('returnTo', returnTo);
+    url.searchParams.set(
+      'batch',
+      record?.batch.id || data.latestResearch?.id || '',
     );
-    if (result) setDialog(null);
-  };
-  const saveMonitor = async () => {
-    if (monitorMode === 'live' && !costConsent) return;
-    const result = await act(
-      'update_monitor',
+    url.searchParams.set('view', page);
+    url.searchParams.set('question', question.id);
+    url.searchParams.set('language', language);
+    url.searchParams.set('engine', engine);
+    [
+      'source',
+      'record',
+      'collection',
+      'directory',
+      'evidence',
+      'detail',
+      'search',
+      'group',
+      'kind',
+      'result',
+    ].forEach((key) => url.searchParams.delete(key));
+    if (record) url.searchParams.set('record', record.recordKey);
+    window.history.pushState(
       {
-        monitor: {
-          mode: monitorMode,
-          timeOfDay: monitorTime,
-          days: monitorDays,
-          budgetLimit: monitorBudget,
-          enabled: monitorEnabled,
+        opengeoDetail: true,
+        opengeoDetailScroll: {
+          x: window.scrollX,
+          y: window.scrollY,
         },
       },
-      '跟踪设置已保存',
+      '',
+      url,
     );
-    if (result) setDialog(null);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
-  const loadingButton = (
-    name: string,
-    label: string,
-    icon: ReactNode = <ArrowRight size={16} />,
-  ) => (
-    <>
-      {busy === name ? <Loader2 size={16} className="spin" /> : icon}
-      {label}
-    </>
-  );
 
   const optStatus = optViewModel?.run?.status ?? null;
   const activeOptimizationRunId =
@@ -892,25 +821,22 @@ function OpenGeoAppInner() {
       label: null,
       items: [
         { id: 'overview' as Page, label: t('nav.overview'), icon: LayoutDashboard },
-        { id: 'tasks' as Page, label: t('nav.tasks'), icon: ListChecks },
-      ],
-    },
-    {
-      id: 'details',
-      label: t('nav.details'),
-      items: [
         { id: 'question-plan' as Page, label: t('nav.questions'), icon: Search },
         { id: 'competitor' as Page, label: t('nav.competitor'), icon: GitCompareArrows },
-        { id: 'traffic' as Page, label: t('nav.traffic'), icon: MousePointer2 },
-        { id: 'assets' as Page, label: t('nav.assets'), icon: BookOpen },
+        { id: 'tasks' as Page, label: t('nav.tasks'), icon: ListChecks },
       ],
     },
   ];
   const nav = navGroups.flatMap((group) => group.items);
   const sidebarPage =
-    page === 'monitor' ? 'tasks' : page;
-  const improvementWorkspace = page === 'tasks' || page === 'monitor';
-  const customCanvasPage = page === 'overview' || improvementWorkspace;
+    page === 'monitor' || page === 'assets' ? 'tasks' : page;
+  const improvementWorkspace =
+    page === 'tasks' || page === 'monitor' || page === 'assets';
+  const customCanvasPage =
+    page === 'overview' ||
+    page === 'competitor' ||
+    page === 'question-plan' ||
+    improvementWorkspace;
   const overviewMissedCount = useMemo(() => {
     const b = data?.latestResearch;
     if (!b) return 0;
@@ -1021,63 +947,29 @@ function OpenGeoAppInner() {
           )}
         </div>
         <nav aria-label="主导航">
-          {navGroups.map((group) => {
-            const isDetails = group.id === 'details';
-            const isDetailActive = group.items.some(
-              (item) => sidebarPage === item.id,
-            );
-            const showItems = !isDetails || detailsNavOpen || isDetailActive;
-            return (
-              <div
-                key={group.id}
-                className={`og-nav-group og-nav-${group.id}`}
-                role={group.label ? 'group' : undefined}
-                aria-labelledby={
-                  group.label && !isDetails ? `og-nav-${group.id}-label` : undefined
-                }
-              >
-                {group.label &&
-                  (isDetails ? (
-                    <button
-                      type="button"
-                      className="og-nav-toggle"
-                      aria-expanded={showItems}
-                      onClick={() => setDetailsNavOpen((v) => !v)}
-                    >
-                      <span>{group.label}</span>
-                      <ChevronDown
-                        size={13}
-                        className={showItems ? 'is-open' : ''}
-                      />
-                    </button>
-                  ) : (
-                    <h2
-                      className="og-nav-label"
-                      id={`og-nav-${group.id}-label`}
-                    >
-                      {group.label}
-                    </h2>
-                  ))}
-                {showItems &&
-                  group.items.map((item) => (
-                    <button
-                      key={item.id}
-                      className={sidebarPage === item.id ? 'active' : ''}
-                      aria-current={sidebarPage === item.id ? 'page' : undefined}
-                      onClick={() => navigate(item.id)}
-                    >
-                      <item.icon size={17} />
-                      <span>{item.label}</span>
-                      {item.id === 'tasks' && optNavBadge && (
-                        <small className={`og-nav-pill is-${optNavBadge.tone}`}>
-                          {optNavBadge.label}
-                        </small>
-                      )}
-                    </button>
-                  ))}
-              </div>
-            );
-          })}
+          {navGroups.map((group) => (
+            <div
+              key={group.id}
+              className={`og-nav-group og-nav-${group.id}`}
+            >
+              {group.items.map((item) => (
+                <button
+                  key={item.id}
+                  className={sidebarPage === item.id ? 'active' : ''}
+                  aria-current={sidebarPage === item.id ? 'page' : undefined}
+                  onClick={() => navigate(item.id)}
+                >
+                  <item.icon size={17} />
+                  <span>{item.label}</span>
+                  {item.id === 'tasks' && optNavBadge && (
+                    <small className={`og-nav-pill is-${optNavBadge.tone}`}>
+                      {optNavBadge.label}
+                    </small>
+                  )}
+                </button>
+              ))}
+            </div>
+          ))}
         </nav>
         <div className="og-sidebar-bottom">
           <a
@@ -1162,7 +1054,9 @@ function OpenGeoAppInner() {
                   <h1>
                     {page === 'settings'
                       ? (uiLanguage === 'en' ? 'Settings' : '设置')
-                      : nav.find((item) => item.id === sidebarPage)?.label}
+                      : page === 'traffic'
+                        ? t('nav.traffic')
+                        : nav.find((item) => item.id === sidebarPage)?.label}
                   </h1>
                 </div>
                 {page !== 'settings' && (
@@ -1216,7 +1110,9 @@ function OpenGeoAppInner() {
               }
             >
               {data.latestResearch &&
-                (page === 'overview' || page === 'question-plan') && (
+                (page === 'overview' ||
+                  page === 'question-plan' ||
+                  page === 'competitor') && (
                   <ResearchPanel
                     key={`research-${data.project.id}`}
                     hideHeader={page === 'overview'}
@@ -1238,7 +1134,9 @@ function OpenGeoAppInner() {
                     activeOptimizationRunId={activeOptimizationRunId}
                     latestShippedAt={latestDeliverableShippedAt}
                     view={page === 'overview' ? 'overview' : 'questions'}
-                    detailsOnly={page === 'question-plan'}
+                    detailsOnly={
+                      page === 'question-plan' || page === 'competitor'
+                    }
                     tasks={groups.tasks}
                     onTask={openTask}
                     onRefresh={() => {
@@ -1250,7 +1148,7 @@ function OpenGeoAppInner() {
                     onEvidence={openEvidence}
                     onQuestions={() => navigate('question-plan')}
                     onOverview={() => navigate('overview')}
-                    onAssets={() => navigate('assets')}
+                    onAssets={() => navigate('tasks')}
                     onReview={() => navigate('question-plan')}
                     onImprove={routeLegacyImprovementToActionPlan}
                     onPlan={async () => {
@@ -1405,6 +1303,7 @@ function OpenGeoAppInner() {
                   onSaved={() => {
                     void refresh();
                   }}
+                  onOpenTraffic={() => navigate('traffic')}
                   onRecords={(engine) => {
                     const url = new URL(window.location.href);
                     clearResearchDetailParams(url);
@@ -1437,7 +1336,14 @@ function OpenGeoAppInner() {
                 />
               )}
               {page === 'competitor' && (
-                <CompetitorPanel key={data.project.id} project={data.project} />
+                <ObservedCompetitorView
+                  key={data.project.id}
+                  project={data.project}
+                  batch={data.latestResearch}
+                  onOpenOverview={() => navigate('overview')}
+                  onOpenQuestions={() => navigate('question-plan')}
+                  onOpenActionPlan={() => navigate('tasks')}
+                />
               )}
               {page === 'traffic' && (
                 <TrafficPanel projectId={data.project.id} />
@@ -1455,14 +1361,14 @@ function OpenGeoAppInner() {
                       action,
                       fields,
                       action === 'save_question'
-                        ? '已保存，等待人工审阅'
+                        ? '已保存新问题'
                         : action === 'review_question'
-                          ? '人工审阅已保存'
+                          ? '问题状态已更新'
                           : action === 'audit_question'
-                            ? 'AI 复评已保存，请查看需求价值与承接情况'
+                            ? 'AI 复评已保存'
                           : action === 'confirm_questions'
-                            ? '题单已确认，尚未开始搜索'
-                            : '题单选择已保存',
+                            ? '当前监测问题已确认'
+                            : '监测问题选择已保存',
                     );
                     if (!result) {
                       const message =
@@ -1472,74 +1378,9 @@ function OpenGeoAppInner() {
                     }
                     return true;
                   }}
-                  onResult={(question, language, engine = 'all', record) => {
-                    // The collection response may be newer than the overview refresh.
-                    // Open the precise record with the same server-returned batch.
-                    if (record) {
-                      if (record.batch.projectId !== data.project.id) return;
-                      setData((current) =>
-                        current?.project.id === record.batch.projectId
-                          ? { ...current, latestResearch: record.batch }
-                          : current,
-                      );
-                    }
-                    const url = new URL(window.location.href);
-                    clearResearchDetailParams(url);
-                    url.searchParams.set('project', data.project.id);
-                    const returnTo = url.pathname + url.search;
-                    url.searchParams.set('returnTo', returnTo);
-                    url.searchParams.set(
-                      'batch',
-                      record?.batch.id || data.latestResearch?.id || '',
-                    );
-                    url.searchParams.set('view', 'question-plan');
-                    url.searchParams.set('question', question.id);
-                    url.searchParams.set('language', language);
-                    url.searchParams.set('engine', engine);
-                    [
-                      'source',
-                      'record',
-                      'collection',
-                      'directory',
-                      'evidence',
-                      'detail',
-                      'search',
-                      'group',
-                      'kind',
-                      'result',
-                    ].forEach((key) => url.searchParams.delete(key));
-                    if (record) url.searchParams.set('record', record.recordKey);
-                    window.history.pushState(
-                      {
-                        opengeoDetail: true,
-                        opengeoDetailScroll: {
-                          x: window.scrollX,
-                          y: window.scrollY,
-                        },
-                      },
-                      '',
-                      url,
-                    );
-                    window.dispatchEvent(new PopStateEvent('popstate'));
-                  }}
-                />
-              )}
-              {page === 'assets' && (
-                <ContentPanel
-                  data={data}
-                  onAsset={setAsset}
-                  onTask={() => openTask()}
-                  onImprove={routeLegacyImprovementToActionPlan}
-                  onGovernance={async (governance) => {
-                    const result = await act(
-                      'save_asset_governance',
-                      { governance },
-                      '材料核查记录已保存',
-                    );
-                    if (!result)
-                      throw new Error('核查未保存，请查看提示后重试。');
-                  }}
-                  onOpenTask={openTask}
+                  onResult={(question, language, engine = 'all', record) =>
+                    openQuestionDetail(question, language, engine, record)
+                  }
                 />
               )}
               {page === 'question-plan' && dialog === 'questions' && (
@@ -1606,7 +1447,7 @@ function OpenGeoAppInner() {
                   </div>
                 </Modal>
               )}
-              {(page === 'tasks' || page === 'monitor') && (
+              {(page === 'tasks' || page === 'monitor' || page === 'assets') && (
                 <OptimizationStudio
                   key={`studio-${data.project.id}`}
                   projectId={data.project.id}
@@ -1640,248 +1481,6 @@ function OpenGeoAppInner() {
             <X size={14} />
           </button>
         </div>
-      )}
-      {dialog === 'implementation' && (
-        <Modal title="登记实施情况" onClose={() => setDialog(null)}>
-          <ImplementationRecordForm
-            task={task}
-            assets={data?.assets ?? []}
-            kind={implementationKind}
-            revision={implementationRevision}
-            url={implementationUrl}
-            note={note}
-            occurredAt={implementationOccurredAt}
-            onKind={setImplementationKind}
-            onUrl={setImplementationUrl}
-            onNote={setNote}
-            onOccurredAt={setImplementationOccurredAt}
-          />
-          <div className="og-modal-actions">
-            <button
-              className="og-button secondary"
-              onClick={() => setDialog(null)}
-            >
-              再看看
-            </button>
-            <button
-              className="og-button primary"
-              disabled={
-                !!busy ||
-                (implementationKind === 'user_confirmed' &&
-                  (!note.trim() || !implementationOccurredAt))
-              }
-              onClick={confirmImplementation}
-            >
-              {loadingButton(
-                'confirm_implementation',
-                implementationKind === 'rehearsal'
-                  ? '保存演练记录'
-                  : '保存实施记录',
-                <CheckCheck size={16} />,
-              )}
-            </button>
-          </div>
-        </Modal>
-      )}
-      {dialog === 'monitor' && (
-        <Modal title="设置效果跟踪" onClose={() => setDialog(null)}>
-          <div className="og-modal-body">
-            <label className="og-field-label">跟踪方式</label>
-            <div className="og-radio-cards">
-              <button
-                className={monitorMode === 'replay' ? 'selected' : ''}
-                disabled={answerCollection}
-                onClick={() => setMonitorMode('replay')}
-              >
-                <span className="og-radio-dot" />
-                <div>
-                  <strong>
-                    历史回放 <Badge>免费</Badge>
-                  </strong>
-                  <p>
-                    {answerCollection
-                      ? '该入口尚不支持历史回放。'
-                      : '用已有真实记录演示，不产生新测量。'}
-                  </p>
-                </div>
-              </button>
-              <button
-                className={monitorMode === 'live' ? 'selected' : ''}
-                disabled={
-                  !taskProviderConfigured ||
-                  task?.implementation?.kind !== 'user_confirmed'
-                }
-                onClick={() => setMonitorMode('live')}
-              >
-                <span className="og-radio-dot" />
-                <div>
-                  <strong>{taskProviderLabel} · 真实采集</strong>
-                  <p>
-                    {task?.implementation?.kind !== 'user_confirmed'
-                      ? '记录实际实施后，才可采集实施后的真实结果。'
-                      : taskProviderConfigured
-                        ? '每天使用同一入口重新检查，保留回答与来源。'
-                        : `需要配置：${taskProviderStatus?.missing.join('、') || '采集服务'}。`}
-                  </p>
-                </div>
-              </button>
-            </div>
-            <div className="og-form-row">
-              <div>
-                <label className="og-field-label" htmlFor="monitor-time">
-                  检查时间 <span>UTC</span>
-                </label>
-                <input
-                  id="monitor-time"
-                  className="og-input"
-                  type="time"
-                  value={monitorTime}
-                  onChange={(e) => setMonitorTime(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="og-field-label" htmlFor="monitor-days">
-                  跟踪时长
-                </label>
-                <GeoSelect
-                  id="monitor-days"
-                  label="跟踪时长"
-                  value={String(monitorDays)}
-                  onChange={(value) => setMonitorDays(Number(value))}
-                  options={[3, 7, 14, 30].map((n) => ({
-                    value: String(n),
-                    label: `${n} 天`,
-                  }))}
-                />
-              </div>
-            </div>
-            {monitorMode === 'live' && (
-              <>
-                <label className="og-field-label" htmlFor="monitor-budget">
-                  {answerCollection
-                    ? '累计预算预留（USD）'
-                    : '搜索费用上限（USD）'}
-                </label>
-                <input
-                  id="monitor-budget"
-                  className="og-input"
-                  type="number"
-                  min={monitorRunCost}
-                  step={answerCollection ? '0.1' : '0.005'}
-                  value={monitorBudget}
-                  onChange={(e) => setMonitorBudget(Number(e.target.value))}
-                />
-                <div className="og-cost-note">
-                  固定 {monitorQuestionCount} 题，每次完整检查预留{' '}
-                  {monitorRunCost.toFixed(3)}，{monitorDays} 天预留{' '}
-                  {(monitorDays * monitorRunCost).toFixed(3)}。
-                  {answerCollection
-                    ? '按预算系数控制调用次数；搜索与模型费用以服务商账单为准，这不是实际花费或硬性费用上限。'
-                    : '预算用尽后停止。'}
-                </div>
-                <label className="og-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={costConsent}
-                    onChange={(e) => setCostConsent(e.target.checked)}
-                  />
-                  <span>
-                    {answerCollection
-                      ? '我同意按这个计划采集联网回答，并了解实际费用以服务商账单为准。'
-                      : '我同意按这个计划调用付费搜索，费用不超过设置的上限。'}
-                  </span>
-                </label>
-              </>
-            )}
-            <label className="og-checkbox">
-              <input
-                type="checkbox"
-                checked={monitorEnabled}
-                onChange={(e) => setMonitorEnabled(e.target.checked)}
-              />
-              <span>开启每天自动观察（本地服务需保持运行）</span>
-            </label>
-          </div>
-          <div className="og-modal-actions">
-            <button
-              className="og-button secondary"
-              onClick={() => setDialog(null)}
-            >
-              取消
-            </button>
-            <button
-              className="og-button primary"
-              disabled={
-                !!busy ||
-                (monitorMode === 'live' &&
-                  (!costConsent ||
-                    !taskProviderConfigured ||
-                    !Number.isFinite(monitorBudget) ||
-                    monitorBudget < monitorRunCost ||
-                    task?.implementation?.kind !== 'user_confirmed'))
-              }
-              onClick={saveMonitor}
-            >
-              {loadingButton(
-                'update_monitor',
-                '保存跟踪设置',
-                <Check size={16} />,
-              )}
-            </button>
-          </div>
-        </Modal>
-      )}
-      {dialog === 'live' && (
-        <Modal
-          title="复测一次"
-          description={`这会通过${taskProviderLabel}采集新的真实结果。`}
-          onClose={() => setDialog(null)}
-        >
-          <div className="og-modal-body">
-            <div className="og-cost-summary">
-              <Search size={25} />
-              <div>
-                <strong>{monitorQuestionCount} 个固定问题</strong>
-                <p>
-                  预留额度 {monitorRunCost.toFixed(3)} ·{' '}
-                  {answerCollection
-                    ? '实际费用以服务商账单为准'
-                    : '按服务商实际请求计费'}
-                </p>
-              </div>
-            </div>
-            <label className="og-checkbox">
-              <input
-                type="checkbox"
-                checked={costConsent}
-                onChange={(e) => setCostConsent(e.target.checked)}
-              />
-              <span>我确认运行这次付费采集，并记录新的测量结果。</span>
-            </label>
-          </div>
-          <div className="og-modal-actions">
-            <button
-              className="og-button secondary"
-              onClick={() => setDialog(null)}
-            >
-              取消
-            </button>
-            <button
-              className="og-button primary"
-              disabled={!!busy || !costConsent || !taskProviderConfigured}
-              onClick={async () => {
-                const r = await act(
-                  'run_monitor',
-                  { mode: 'live' },
-                  '实时检查已开始，结果会自动更新',
-                );
-                if (r) setDialog(null);
-              }}
-            >
-              {loadingButton('run_monitor', '确认并开始', <Play size={15} />)}
-            </button>
-          </div>
-        </Modal>
       )}
       {asset && (
         <Modal

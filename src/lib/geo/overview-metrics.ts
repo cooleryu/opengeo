@@ -3,6 +3,11 @@ import type { ResearchBatch, ResearchObservation } from './research-types';
 import type { ResearchRow } from './research-view';
 import type { ChatGPTReasoningEffort } from './chatgpt-types';
 
+export type AuditedCompetitor = {
+  name: string;
+  url?: string;
+};
+
 export type AnswerAuditRecord = {
   projectId: string;
   batchId: string;
@@ -15,6 +20,7 @@ export type AnswerAuditRecord = {
   mentionEvidence: string;
   citationEvidence: string;
   officialUrls: string[];
+  recommendedCompetitors?: AuditedCompetitor[];
   evidencePath: string;
   answerComplete: boolean;
   schemaVersion?: 1;

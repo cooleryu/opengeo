@@ -106,11 +106,35 @@ function normalizeAudit(record: AnswerAuditRecord, legacy = false): AnswerAuditR
       (record.mention !== 'unknown' || record.citation !== 'unknown')) {
     throw new ResearchStoreError('不可用、失败或不适用的审核须保留为 unknown。');
   }
+  const recommendedCompetitors = Array.isArray(record.recommendedCompetitors)
+    ? record.recommendedCompetitors
+        .filter((item) => item && typeof item === 'object' && typeof item.name === 'string' && item.name.trim())
+        .slice(0, 8)
+        .map((item) => {
+          const name = item.name.trim();
+          const rawUrl = typeof item.url === 'string' ? item.url.trim() : '';
+          if (rawUrl) {
+            try {
+              const parsed = new URL(rawUrl);
+              if (['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !/\s/u.test(rawUrl)) {
+                return { name, url: parsed.href };
+              }
+            } catch {
+              // Drop invalid URL while retaining competitor name
+            }
+          }
+          return { name };
+        })
+    : undefined;
   // Explicit ordering makes equal records independent of the caller's key order.
   return {
     projectId, batchId, questionId, engine: record.engine, language: record.language,
     recordedAt, mention: record.mention, citation: record.citation,
-    mentionEvidence, citationEvidence, officialUrls, evidencePath,
+    mentionEvidence, citationEvidence, officialUrls,
+    ...(recommendedCompetitors && recommendedCompetitors.length > 0
+      ? { recommendedCompetitors }
+      : {}),
+    evidencePath,
     answerComplete: record.answerComplete,
     schemaVersion: record.schemaVersion ?? 1,
     reviewedAt: record.reviewedAt,

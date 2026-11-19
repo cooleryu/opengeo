@@ -347,4 +347,18 @@ test('deriveRecommendedTopics and isRelevantCitedThread stay scoped to non-GEO p
     ),
     false,
   );
+  assert.equal(
+    isRelevantCitedThread(
+      {
+        title: 'best AI for creating work procedure documents - Reddit',
+        url: 'https://www.google.com/goto?url=https://reddit.com/r/ai/123',
+        questionCount: 1,
+      },
+      {
+        name: 'AcmeGEO',
+        description: 'Track brand visibility in ChatGPT and Google AI answers',
+      },
+    ),
+    false,
+  );
 });

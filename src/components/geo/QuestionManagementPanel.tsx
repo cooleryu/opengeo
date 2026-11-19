@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   Check,
   Minus,
   Plus,
@@ -9,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import ResearchEngineIcon from './ResearchEngineIcon';
+import { useUiLanguage } from './UiLanguageContext';
 import type { GeoState } from '@/lib/geo/types';
 import type {
   QuestionCandidate,
@@ -54,6 +56,7 @@ type Props = {
   ) => void;
   onEvidence: (path: string) => void;
   onLegacy: () => void;
+  onBackOverview?: () => void;
   onRefresh?: () => Promise<void> | void;
 };
 type Draft = {
@@ -143,8 +146,11 @@ export default function QuestionManagementPanel({
   onResult,
   onEvidence,
   onLegacy,
+  onBackOverview,
   onRefresh,
 }: Props) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const [scope, setScope] = useState<'observed' | 'backlog'>('observed');
   const [search, setSearch] = useState('');
   const [language, setLanguage] = useState<'zh' | 'en'>(() =>
@@ -561,33 +567,83 @@ export default function QuestionManagementPanel({
   };
 
   return (
-    <section className="qm-page" aria-label="问题与结果">
-      <nav className="qm-tabs" aria-label="问题分组">
-        {(
-          [
-            ['observed', '核心问题', observed.length],
-            ['backlog', '候补问题', backlogRows.length],
-          ] as const
-        ).map(([key, label, count]) => (
+    <section className="qm-page" aria-label={isEn ? 'Monitored questions' : '当前监测问题'}>
+      <header className="qm-shell-header">
+        <div className="qm-shell-title">
+          {onBackOverview && (
+            <button
+              type="button"
+              className="qm-back-btn"
+              onClick={onBackOverview}
+            >
+              <ArrowLeft size={14} />
+              <span>{isEn ? 'Overview' : '返回概览'}</span>
+            </button>
+          )}
+          <h1>
+            {scope === 'backlog'
+              ? isEn
+                ? 'Unconfirmed questions'
+                : '待确认的新问题'
+              : isEn
+                ? 'Monitored questions'
+                : '当前监测问题'}
+          </h1>
+          <span className="qm-count-pill">
+            {scope === 'backlog'
+              ? isEn
+                ? `${backlogRows.length} pending`
+                : `${backlogRows.length} 题待确认`
+              : isEn
+                ? `${observed.length} active`
+                : `共 ${observed.length} 题`}
+          </span>
+        </div>
+
+        <div className="qm-shell-actions">
+          {scope === 'backlog' && (
+            <button
+              type="button"
+              className="qm-scope-pill-btn is-active"
+              onClick={() =>
+                controls({
+                  scope: 'observed',
+                  search: '',
+                })
+              }
+            >
+              {isEn
+                ? `Back to active (${observed.length})`
+                : `回到当前监测 (${observed.length})`}
+            </button>
+          )}
           <button
-            key={key}
-            aria-pressed={scope === key}
+            type="button"
+            className="qm-secondary"
+            onClick={onLegacy}
+          >
+            {isEn ? 'AI suggest prompts' : 'AI 补充推荐'}
+          </button>
+          <button
+            type="button"
+            className="qm-primary"
             onClick={() => {
-              controls({ scope: key, search: '' });
+              setError('');
+              setDraft(blank());
             }}
           >
-            <span>{label}</span>
-            <small>{count}</small>
+            <Plus size={15} />
+            {isEn ? 'Add prompt' : '添加问题'}
           </button>
-        ))}
-      </nav>
+        </div>
+      </header>
       <div className="qm-content">
         <div className="qm-toolbar">
           <label className="qm-search">
             <Search size={16} />
             <input
-              aria-label="搜索问题"
-              placeholder="搜索问题…"
+              aria-label={isEn ? 'Search prompts' : '搜索问题'}
+              placeholder={isEn ? 'Search prompts…' : '搜索问题…'}
               value={search}
               onChange={(event) => controls({ search: event.target.value })}
             />
@@ -595,7 +651,7 @@ export default function QuestionManagementPanel({
           {(defaultTargetLang === 'zh' ||
             hasZhObservations ||
             language === 'zh') && (
-            <div className="qm-languages" role="group" aria-label="问题语言">
+            <div className="qm-languages" role="group" aria-label={isEn ? 'Prompt language' : '问题语言'}>
               <button
                 aria-pressed={language === 'zh'}
                 onClick={() => controls({ language: 'zh' })}
@@ -610,21 +666,6 @@ export default function QuestionManagementPanel({
               </button>
             </div>
           )}
-          {scope === 'backlog' && (
-            <button className="qm-secondary" onClick={onLegacy}>
-              生成用户提问
-            </button>
-          )}
-          <button
-            className="qm-primary"
-            onClick={() => {
-              setError('');
-              setDraft(blank());
-            }}
-          >
-            <Plus size={15} />
-            添加问题
-          </button>
         </div>
         {error && !draft && !review && (
           <p className="qm-error" role="alert">
@@ -775,8 +816,8 @@ export default function QuestionManagementPanel({
                         {research.valueReason}
                       </p>
                     )}
-                    {candidate && !hasQuestionAssessment(candidate) && (
-                      <small className="qm-note">未进行 AI 双判断</small>
+                    {scope !== 'observed' && candidate && !hasQuestionAssessment(candidate) && (
+                      <small className="qm-note">待评估</small>
                     )}
                   </td>
                   {scope === 'observed' && research ? (
@@ -901,49 +942,53 @@ export default function QuestionManagementPanel({
                             disabled={busy || !!auditingId}
                             onClick={() => editCandidate(candidate)}
                           >
-                            {scope === 'observed' ? '调整下一批' : '编辑'}
+                            {scope === 'observed' ? '编辑' : '编辑'}
                           </button>
-                          <button
-                            disabled={
-                              busy ||
-                              !!auditingId ||
-                              !data.settings.modelConfigured
-                            }
-                            title={
-                              data.settings.modelConfigured
-                                ? undefined
-                                : '请先配置分析模型'
-                            }
-                            onClick={() =>
-                              void (research
-                                ? auditResearch(research)
-                                : auditCandidate(candidate))
-                            }
-                          >
-                            {auditingId === candidate.id ||
-                            auditingId === `research:${research?.id}`
-                              ? 'AI 复评中…'
-                              : 'AI 复评'}
-                          </button>
-                          <button
-                            disabled={busy || !!auditingId}
-                            onClick={() => reviewCandidate(candidate)}
-                          >
-                            {hasQuestionAssessment(candidate)
-                              ? '审核结果'
-                              : '审阅'}
-                          </button>
-                          {research && scope !== 'observed' && (
-                            <button
-                              onClick={() => onResult(research, language)}
-                            >
-                              原始依据
-                            </button>
+                          {scope !== 'observed' && (
+                            <>
+                              <button
+                                disabled={
+                                  busy ||
+                                  !!auditingId ||
+                                  !data.settings.modelConfigured
+                                }
+                                title={
+                                  data.settings.modelConfigured
+                                    ? undefined
+                                    : '请先配置分析模型'
+                                }
+                                onClick={() =>
+                                  void (research
+                                    ? auditResearch(research)
+                                    : auditCandidate(candidate))
+                                }
+                              >
+                                {auditingId === candidate.id ||
+                                auditingId === `research:${research?.id}`
+                                  ? 'AI 复评中…'
+                                  : 'AI 复评'}
+                              </button>
+                              <button
+                                disabled={busy || !!auditingId}
+                                onClick={() => reviewCandidate(candidate)}
+                              >
+                                {hasQuestionAssessment(candidate)
+                                  ? '审核结果'
+                                  : '审阅'}
+                              </button>
+                              {research && (
+                                <button
+                                  onClick={() => onResult(research, language)}
+                                >
+                                  原始依据
+                                </button>
+                              )}
+                            </>
                           )}
                         </>
                       ) : (
                         <>
-                          {research && (
+                          {research && scope !== 'observed' && (
                             <button
                               disabled={
                                 busy ||
@@ -1003,25 +1048,6 @@ export default function QuestionManagementPanel({
             </p>
           )}
         </div>
-        {researchBatch && (
-          <details className="qm-research-basis">
-            <summary>调查依据与观测范围</summary>
-            <p>{researchBatch.productSummary}</p>
-            <p>{researchBatch.contributionSummary}</p>
-            <p>{researchBatch.scopeNote}</p>
-            <p>
-              各平台分别展示当前语言的最新记录，历史回答保留在问题详情。“已找到”表示该次记录发现官方来源；“本次未见”不代表未收录，未测也不等于未找到。Google
-              是普通网页结果，API 入口不代表消费端回答。
-            </p>
-            <p>下一步：{researchBatch.nextStep}</p>
-            <button onClick={() => onEvidence(researchBatch.sourceAuditPath)}>
-              产品调查依据
-            </button>
-            <button onClick={() => onEvidence(researchBatch.reviewPath)}>
-              题单审核依据
-            </button>
-          </details>
-        )}
       </div>
       <dialog
         ref={modal}

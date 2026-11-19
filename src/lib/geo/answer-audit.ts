@@ -8,7 +8,7 @@ import { singleRequestModel } from './connection-test';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel, { type ChatGPTInferenceMetadata } from './chatgpt-model';
 import { saveAnswerAudit } from './answer-audit-store';
-import type { AnswerAuditRecord } from './overview-metrics';
+import type { AnswerAuditRecord, AuditedCompetitor } from './overview-metrics';
 import type { CollectedAnswer } from './providers/types';
 import type { ResearchBatch, ResearchObservation } from './research-types';
 import { projectDataDirectory, withGeoProject } from './projects';
@@ -25,13 +25,19 @@ const parameterSchema = z.object({
 }).strict();
 const reason = z.string().trim().min(1).max(1200);
 const verdict = z.enum(['yes', 'no', 'unknown']);
-// Every field is required; no defaults, repairs, or a second model attempt.
+const auditedCompetitorSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  url: z.string().trim().max(2048).optional(),
+}).strict();
+
+// Every core field is required; recommendedCompetitors is optional for backward compatibility with older mocks.
 const resultSchema = z.object({
   mention: verdict,
   citation: verdict,
   mentionEvidence: reason,
   citationEvidence: reason,
   officialUrls: z.array(z.string().min(1).max(2048)).max(40),
+  recommendedCompetitors: z.array(auditedCompetitorSchema).max(8).optional(),
   answerComplete: z.boolean(),
   limitations: z.array(reason).max(12),
   mentionQuote: z.string().max(1600),
@@ -290,6 +296,48 @@ function semanticIssue(result: ModelResult, answer: CollectedAnswer, seed: GeoSe
   return undefined;
 }
 
+function sanitizeRecommendedCompetitors(
+  items: ModelResult['recommendedCompetitors'],
+  seed: GeoSeed,
+  identity: Identity,
+): AuditedCompetitor[] {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const ownNames = new Set(
+    [identity.name, ...identity.aliases]
+      .map((n) => n.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const seen = new Set<string>();
+  const out: AuditedCompetitor[] = [];
+  for (const raw of items) {
+    const name = raw.name.replace(/\s+/g, ' ').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (ownNames.has(key) || seen.has(key)) continue;
+
+    let cleanUrl: string | undefined;
+    if (raw.url && raw.url.trim()) {
+      const parsed = webUrl(raw.url.trim());
+      if (
+        parsed &&
+        !/google\.[a-z.]+\/goto/i.test(parsed.href) &&
+        !CHROME_OR_POLICY_HOSTS.has(parsed.hostname.toLowerCase())
+      ) {
+        const isOwn =
+          matchesProjectURL(parsed.href, seed) ||
+          identity.publishedUrls.some((pub) => exactAssetUrl(parsed.href, pub));
+        if (isOwn) continue;
+        cleanUrl = parsed.href;
+      }
+    }
+
+    seen.add(key);
+    out.push(cleanUrl ? { name, url: cleanUrl } : { name });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 /** Analyze once after collection. Only persistence errors escape to the caller. */
 export async function analyzeResearchObservation(
   batch: ResearchBatch,
@@ -386,16 +434,24 @@ export async function analyzeResearchObservation(
           const issue = semanticIssue(result, answer, seed, identity);
           validated = { result, issue };
           if (issue) audit = unresolved(issue, 'failed', 'model');
-          else audit = {
-            ...base, reviewedAt: new Date().toISOString(), method: 'model',
-            analysisStatus: result.answerComplete && result.mention !== 'unknown' && result.citation !== 'unknown'
-              ? 'complete' : 'needs_review',
-            mention: result.mention, citation: result.citation,
-            mentionEvidence: result.mentionQuote
-              ? `${result.mentionEvidence}\n原文：${result.mentionQuote}` : result.mentionEvidence,
-            citationEvidence: result.citationEvidence, officialUrls: [...new Set(result.officialUrls)],
-            answerComplete: result.answerComplete, limitations: result.limitations,
-          };
+          else {
+            const recommendedCompetitors = sanitizeRecommendedCompetitors(
+              result.recommendedCompetitors,
+              seed,
+              identity,
+            );
+            audit = {
+              ...base, reviewedAt: new Date().toISOString(), method: 'model',
+              analysisStatus: result.answerComplete && result.mention !== 'unknown' && result.citation !== 'unknown'
+                ? 'complete' : 'needs_review',
+              mention: result.mention, citation: result.citation,
+              mentionEvidence: result.mentionQuote
+                ? `${result.mentionEvidence}\n原文：${result.mentionQuote}` : result.mentionEvidence,
+              citationEvidence: result.citationEvidence, officialUrls: [...new Set(result.officialUrls)],
+              ...(recommendedCompetitors.length ? { recommendedCompetitors } : {}),
+              answerComplete: result.answerComplete, limitations: result.limitations,
+            };
+          }
         }
       }
     }

@@ -761,6 +761,10 @@ export function deriveRecommendedTopics(
   return [...out].slice(0, 8);
 }
 
+const THREAD_NON_TOPICAL_TOKENS = new Set([
+  'ai', 'chatgpt', 'com', 'google', 'goto', 'http', 'https', 'net', 'org', 'reddit', 'www',
+]);
+
 export function isRelevantCitedThread(
   page: { title: string; url: string; questionCount?: number },
   project: Pick<GeoProject, 'name' | 'description'>,
@@ -770,12 +774,19 @@ export function isRelevantCitedThread(
   if (NOISE_THREAD_PAGE_RE.test(page.url)) return false;
   if ((page.questionCount ?? 0) >= 2) return true;
   const projectKeywords = collectProjectKeywords(project, batch, onboardingSummary);
+  for (const noise of THREAD_NON_TOPICAL_TOKENS) projectKeywords.delete(noise);
   if (projectKeywords.size === 0) return false;
-  const pageTokens = extractAsciiTokens(`${page.title} ${page.url}`);
+  // Never match redirect wrapper URLs (e.g. google.com/goto?...) as topical text.
+  const urlForMatching = /google\.[a-z.]+\/goto/i.test(page.url) ? '' : page.url;
+  const pageTokens = extractAsciiTokens(`${page.title} ${urlForMatching}`).filter(
+    (tok) => !THREAD_NON_TOPICAL_TOKENS.has(tok),
+  );
   for (const tok of pageTokens) {
     if (projectKeywords.has(tok)) return true;
     for (const part of tok.split('-')) {
-      if (part.length >= 3 && projectKeywords.has(part)) return true;
+      if (part.length >= 3 && !THREAD_NON_TOPICAL_TOKENS.has(part) && projectKeywords.has(part)) {
+        return true;
+      }
     }
   }
   const cleanName = (project.name || '').trim().toLowerCase();
