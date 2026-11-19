@@ -183,36 +183,36 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 18px;
-  border-radius: 10px;
-  background: #147a5b;
+  gap: 7px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 9px;
+  background: #111214;
   color: #ffffff;
-  font-size: 13.5px;
-  font-weight: 650;
-  box-shadow: 0 4px 14px rgba(20, 122, 91, 0.22);
-  transition: background 0.15s ease, transform 0.12s ease;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+  transition: background 0.14s ease, transform 0.12s ease;
   white-space: nowrap;
 }
 
 .ost-shell .ost-btn-primary.is-lg {
-  height: 44px;
-  padding: 0 22px;
-  font-size: 14.5px;
+  height: 42px;
+  padding: 0 20px;
+  font-size: 14px;
 }
 
 .ost-shell .ost-btn-primary.is-sm,
 .ost-modal .ost-btn-primary.is-sm {
-  height: 32px;
-  padding: 0 13px;
+  height: 31px;
+  padding: 0 12px;
   font-size: 12.5px;
   border-radius: 8px;
 }
 
 .ost-shell .ost-btn-primary:hover:not(:disabled),
 .ost-modal .ost-btn-primary:hover:not(:disabled) {
-  background: #0f664b;
+  background: #27272a;
   transform: translateY(-1px);
 }
 
@@ -1626,21 +1626,25 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 13px;
-  border-radius: 999px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  color: #92400e;
+  height: 31px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  color: #27272a;
   font-size: 12.5px;
-  font-weight: 560;
+  font-weight: 550;
   cursor: pointer;
   transition: background-color 0.14s ease, border-color 0.14s ease;
 }
 
+.ost-shell .oap-ledger-pill svg {
+  color: #16a34a;
+}
+
 .ost-shell .oap-ledger-pill:hover {
-  background: #fef3c7;
-  border-color: #f59e0b;
+  background: #f4f4f5;
+  border-color: #d4d4d8;
 }
 
 .ost-shell .oap-stop-btn {
@@ -1771,10 +1775,42 @@
   color: #52525b;
 }
 
+.oap-outreach-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.oap-outreach-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.oap-sub-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #71717a;
+}
+
+.oap-sub-heading em {
+  font-style: normal;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #f4f4f5;
+  color: #52525b;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .oap-card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
   gap: 14px;
+  align-items: start;
 }
 
 .oap-action-card {
@@ -1783,13 +1819,18 @@
   gap: 12px;
   padding: 18px 20px;
   border-radius: 14px;
-  border: 1px solid #e4e6ea;
+  border: 1px solid #e4e6eb;
   background: #ffffff;
-  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition: border-color 0.14s ease;
+}
+
+.oap-action-card:hover {
+  border-color: #d4d4d8;
 }
 
 .oap-action-card.is-ready {
-  border-color: #d6e4de;
+  border-color: #e4e6eb;
 }
 
 .oap-card-top {
@@ -1811,53 +1852,60 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 9px;
-  border-radius: 999px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
   font-size: 11.5px;
-  font-weight: 600;
-  background: #f1f5f9;
-  color: #334155;
+  font-weight: 560;
+  background: #f4f4f5;
+  color: #3f3f46;
 }
 
 .oap-kind-pill.is-pr,
 .oap-kind-pill.is-awesome_pr {
-  background: #ecfdf5;
-  color: #116b4e;
+  background: #eff6ff;
+  border-color: #dbeafe;
+  color: #1d4ed8;
 }
 
 .oap-kind-pill.is-meta,
 .oap-kind-pill.is-repo_meta {
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: #f5f3ff;
+  border-color: #ede9fe;
+  color: #6d28d9;
 }
 
 .oap-kind-pill.is-post,
 .oap-kind-pill.is-community_post {
-  background: #fef3c7;
-  color: #92400e;
+  background: #f0f9ff;
+  border-color: #e0f2fe;
+  color: #0369a1;
 }
 
 .oap-kind-pill.is-doc {
-  background: #f3f4f6;
-  color: #1f2937;
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+  color: #27272a;
 }
 
 .oap-cited-pill {
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: #f4f4f5;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #fafafa;
+  border: 1px solid #eceef2;
   color: #52525b;
   font-size: 11.5px;
-  font-weight: 550;
+  font-weight: 520;
+  font-variant-numeric: tabular-nums;
 }
 
 .oap-priority-pill {
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: #18181b;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #111214;
   color: #ffffff;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .oap-ext-link {
@@ -1865,12 +1913,13 @@
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  font-weight: 550;
-  color: #147a5b;
+  font-weight: 520;
+  color: #52525b;
   text-decoration: none;
 }
 
 .oap-ext-link:hover {
+  color: #111214;
   text-decoration: underline;
 }
 
@@ -1884,10 +1933,75 @@
 
 .oap-action-card h3 {
   margin: 0;
-  font-size: 15.5px;
-  font-weight: 680;
-  color: #18181b;
-  line-height: 1.35;
+  font-size: 15px;
+  font-weight: 660;
+  letter-spacing: -0.015em;
+  color: #111214;
+  line-height: 1.38;
+}
+
+/* Peec Improve content-inspired Evidence inset strip */
+.oap-evidence-box {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid #eceef2;
+  background: #fafafa;
+}
+
+.oap-evidence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.oap-evidence-kicker {
+  font-size: 11px;
+  font-weight: 650;
+  color: #52525b;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.oap-evidence-meta {
+  font-size: 11.5px;
+  color: #71717a;
+}
+
+.oap-evidence-engines {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.oap-evidence-engine-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid #e6e7eb;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 550;
+  color: #3f3f46;
+}
+
+.oap-evidence-engine-tag svg,
+.oap-evidence-engine-tag img {
+  width: 11px !important;
+  height: 11px !important;
+}
+
+.oap-evidence-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #3f3f46;
 }
 
 .oap-card-sub {
@@ -1950,8 +2064,8 @@
   gap: 10px;
   padding: 12px;
   border-radius: 10px;
-  border: 1px solid #d7e7df;
-  background: #f9fcfa;
+  border: 1px solid #e4e6eb;
+  background: #fafafa;
 }
 
 .oap-diff-head {
@@ -1961,15 +2075,15 @@
   gap: 8px;
   font-size: 12px;
   font-weight: 600;
-  color: #116b4e;
+  color: #27272a;
 }
 
 .oap-diff-head code {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: #e6f4ed;
-  color: #116b4e;
+  background: #eef0f3;
+  color: #3f3f46;
 }
 
 .oap-diff-pre {

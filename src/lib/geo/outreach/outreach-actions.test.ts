@@ -8,6 +8,8 @@ import { DEFAULT_PROJECT_ID } from '../projects';
 import type { ResearchBatch } from '../research-types';
 import {
   buildDefaultShowHnDraft,
+  deriveRecommendedTopics,
+  isRelevantCitedThread,
   parseAwesomeInsertion,
   sanitizeAwesomePrDraft,
 } from './outreach-actions';
@@ -161,7 +163,7 @@ test('parseAwesomeInsertion falls back to English description when project descr
   });
 
   assert.equal(/[\u3400-\u9fff]/.test(result.insertedLine), false);
-  assert.ok(result.insertedLine.includes('Open-source, local-first AI search visibility & GEO workbench.'));
+  assert.ok(result.insertedLine.includes('Open-source software project.'));
 });
 
 test('parseAwesomeInsertion rejects duplicate repository links', () => {
@@ -298,4 +300,51 @@ test('buildDefaultShowHnDraft grounds claims strictly in actual project and batc
   assert.match(measuredDraft.draftBody, /AcmeDB in 0\/1 answers/);
   assert.match(measuredDraft.draftBody, /GitHub list example\/awesome-rust-ai/);
   assert.equal(/homonym|same-named/i.test(measuredDraft.draftBody), false);
+});
+
+test('deriveRecommendedTopics and isRelevantCitedThread stay scoped to non-GEO projects', () => {
+  const rustProject = {
+    name: 'HyperCrate',
+    description: 'Async HTTP/2 and HTTP/3 transport library written in Rust.',
+  };
+
+  const topics = deriveRecommendedTopics(rustProject, ['rust']);
+  assert.equal(topics.includes('generative-engine-optimization'), false);
+  assert.equal(topics.includes('geo'), false);
+  assert.ok(topics.includes('rust'));
+  assert.ok(topics.includes('async'));
+
+  assert.equal(
+    isRelevantCitedThread(
+      {
+        title: 'Best async HTTP clients in Rust benchmark',
+        url: 'https://users.rust-lang.org/t/async-http-clients/123',
+        questionCount: 1,
+      },
+      rustProject,
+    ),
+    true,
+  );
+  assert.equal(
+    isRelevantCitedThread(
+      {
+        title: 'Best GEO tools for SaaS',
+        url: 'https://example.com/geo-roundup',
+        questionCount: 1,
+      },
+      rustProject,
+    ),
+    false,
+  );
+  assert.equal(
+    isRelevantCitedThread(
+      {
+        title: 'Sign in',
+        url: 'https://rust-lang.org/login?next=1',
+        questionCount: 4,
+      },
+      rustProject,
+    ),
+    false,
+  );
 });

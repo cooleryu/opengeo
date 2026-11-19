@@ -3,8 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaultAgentHub, type HumanProgressStep, type LLMTransport } from '../../agent-hub';
 import { isProjectOwnedUrl } from '../asset-ownership';
-import { answerAuditorAgent } from '../agents/auditor-agent';
-import { resolveOwnedAssetContent } from '../agents/project-tools';
+import {
+  isSelfWorkspaceRepo,
+  resolveOwnedAssetContent,
+  resolveWorkspaceRepoSlug,
+} from '../agents/project-tools';
+import type { GeoStructuredModel } from '../connection-settings';
 import {
   ensureProjectRelationalData,
   ingestRelationalObservation,
@@ -65,6 +69,27 @@ function normalizeDeliverableContent(
   return `${trimmed}\n`;
 }
 
+const MAX_INTERNAL_REVISION_ROUNDS = 2;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripWorkspaceBlobPrefix(projectId: string, destination: string): string {
+  const trimmed = destination.trim();
+  const slug = resolveWorkspaceRepoSlug();
+  if (!slug) {
+    return trimmed
+      .replace(/^https?:\/\/github\.com\/[^/]+\/[^/]+\/blob\/[^/]+\//i, '')
+      .replace(/^\/+/, '');
+  }
+  const blobPrefixRe = new RegExp(
+    `^https?:\\/\\/github\\.com\\/${escapeRegExp(slug.owner)}\\/${escapeRegExp(slug.repo)}\\/blob\\/[^/]+\\/`,
+    'i',
+  );
+  return trimmed.replace(blobPrefixRe, '').replace(/^\/+/, '');
+}
+
 function buildBilingualCompanionFiles(
   projectId: string,
   destination: string,
@@ -82,14 +107,10 @@ function buildBilingualCompanionFiles(
   if (hanCount < 50) {
     return [];
   }
-  const repoUrl = (loadProjectSeed(projectId).project.repositoryUrl || '').toLowerCase();
-  if (!repoUrl.includes('github.com/cooleryu/opengeo')) {
+  if (!isSelfWorkspaceRepo(loadProjectSeed(projectId))) {
     return [];
   }
-  const rel = destination
-    .trim()
-    .replace(/^https?:\/\/github\.com\/cooleryu\/opengeo\/blob\/[^/]+\//i, '')
-    .replace(/^\/+/, '');
+  const rel = stripWorkspaceBlobPrefix(projectId, destination);
   if (/^README\.md$/i.test(rel)) {
     if (fs.existsSync(path.resolve(process.cwd(), 'README.zh-CN.md'))) {
       return [];
@@ -103,7 +124,9 @@ function buildBilingualCompanionFiles(
         label: '简体中文',
         lang: 'zh-CN',
         content: adaptedZh,
-        deletePaths: ['README.en.md'],
+        ...(fs.existsSync(path.resolve(process.cwd(), 'README.en.md'))
+          ? { deletePaths: ['README.en.md'] }
+          : {}),
       },
     ];
   }
@@ -149,8 +172,7 @@ function buildCompanionMetadata(
   deliverableId: string,
 ): CompanionMetadata {
   const seed = loadProjectSeed(projectId);
-  const repoUrl = (seed.project.repositoryUrl || '').toLowerCase();
-  const isOpenGeoRepo = repoUrl.includes('github.com/cooleryu/opengeo');
+  const isWorkspace = isSelfWorkspaceRepo(seed);
   const rel = destination
     .trim()
     .replace(/^https?:\/\/github\.com\/[^/]+\/[^/]+\/blob\/[^/]+\//i, '')
@@ -163,7 +185,9 @@ function buildCompanionMetadata(
       lang: 'zh-CN',
       reviewOnly: false,
       isRepoDoc: true,
-      ...(isOpenGeoRepo ? { deletePaths: ['README.en.md'] } : {}),
+      ...(isWorkspace && fs.existsSync(path.resolve(process.cwd(), 'README.en.md'))
+        ? { deletePaths: ['README.en.md'] }
+        : {}),
     };
   }
   if (/^docs\/getting-started\.md$/i.test(rel)) {
@@ -348,6 +372,310 @@ export interface StartOptimizationOptions {
   signal?: AbortSignal;
 }
 
+interface PlannedDeliverableShape {
+  priority: number;
+  kind: 'update_asset' | 'new_content';
+  format: 'rich_markdown' | 'web_html';
+  title: string;
+  targetAssetId: string | null;
+  destination: string;
+  audienceAndGoal: string;
+  questionIds: string[];
+  writingBrief: string;
+}
+
+async function produceReviewedDeliverable(params: {
+  projectId: string;
+  run: OptimizationRun;
+  planned: PlannedDeliverableShape;
+  recordId: string;
+  beforeContent: string;
+  companionFiles?: DeliverableCompanionFile[];
+  targetQuestions: Array<{ id: string; queryZh: string; queryEn: string }>;
+  targetLanguage: 'en' | 'zh';
+  referenceWinners: ReferenceWinner[];
+  baseRevisionRound: number;
+  initialDraftToRevise?: string;
+  initialRevisionFeedback?: string[];
+  includeChineseCompanion?: boolean;
+  transport?: LLMTransport;
+  preferredProvider?: 'gemini' | 'deepseek';
+  emitProgress: (step: HumanProgressStep) => void;
+  onRunUpdated?: (updated: OptimizationRun) => void;
+  controller: AbortController;
+  throwIfAborted: () => void;
+}): Promise<{ run: OptimizationRun; ready: boolean; vetoSummary?: string }> {
+  let { run } = params;
+  const {
+    projectId,
+    planned,
+    recordId,
+    beforeContent,
+    companionFiles,
+    targetQuestions,
+    targetLanguage,
+    referenceWinners,
+    baseRevisionRound,
+    transport,
+    preferredProvider,
+    emitProgress,
+    onRunUpdated,
+    controller,
+    throwIfAborted,
+  } = params;
+
+  const transitionRun = (
+    nextStatus: OptimizationRun['status'],
+    extra: Parameters<typeof transitionOptimizationRun>[3],
+  ) => {
+    run = transitionOptimizationRun(projectId, run.id, nextStatus, extra);
+    onRunUpdated?.(run);
+    return run;
+  };
+
+  let writerRes = await defaultAgentHub.run(
+    deliverableWriterAgent,
+    {
+      deliverable: planned,
+      targetQuestions,
+      beforeContent,
+      targetLanguage,
+      referenceWinners,
+      ...(params.initialDraftToRevise ? { draftToRevise: params.initialDraftToRevise } : {}),
+      ...(params.initialRevisionFeedback?.length
+        ? { revisionFeedback: params.initialRevisionFeedback }
+        : {}),
+    },
+    {
+      projectId,
+      transport,
+      preferredProvider,
+      onProgress: emitProgress,
+      signal: controller.signal,
+    },
+  );
+  throwIfAborted();
+
+  let finalTitle = writerRes.output.title;
+  let finalContent = normalizeDeliverableContent(
+    planned.kind,
+    planned.format,
+    writerRes.output.title,
+    writerRes.output.afterContent,
+  );
+  updateDeliverableRecord(projectId, recordId, {
+    title: finalTitle,
+    afterContent: finalContent,
+    mediaManifest: writerRes.output.mediaManifest,
+  });
+
+  transitionRun('reviewing', {
+    statusMessage: `正在对「${finalTitle}」执行真实性、合规边界与读者可读性三红线把关…`,
+    recordStep: true,
+  });
+
+  let reviewRes = await defaultAgentHub.run(
+    deliverableReviewerAgent,
+    {
+      kind: planned.kind,
+      format: planned.format,
+      title: finalTitle,
+      destination: planned.destination,
+      audienceAndGoal: planned.audienceAndGoal,
+      beforeContent,
+      afterContent: writerRes.output.afterContent,
+      targetLanguage,
+      targetQuestions,
+      referenceWinners,
+    },
+    {
+      projectId,
+      transport,
+      preferredProvider,
+      onProgress: emitProgress,
+      signal: controller.signal,
+    },
+  );
+  throwIfAborted();
+
+  let internalRevision = 0;
+  while (reviewRes.output.verdict === 'veto' && internalRevision < MAX_INTERNAL_REVISION_ROUNDS) {
+    internalRevision += 1;
+    updateDeliverableRecord(projectId, recordId, {
+      review: {
+        verdict: 'veto',
+        summary: reviewRes.output.summary,
+        checks: reviewRes.output.checks,
+        revisionRound: baseRevisionRound + internalRevision - 1,
+        revisionInstructions: reviewRes.output.revisionInstructions,
+        reviewedAt: new Date().toISOString(),
+        reviewerModel: reviewRes.model,
+      },
+    });
+    transitionRun('drafting', {
+      statusMessage: `三红线把关提出修改意见，正在自动精修「${finalTitle}」（第 ${internalRevision}/${MAX_INTERNAL_REVISION_ROUNDS} 轮）…`,
+      recordStep: true,
+    });
+
+    writerRes = await defaultAgentHub.run(
+      deliverableWriterAgent,
+      {
+        deliverable: planned,
+        targetQuestions,
+        beforeContent,
+        targetLanguage,
+        referenceWinners,
+        draftToRevise: writerRes.output.afterContent,
+        revisionFeedback: reviewRes.output.revisionInstructions,
+      },
+      {
+        projectId,
+        transport,
+        preferredProvider,
+        onProgress: emitProgress,
+        signal: controller.signal,
+      },
+    );
+    throwIfAborted();
+
+    finalTitle = writerRes.output.title;
+    finalContent = normalizeDeliverableContent(
+      planned.kind,
+      planned.format,
+      writerRes.output.title,
+      writerRes.output.afterContent,
+    );
+    updateDeliverableRecord(projectId, recordId, {
+      title: finalTitle,
+      afterContent: finalContent,
+      mediaManifest: writerRes.output.mediaManifest,
+    });
+
+    transitionRun('reviewing', {
+      statusMessage: `正在对修订后的「${finalTitle}」执行复审把关…`,
+      recordStep: true,
+    });
+
+    reviewRes = await defaultAgentHub.run(
+      deliverableReviewerAgent,
+      {
+        kind: planned.kind,
+        format: planned.format,
+        title: finalTitle,
+        destination: planned.destination,
+        audienceAndGoal: planned.audienceAndGoal,
+        beforeContent,
+        afterContent: writerRes.output.afterContent,
+        targetLanguage,
+        targetQuestions,
+        referenceWinners,
+      },
+      {
+        projectId,
+        transport,
+        preferredProvider,
+        onProgress: emitProgress,
+        signal: controller.signal,
+      },
+    );
+    throwIfAborted();
+  }
+
+  const finalReview: DeliverableReviewResult = {
+    verdict: reviewRes.output.verdict,
+    summary: reviewRes.output.summary,
+    checks: reviewRes.output.checks,
+    revisionRound: baseRevisionRound + internalRevision,
+    revisionInstructions: reviewRes.output.revisionInstructions,
+    reviewedAt: new Date().toISOString(),
+    reviewerModel: reviewRes.model,
+  };
+
+  if (finalReview.verdict === 'veto') {
+    updateDeliverableRecord(projectId, recordId, {
+      status: 'skipped',
+      review: finalReview,
+    });
+    emitProgress({
+      at: new Date().toISOString(),
+      agentId: 'optimization-engine',
+      kind: 'done',
+      message: `「${finalTitle}」内部修订后仍未通过质量红线，已自动搁置，不阻断其它可用成稿。`,
+    });
+    return { run, ready: false, vetoSummary: finalReview.summary };
+  }
+
+  let updatedCompanions: DeliverableCompanionFile[] | undefined;
+  if (targetLanguage === 'en' && params.includeChineseCompanion) {
+    emitProgress({
+      at: new Date().toISOString(),
+      agentId: 'optimization-engine',
+      kind: 'start',
+      message: `正在为「${finalTitle}」生成地道中文对照版…`,
+    });
+    updatedCompanions = await generateZhCompanionForDeliverable(
+      projectId,
+      {
+        id: recordId,
+        title: finalTitle,
+        destination: planned.destination,
+        audienceAndGoal: planned.audienceAndGoal,
+        afterContent: finalContent,
+        beforeContent,
+        companionFiles,
+      },
+      {
+        transport,
+        preferredProvider,
+        onProgress: emitProgress,
+        signal: controller.signal,
+      },
+    );
+    throwIfAborted();
+  }
+
+  updateDeliverableRecord(projectId, recordId, {
+    status: 'ready',
+    review: finalReview,
+    ...(updatedCompanions ? { companionFiles: updatedCompanions } : {}),
+  });
+  return { run, ready: true };
+}
+
+function finalizeRunReviewOutcome(
+  projectId: string,
+  run: OptimizationRun,
+  lastVetoSummary: string | null,
+): OptimizationRun {
+  const latest = getOptimizationRun(projectId, run.id)!;
+  const readyCount = latest.deliverables.filter(
+    (d) => d.status === 'ready' || d.status === 'applied',
+  ).length;
+  if (readyCount === 0) {
+    const reason = lastVetoSummary
+      ? `所有成稿经自动修订后仍未通过质量把关：${lastVetoSummary}`
+      : '未能生成通过质量把关的成稿，请补充项目资料后重试。';
+    return transitionOptimizationRun(projectId, run.id, 'failed', {
+      statusMessage: reason,
+      errorMessage: reason,
+      recordStep: true,
+    });
+  }
+  if (run.status === 'drafting') {
+    transitionOptimizationRun(projectId, run.id, 'reviewing', {
+      statusMessage: '已完成已有成稿把关核对…',
+    });
+  }
+  const message =
+    readyCount === latest.deliverables.length
+      ? '旗舰成稿已通过真实性、合规与可读性三红线把关，等你审阅确认。'
+      : `已为你准备好 ${readyCount} 份通过质检的成稿，可直接审阅采用。`;
+  return transitionOptimizationRun(projectId, run.id, 'awaiting_approval', {
+    statusMessage: message,
+    recordStep: true,
+  });
+}
+
 export async function startOptimizationRun(
   projectId: string,
   options: StartOptimizationOptions = {},
@@ -463,6 +791,7 @@ export async function startOptimizationRun(
       recordStep: true,
     });
 
+    let lastVetoSummary: string | null = null;
     for (const { planned, record } of createdDeliverables) {
       throwIfAborted();
       const targetQuestions = planned.questionIds
@@ -488,215 +817,35 @@ export async function startOptimizationRun(
         updateDeliverableRecord(projectId, record.id, { referenceWinners });
       }
 
-      let writerRes = await defaultAgentHub.run(
-        deliverableWriterAgent,
-        {
-          deliverable: planned,
-          targetQuestions,
-          beforeContent: record.beforeContent,
-          targetLanguage,
-          referenceWinners,
+      const outcome = await produceReviewedDeliverable({
+        projectId,
+        run,
+        planned,
+        recordId: record.id,
+        beforeContent: record.beforeContent,
+        companionFiles: record.companionFiles,
+        targetQuestions,
+        targetLanguage,
+        referenceWinners,
+        baseRevisionRound: 0,
+        includeChineseCompanion: options.includeChineseCompanion,
+        transport: options.transport,
+        preferredProvider,
+        emitProgress,
+        onRunUpdated: (updated) => {
+          run = updated;
         },
-        {
-          projectId,
-          transport: options.transport,
-          preferredProvider,
-          onProgress: emitProgress,
-          signal: controller.signal,
-        },
-      );
-      throwIfAborted();
-
-      let finalTitle = writerRes.output.title;
-      let finalContent = normalizeDeliverableContent(
-        planned.kind,
-        planned.format,
-        writerRes.output.title,
-        writerRes.output.afterContent,
-      );
-      updateDeliverableRecord(projectId, record.id, {
-        title: finalTitle,
-        afterContent: finalContent,
-        mediaManifest: writerRes.output.mediaManifest,
+        controller,
+        throwIfAborted,
       });
-
-      // Enter independent 3-red-line review state
-      run = transitionOptimizationRun(projectId, run.id, 'reviewing', {
-        statusMessage: `正在对「${writerRes.output.title}」执行真实性、合规边界与读者可读性三红线把关…`,
-        recordStep: true,
-      });
-
-      let reviewRes = await defaultAgentHub.run(
-        deliverableReviewerAgent,
-        {
-          kind: planned.kind,
-          format: planned.format,
-          title: writerRes.output.title,
-          destination: planned.destination,
-          audienceAndGoal: planned.audienceAndGoal,
-          beforeContent: record.beforeContent,
-          afterContent: writerRes.output.afterContent,
-          targetLanguage,
-        },
-        {
-          projectId,
-          transport: options.transport,
-          preferredProvider,
-          onProgress: emitProgress,
-          signal: controller.signal,
-        },
-      );
-      throwIfAborted();
-
-      let revisionRound = 0;
-
-      // At most 1 surgical revision round if Reviewer vetoes on a red line
-      if (reviewRes.output.verdict === 'veto') {
-        revisionRound = 1;
-        updateDeliverableRecord(projectId, record.id, {
-          review: {
-            verdict: 'veto',
-            summary: reviewRes.output.summary,
-            checks: reviewRes.output.checks,
-            revisionRound: 0,
-            revisionInstructions: reviewRes.output.revisionInstructions,
-            reviewedAt: new Date().toISOString(),
-            reviewerModel: reviewRes.model,
-          },
-        });
-        run = transitionOptimizationRun(projectId, run.id, 'drafting', {
-          statusMessage: `三红线把关提出修改意见，正在返工精修「${writerRes.output.title}」（第 1/1 次修订）…`,
-          recordStep: true,
-        });
-
-        writerRes = await defaultAgentHub.run(
-          deliverableWriterAgent,
-          {
-            deliverable: planned,
-            targetQuestions,
-            beforeContent: record.beforeContent,
-            targetLanguage,
-            referenceWinners,
-            draftToRevise: writerRes.output.afterContent,
-            revisionFeedback: reviewRes.output.revisionInstructions,
-          },
-          {
-            projectId,
-            transport: options.transport,
-            preferredProvider,
-            onProgress: emitProgress,
-            signal: controller.signal,
-          },
-        );
-        throwIfAborted();
-
-        finalTitle = writerRes.output.title;
-        finalContent = normalizeDeliverableContent(
-          planned.kind,
-          planned.format,
-          writerRes.output.title,
-          writerRes.output.afterContent,
-        );
-        updateDeliverableRecord(projectId, record.id, {
-          title: finalTitle,
-          afterContent: finalContent,
-          mediaManifest: writerRes.output.mediaManifest,
-        });
-
-        run = transitionOptimizationRun(projectId, run.id, 'reviewing', {
-          statusMessage: `正在对修订后的「${writerRes.output.title}」执行复审把关…`,
-          recordStep: true,
-        });
-
-        reviewRes = await defaultAgentHub.run(
-          deliverableReviewerAgent,
-          {
-            kind: planned.kind,
-            format: planned.format,
-            title: writerRes.output.title,
-            destination: planned.destination,
-            audienceAndGoal: planned.audienceAndGoal,
-            beforeContent: record.beforeContent,
-            afterContent: writerRes.output.afterContent,
-            targetLanguage,
-          },
-          {
-            projectId,
-            transport: options.transport,
-            preferredProvider,
-            onProgress: emitProgress,
-            signal: controller.signal,
-          },
-        );
-        throwIfAborted();
+      run = outcome.run;
+      if (!outcome.ready && outcome.vetoSummary) {
+        lastVetoSummary = outcome.vetoSummary;
       }
-
-      const finalReview: DeliverableReviewResult = {
-        verdict: reviewRes.output.verdict,
-        summary: reviewRes.output.summary,
-        checks: reviewRes.output.checks,
-        revisionRound,
-        revisionInstructions: reviewRes.output.revisionInstructions,
-        reviewedAt: new Date().toISOString(),
-        reviewerModel: reviewRes.model,
-      };
-
-      if (finalReview.verdict === 'veto') {
-        updateDeliverableRecord(projectId, record.id, { review: finalReview });
-        return transitionOptimizationRun(projectId, run.id, 'failed', {
-          statusMessage: `成稿未通过三红线把关：${finalReview.summary}`,
-          errorMessage: `成稿经修订仍未通过三红线把关：${finalReview.summary}`,
-          recordStep: true,
-        });
-      }
-
-      let updatedCompanions: DeliverableCompanionFile[] | undefined;
-      if (targetLanguage === 'en' && options.includeChineseCompanion) {
-        emitProgress({
-          at: new Date().toISOString(),
-          agentId: 'optimization-engine',
-          kind: 'start',
-          message: `正在为「${finalTitle}」生成地道中文对照版…`,
-        });
-        updatedCompanions = await generateZhCompanionForDeliverable(
-          projectId,
-          {
-            id: record.id,
-            title: finalTitle,
-            destination: planned.destination,
-            audienceAndGoal: planned.audienceAndGoal,
-            afterContent: finalContent,
-            beforeContent: record.beforeContent,
-            companionFiles: record.companionFiles,
-          },
-          {
-            transport: options.transport,
-            preferredProvider,
-            onProgress: emitProgress,
-            signal: controller.signal,
-          },
-        );
-        throwIfAborted();
-      }
-
-      updateDeliverableRecord(projectId, record.id, {
-        status: 'ready',
-        review: finalReview,
-        ...(updatedCompanions ? { companionFiles: updatedCompanions } : {}),
-      });
     }
 
     throwIfAborted();
-    if (run.status === 'drafting') {
-      run = transitionOptimizationRun(projectId, run.id, 'reviewing', {
-        statusMessage: '已完成已有成稿把关核对…',
-      });
-    }
-
-    return transitionOptimizationRun(projectId, run.id, 'awaiting_approval', {
-      statusMessage: '旗舰成稿已通过真实性、合规与可读性三红线把关，等你审阅确认。',
-      recordStep: true,
-    });
+    return finalizeRunReviewOutcome(projectId, run, lastVetoSummary);
   } catch (error) {
     return handleRunCancellationOrFailure(
       projectId,
@@ -761,9 +910,11 @@ export async function resumeOptimizationRun(
     });
     const questionLookup = new Map(activeQuestions.map((q) => [q.id, q]));
 
+    let lastVetoSummary: string | null = null;
     for (const record of existing.deliverables) {
       throwIfAborted();
       if (record.status === 'ready' && record.review?.verdict === 'pass') continue;
+      if (record.status === 'skipped' || record.status === 'applied') continue;
 
       const targetQuestions = record.questionIds
         .map((qid) => questionLookup.get(qid))
@@ -776,7 +927,7 @@ export async function resumeOptimizationRun(
         });
       }
 
-      const planned = {
+      const planned: PlannedDeliverableShape = {
         priority: record.priority,
         kind: record.kind,
         format: record.format,
@@ -804,134 +955,37 @@ export async function resumeOptimizationRun(
         }
       }
 
-      const writerRes = await defaultAgentHub.run(
-        deliverableWriterAgent,
-        {
-          deliverable: planned,
-          targetQuestions,
-          beforeContent: record.beforeContent,
-          targetLanguage,
-          referenceWinners,
-          ...(record.afterContent ? { draftToRevise: record.afterContent } : {}),
-          ...(record.review?.revisionInstructions?.length
-            ? { revisionFeedback: record.review.revisionInstructions }
-            : {}),
+      const outcome = await produceReviewedDeliverable({
+        projectId,
+        run,
+        planned,
+        recordId: record.id,
+        beforeContent: record.beforeContent,
+        companionFiles: record.companionFiles,
+        targetQuestions,
+        targetLanguage,
+        referenceWinners,
+        baseRevisionRound: record.review?.revisionRound ?? 0,
+        initialDraftToRevise: record.afterContent || undefined,
+        initialRevisionFeedback: record.review?.revisionInstructions,
+        includeChineseCompanion: options.includeChineseCompanion,
+        transport: options.transport,
+        preferredProvider,
+        emitProgress,
+        onRunUpdated: (updated) => {
+          run = updated;
         },
-        {
-          projectId,
-          transport: options.transport,
-          preferredProvider,
-          onProgress: emitProgress,
-          signal: controller.signal,
-        },
-      );
-      throwIfAborted();
-
-      const initialContent = normalizeDeliverableContent(
-        planned.kind,
-        planned.format,
-        writerRes.output.title,
-        writerRes.output.afterContent,
-      );
-      updateDeliverableRecord(projectId, record.id, {
-        title: writerRes.output.title,
-        afterContent: initialContent,
-        mediaManifest: writerRes.output.mediaManifest,
+        controller,
+        throwIfAborted,
       });
-
-      run = transitionOptimizationRun(projectId, run.id, 'reviewing', {
-        statusMessage: `正在对修订后的「${writerRes.output.title}」执行三红线复审…`,
-        recordStep: true,
-      });
-
-      const reviewRes = await defaultAgentHub.run(
-        deliverableReviewerAgent,
-        {
-          kind: record.kind,
-          format: record.format,
-          title: writerRes.output.title,
-          destination: record.destination,
-          audienceAndGoal: record.audienceAndGoal,
-          beforeContent: record.beforeContent,
-          afterContent: writerRes.output.afterContent,
-          targetLanguage,
-        },
-        {
-          projectId,
-          transport: options.transport,
-          preferredProvider,
-          onProgress: emitProgress,
-          signal: controller.signal,
-        },
-      );
-      throwIfAborted();
-
-      const finalReview: DeliverableReviewResult = {
-        verdict: reviewRes.output.verdict,
-        summary: reviewRes.output.summary,
-        checks: reviewRes.output.checks,
-        revisionRound: (record.review?.revisionRound ?? 0) + 1,
-        revisionInstructions: reviewRes.output.revisionInstructions,
-        reviewedAt: new Date().toISOString(),
-        reviewerModel: reviewRes.model,
-      };
-
-      if (finalReview.verdict === 'veto') {
-        updateDeliverableRecord(projectId, record.id, { review: finalReview });
-        return transitionOptimizationRun(projectId, run.id, 'failed', {
-          statusMessage: `成稿未通过三红线把关：${finalReview.summary}`,
-          errorMessage: `成稿经修订仍未通过三红线把关：${finalReview.summary}`,
-          recordStep: true,
-        });
+      run = outcome.run;
+      if (!outcome.ready && outcome.vetoSummary) {
+        lastVetoSummary = outcome.vetoSummary;
       }
-
-      let updatedCompanions: DeliverableCompanionFile[] | undefined;
-      if (targetLanguage === 'en' && options.includeChineseCompanion) {
-        emitProgress({
-          at: new Date().toISOString(),
-          agentId: 'optimization-engine',
-          kind: 'start',
-          message: `正在为「${writerRes.output.title}」生成地道中文对照版…`,
-        });
-        updatedCompanions = await generateZhCompanionForDeliverable(
-          projectId,
-          {
-            id: record.id,
-            title: writerRes.output.title,
-            destination: record.destination,
-            audienceAndGoal: record.audienceAndGoal,
-            afterContent: initialContent,
-            beforeContent: record.beforeContent,
-            companionFiles: record.companionFiles,
-          },
-          {
-            transport: options.transport,
-            preferredProvider,
-            onProgress: emitProgress,
-            signal: controller.signal,
-          },
-        );
-        throwIfAborted();
-      }
-
-      updateDeliverableRecord(projectId, record.id, {
-        status: 'ready',
-        review: finalReview,
-        ...(updatedCompanions ? { companionFiles: updatedCompanions } : {}),
-      });
     }
 
     throwIfAborted();
-    if (run.status === 'drafting') {
-      run = transitionOptimizationRun(projectId, run.id, 'reviewing', {
-        statusMessage: '已完成已有成稿把关核对…',
-      });
-    }
-
-    return transitionOptimizationRun(projectId, run.id, 'awaiting_approval', {
-      statusMessage: '旗舰成稿已通过真实性、合规与可读性三红线把关，等你审阅确认。',
-      recordStep: true,
-    });
+    return finalizeRunReviewOutcome(projectId, run, lastVetoSummary);
   } catch (error) {
     return handleRunCancellationOrFailure(
       projectId,
@@ -954,8 +1008,7 @@ export interface DeliverableDecisionInput {
 }
 
 function resolveSafeNewDocPath(projectId: string, destination: string): string | null {
-  const seed = loadProjectSeed(projectId);
-  if (!(seed.project.repositoryUrl || '').toLowerCase().includes('github.com/cooleryu/opengeo')) {
+  if (!isSelfWorkspaceRepo(loadProjectSeed(projectId))) {
     return null;
   }
   const trimmed = destination.trim().replace(/^\/+/, '');
@@ -1129,8 +1182,34 @@ export interface CapturedRetestAnswer {
 
 export interface RunOptimizationRetestOptions {
   capturedAnswers?: CapturedRetestAnswer[];
+  model?: GeoStructuredModel;
   transport?: LLMTransport;
   preferredProvider?: 'gemini' | 'deepseek';
+}
+
+function adaptTransportToStructuredModel(transport: LLMTransport): GeoStructuredModel {
+  return {
+    async generateObject(input) {
+      const completion = await transport.complete({
+        messages: input.messages.map((m) =>
+          m.role === 'system'
+            ? { role: 'system' as const, content: m.content }
+            : m.role === 'assistant'
+              ? { role: 'assistant' as const, content: m.content }
+              : { role: 'user' as const, content: m.content },
+        ),
+        jsonMode: true,
+        temperature: input.options?.temperature,
+        maxTokens: input.options?.maxTokens,
+      });
+      const rawText = (completion.message.content ?? '').trim();
+      const cleaned = rawText
+        .replace(/^```(?:json)?\s*\r?\n/i, '')
+        .replace(/\r?\n```\s*$/i, '')
+        .trim();
+      return input.schema.parse(JSON.parse(cleaned));
+    },
+  };
 }
 
 export async function runOptimizationRetest(
@@ -1266,6 +1345,10 @@ export async function runOptimizationRetest(
         answerPath: answerFileRel,
       };
 
+      const structuredModel =
+        options.model ??
+        (options.transport ? adaptTransportToStructuredModel(options.transport) : undefined);
+
       const ingested = await ingestRelationalObservation(
         {
           projectId,
@@ -1274,44 +1357,7 @@ export async function runOptimizationRetest(
           answer: item.collected,
           optimizationRunId: runId,
         },
-        {
-          auditor: async ({ observation: obs, answer }) => {
-            const auditRes = await defaultAgentHub.run(
-              answerAuditorAgent,
-              {
-                query: obs.query,
-                answerText: answer?.text ?? '',
-                citationSource: answer?.evidence?.citationSource ?? 'unknown',
-                citationsComplete: answer?.evidence?.citationsComplete ?? false,
-                nativeCitations: (answer?.citations ?? []).map((c) => ({ title: c.title, url: c.url })),
-              },
-              {
-                projectId,
-                transport: options.transport,
-                preferredProvider: resolveDefaultPreferredProvider(
-                  options.preferredProvider,
-                  options.transport,
-                ),
-              },
-            );
-            const out = auditRes.output;
-            return {
-              mention: out.mention,
-              citation: out.citation,
-              mentionEvidence: out.mentionQuote
-                ? `${out.mentionEvidence}\n原文：${out.mentionQuote}`
-                : out.mentionEvidence,
-              citationEvidence: out.citationEvidence,
-              officialUrls: out.officialUrls,
-              answerComplete: true,
-              analysisStatus:
-                out.mention !== 'unknown' && out.citation !== 'unknown' ? 'complete' : 'needs_review',
-              method: 'model',
-              analysisModel: auditRes.model,
-              reviewedAt: new Date().toISOString(),
-            };
-          },
-        },
+        structuredModel ? { model: structuredModel } : {},
       );
 
       // Update observation status ('found' vs 'not_observed') to match semantic mention/citation

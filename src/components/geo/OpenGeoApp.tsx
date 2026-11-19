@@ -30,13 +30,10 @@ import {
   MousePointer2,
   X,
 } from 'lucide-react';
-import type { GeoAsset, GeoState, ResearchTaskContext } from '@/lib/geo/types';
-import type { CompetitorCandidates } from '@/lib/geo/competitor-types';
+import type { GeoAsset, GeoState } from '@/lib/geo/types';
 import {
   getBatchResearchEngines,
-  isResearchEngine,
   RESEARCH_ENGINES,
-  RESEARCH_ENGINE_NAMES,
 } from '@/lib/geo/research-engines';
 import { auditRows, isAiAnswerRow } from '@/lib/geo/overview-metrics';
 import {
@@ -44,11 +41,7 @@ import {
   getResearchRows,
   type TopExternalCitedSource,
 } from '@/lib/geo/research-view';
-import type {
-  ResearchBatch,
-  ResearchQuestion,
-  ResearchEngine,
-} from '@/lib/geo/research-types';
+import type { ResearchBatch } from '@/lib/geo/research-types';
 import VisibilityPanel from './VisibilityPanel';
 import ContentPanel from './ContentPanel';
 import {
@@ -101,7 +94,6 @@ const pages: Page[] = [
   'settings',
 ];
 type Dialog =
-  | 'create'
   | 'implementation'
   | 'monitor'
   | 'live'
@@ -250,10 +242,6 @@ function MarkdownBody({
 
 function OpenGeoAppInner() {
   const { t, uiLanguage, setUiLanguage } = useUiLanguage();
-  const [researchContext, setResearchContext] =
-    useState<ResearchTaskContext | null>(null);
-  const [competitorReferenceName, setCompetitorReferenceName] = useState('');
-  const [legacyQuestionPlan, setLegacyQuestionPlan] = useState(false);
   const [projectId, setProjectId] = useState('');
   const projectRef = useRef(projectId);
   const refreshVersion = useRef(0);
@@ -328,11 +316,6 @@ function OpenGeoAppInner() {
       content: string;
       format: string;
     } | null>(null);
-  const [goal, setGoal] = useState(
-    '让项目在相关问题的搜索结果中被找到，给我一个有依据的改进方案，并持续观察它是否有效。',
-  );
-  const [collectionProvider, setCollectionProvider] =
-    useState<ResearchEngine>('chatgpt');
   const [implementationKind, setImplementationKind] = useState<
       'rehearsal' | 'user_confirmed'
     >('rehearsal'),
@@ -571,12 +554,6 @@ function OpenGeoAppInner() {
   }, [projectId]);
 
   useEffect(() => {
-    if (data)
-      setGoal(
-        `让 ${data.project.name} 在相关问题的搜索结果中被找到，给我一个有依据的改进方案，并持续观察它是否有效。`,
-      );
-  }, [data?.project.id]);
-  useEffect(() => {
     if (!projectMenuOpen) return;
     const dismiss = (event: MouseEvent) => {
       if (!(event.target as Element).closest('.og-project-picker'))
@@ -679,9 +656,6 @@ function OpenGeoAppInner() {
     'chatgpt';
   const providerOptions = data?.settings.collectionProviders ?? [];
   const taskProviderStatus = providerOptions.find((p) => p.id === taskProvider);
-  const newProviderStatus = providerOptions.find(
-    (p) => p.id === collectionProvider,
-  );
   const taskProviderLabel =
     taskProviderStatus?.label ??
     (taskProvider === 'google' ? 'Google' : 'ChatGPT');
@@ -692,11 +666,6 @@ function OpenGeoAppInner() {
     (task?.monitor.queryIds.length || data?.questions.length || 0);
   const monitorRunCost =
     monitorQuestionCount * (answerCollection ? 0.1 : 0.005);
-  const selectedQuestionCount =
-    data?.questionPlan.candidates.filter(
-      (candidate) =>
-        candidate.selected && candidate.review.decision !== 'exclude',
-    ).length ?? 0;
   const act = async (
     action: string,
     payload: Record<string, unknown> = {},
@@ -828,245 +797,17 @@ function OpenGeoAppInner() {
     setCostConsent(false);
     setDialog('monitor');
   };
-  const createTask = async () => {
-    if (!goal.trim()) return;
-    if (data?.latestResearch && !researchContext && !legacyQuestionPlan) {
-      setToast('请选择本轮要解决的问题。');
-      return;
-    }
-    const result = await act(
-      'create_task',
-      {
-        goal,
-        collectionProvider,
-        ...(researchContext ? { researchContext } : {}),
-        legacyQuestionPlan,
-      },
-      '任务已创建，原问题和依据已保存',
-    );
-    if (result) {
-      const added = result.tasks.find(
-        (t) => !data?.tasks.some((old) => old.id === t.id),
-      );
-      navigate('tasks', added?.id ?? task?.id ?? selectedTask);
-      setDialog(null);
-      setResearchContext(null);
-      setLegacyQuestionPlan(false);
-    }
-  };
-  const startSavedResearchPlan = async (
-    question: ResearchQuestion,
-    language: 'zh' | 'en',
-    engine: ResearchEngine,
-  ) => {
-    if (!data?.latestResearch || busy) return;
-    const context = { batchId: data.latestResearch.id, questionId: question.id, language, engine };
-    const existing = data.tasks.find(item =>
-      item.researchContext?.batchId === context.batchId &&
-      item.researchContext?.questionId === question.id &&
-      item.researchContext?.language === language &&
-      item.researchContext?.engine === engine &&
-      item.researchContext?.purpose !== 'investigate_gap' &&
-      !item.implementation,
-    );
-    if (existing && (existing.proposal || existing.status === 'investigating')) {
-      navigate('tasks', existing.id);
-      return;
-    }
-    let taskId = existing?.id;
-    if (!taskId) {
-      const result = await act('create_task', {
-        goal: `${question[language]}\n\n对照已有回答与自有内容，提出有依据、可实施并能复测的改进方案。`,
-        collectionProvider,
-        researchContext: context,
-      });
-      if (!result) return;
-      taskId = result.tasks.find(item => !data.tasks.some(old => old.id === item.id))?.id;
-    }
-    if (!taskId) return;
-    navigate('tasks', taskId);
-    await act('plan_from_saved', { taskId, maxQualityRounds: 2 }, '已开始比较已有回答、生成方案并独立审核');
-  };
-  const openResearchTask = (
-    question: ResearchQuestion,
-    language: 'zh' | 'en',
-    engine: ResearchEngine,
-  ) => {
-    if (!data?.latestResearch) return;
-    setLegacyQuestionPlan(false);
-    setResearchContext({
-      batchId: data.latestResearch.id,
-      questionId: question.id,
-      language,
-      engine,
-    });
-    setGoal(
-      [
-        language === 'zh' ? question.zh : question.en,
-        '已观察：' + question.diagnosis.observed,
-        '待验证：' + question.diagnosis.hypothesis,
-        '下一步：' + question.diagnosis.nextStep,
-      ].join('\n\n'),
-    );
-    setDialog('create');
-  };
-  const openAssetImprovement = (context: ResearchTaskContext) => {
-    const batch = data?.latestResearch;
-    const question = [
-      ...(batch?.questions || []),
-      ...(batch?.deferredQuestions || []),
-    ].find((item) => item.id === context.questionId);
-    if (!batch || !question) return;
-    setResearchContext(context);
-    setLegacyQuestionPlan(false);
-    setGoal(
-      [
-        question[context.language],
-        context.gap
-          ? `核查并补齐：${context.gap}`
-          : question.diagnosis.nextStep,
-      ].join('\n\n'),
-    );
-    setDialog('create');
+  const openActionPlanRef = useRef<() => void>(() => {});
+  openActionPlanRef.current = () => navigate('tasks');
+
+  const routeLegacyImprovementToActionPlan = () => {
+    navigate('tasks');
   };
   useEffect(() => {
-    let active = true;
-    let request: AbortController | undefined;
-    const openCompetitorImprovement = async (event: Event) => {
-      const detail = (event as CustomEvent<Partial<ResearchTaskContext>>)
-        .detail;
-      if (!detail || !data || detail.projectId !== data.project.id) return;
-      if (
-        typeof detail.batchId !== 'string' ||
-        !detail.batchId ||
-        typeof detail.questionId !== 'string' ||
-        typeof detail.candidateId !== 'string' ||
-        !isResearchEngine(detail.engine) ||
-        (detail.language !== 'zh' && detail.language !== 'en')
-      ) {
-        setToast('改进依据不完整，请重新选择改进方向。');
-        return;
-      }
-      request?.abort();
-      const controller = new AbortController();
-      request = controller;
-      const isCurrent = () =>
-        active &&
-        !controller.signal.aborted &&
-        projectRef.current === detail.projectId;
-      try {
-        const params = new URLSearchParams({
-          project: data.project.id,
-          batch: detail.batchId,
-        });
-        let requestedBatch = data.latestResearch;
-        if (requestedBatch?.id !== detail.batchId) {
-          const response = await fetch(`/api/geo/research?${params}`, {
-            cache: 'no-store',
-            signal: controller.signal,
-          });
-          const result: { batch?: ResearchBatch | null; error?: string } =
-            await response.json();
-          if (!isCurrent()) return;
-          if (!response.ok)
-            throw new Error(result.error || '历史批次无法读取。');
-          requestedBatch = result.batch;
-        }
-        const batch = requestedBatch;
-        if (
-          !batch ||
-          batch.id !== detail.batchId ||
-          batch.projectId !== detail.projectId
-        )
-          throw new Error('返回的项目或研究批次不匹配，请重新选择改进方向。');
-        const question = batch.questions.find(
-          (item) => item.id === detail.questionId,
-        );
-        if (!question) throw new Error('这份研究批次中没有找到所选问题。');
-        const response = await fetch(
-          `/api/geo/competitor-candidates?${params}`,
-          { cache: 'no-store', signal: controller.signal },
-        );
-        const result: CompetitorCandidates & { error?: string } =
-          await response.json();
-        if (!response.ok) throw new Error(result.error || '暂时无法读取参照。');
-        if (!isCurrent()) return;
-        if (
-          result.projectId !== detail.projectId ||
-          result.batch?.id !== batch.id
-        )
-          throw new Error('返回的参照项目或批次不匹配，请重新选择改进方向。');
-        const reference = result.selectedCandidate;
-        if (
-          result.selection?.candidateId !== detail.candidateId ||
-          reference?.id !== detail.candidateId
-        )
-          throw new Error('参照已变化，请重新选择改进方向。');
-        const scopedEvidenceIds = new Set(
-          reference.questions
-            .filter(
-              (item) =>
-                item.batchId === batch.id &&
-                item.questionId === question.id &&
-                item.language === detail.language &&
-                item.engine === detail.engine,
-            )
-            .map((item) => item.evidenceId)
-            .filter(Boolean),
-        );
-        const opportunities =
-          reference.analysis?.opportunities.filter(
-            (item) =>
-              item.questionId === question.id &&
-              item.evidenceIds.length > 0 &&
-              item.evidenceIds.every((id) => scopedEvidenceIds.has(id)),
-          ) ?? [];
-        if (!opportunities.length)
-          throw new Error('这道问题暂无参照改进依据。');
-        setResearchContext({
-          projectId: detail.projectId,
-          batchId: batch.id,
-          questionId: question.id,
-          language: detail.language,
-          engine: detail.engine,
-          candidateId: reference.id,
-        });
-        setCompetitorReferenceName(reference.name);
-        setLegacyQuestionPlan(false);
-        const brief = [
-          question[detail.language],
-          `参照：${reference.name}`,
-          ...opportunities.map(
-            (item) =>
-              `已观察：${item.observed}\n待验证：${item.hypothesis}\n改进方向：${item.action}`,
-          ),
-        ].join('\n\n');
-        setGoal(
-          `${brief.length > 1800 ? `${brief.slice(0, 1799)}…` : brief}\n\n目标：自身比之前好，并缩小与参照的差距；同条件复测后分别判断。`,
-        );
-        if (['chatgpt', 'google'].includes(detail.engine))
-          setCollectionProvider(detail.engine as ResearchEngine);
-        setDialog('create');
-      } catch (error) {
-        if (isCurrent())
-          setToast(
-            error instanceof Error ? error.message : '暂时无法读取参照。',
-          );
-      }
-    };
-    window.addEventListener(
-      'geo-competitor-improve',
-      openCompetitorImprovement,
-    );
-    return () => {
-      active = false;
-      request?.abort();
-      window.removeEventListener(
-        'geo-competitor-improve',
-        openCompetitorImprovement,
-      );
-    };
-  }, [data]);
+    const handler = () => openActionPlanRef.current();
+    window.addEventListener('geo-competitor-improve', handler);
+    return () => window.removeEventListener('geo-competitor-improve', handler);
+  }, []);
   const confirmImplementation = async () => {
     const actualDate =
       implementationKind === 'user_confirmed'
@@ -1486,6 +1227,7 @@ function OpenGeoAppInner() {
                         questionCount={data.latestResearch.questions.length}
                         missedQuestionCount={overviewMissedCount}
                         topCitedSources={topCitedSources}
+                        hideCitedStrip={page === 'overview'}
                         onOpenStudio={(runId) => navigate('tasks', runId ?? '')}
                         onOpenQuestions={() => navigate('question-plan')}
                         onStatusChange={setOptViewModel}
@@ -1510,8 +1252,10 @@ function OpenGeoAppInner() {
                     onOverview={() => navigate('overview')}
                     onAssets={() => navigate('assets')}
                     onReview={() => navigate('question-plan')}
-                    onImprove={openResearchTask}
-                    onPlan={startSavedResearchPlan}
+                    onImprove={routeLegacyImprovementToActionPlan}
+                    onPlan={async () => {
+                      routeLegacyImprovementToActionPlan();
+                    }}
                     claimReviews={data.claimReviews ?? []}
                     onClaimReview={async (review) => {
                       const result = await act(
@@ -1649,9 +1393,7 @@ function OpenGeoAppInner() {
                 <VisibilityPanel
                   data={data}
                   onQuestions={() => navigate('question-plan')}
-                  onTask={() =>
-                    groups.tasks.length ? openTask() : setDialog('create')
-                  }
+                  onTask={() => openTask()}
                   onAsset={setAsset}
                   onEvidence={openEvidence}
                 />
@@ -1787,7 +1529,7 @@ function OpenGeoAppInner() {
                   data={data}
                   onAsset={setAsset}
                   onTask={() => openTask()}
-                  onImprove={openAssetImprovement}
+                  onImprove={routeLegacyImprovementToActionPlan}
                   onGovernance={async (governance) => {
                     const result = await act(
                       'save_asset_governance',
@@ -1859,13 +1601,7 @@ function OpenGeoAppInner() {
                           '已确认要监测的问题',
                         );
                       }}
-                      onContinue={() => {
-                        if (groups.tasks.length) navigate('tasks');
-                        else {
-                          setResearchContext(null);
-                          setDialog('create');
-                        }
-                      }}
+                      onContinue={() => navigate('tasks')}
                     />
                   </div>
                 </Modal>
@@ -1904,245 +1640,6 @@ function OpenGeoAppInner() {
             <X size={14} />
           </button>
         </div>
-      )}
-      {dialog === 'create' && (
-        <Modal
-          title="新建改进任务"
-          onClose={() => {
-            setDialog(null);
-            setResearchContext(null);
-          }}
-        >
-          <div className="og-modal-body">
-            {data?.latestResearch && !legacyQuestionPlan && (
-              <>
-                <label
-                  className="og-field-label"
-                  htmlFor="research-task-question"
-                >
-                  这次解决哪个问题？
-                </label>
-                <GeoSelect
-                  id="research-task-question"
-                  label="这次解决哪个问题？"
-                  value={researchContext?.questionId || ''}
-                  onChange={(value) => {
-                    const question = data.latestResearch!.questions.find(
-                      (item) => item.id === value,
-                    );
-                    if (question)
-                      openResearchTask(
-                        question,
-                        researchContext?.language || 'zh',
-                        researchContext?.engine || 'chatgpt',
-                      );
-                  }}
-                  disabled={
-                    researchContext?.purpose === 'investigate_gap' ||
-                    Boolean(researchContext?.candidateId)
-                  }
-                  options={[
-                    { value: '', label: '选择本轮问题' },
-                    ...[
-                      ...data.latestResearch.questions,
-                      ...data.latestResearch.deferredQuestions.filter(
-                        (item) => item.id === researchContext?.questionId,
-                      ),
-                    ].map((question) => ({
-                      value: question.id,
-                      label: question[researchContext?.language || 'zh'],
-                    })),
-                  ]}
-                />
-                {researchContext && (
-                  <div className="og-form-grid">
-                    <label className="og-field-label">
-                      问题语言
-                      <GeoSelect<'zh' | 'en'>
-                        label="任务问题语言"
-                        value={researchContext.language}
-                        disabled={Boolean(researchContext.candidateId)}
-                        onChange={(language) =>
-                          setResearchContext({
-                            ...researchContext,
-                            language,
-                          })
-                        }
-                        options={[
-                          { value: 'zh', label: '中文' },
-                          { value: 'en', label: '英文' },
-                        ]}
-                      />
-                    </label>
-                    <label className="og-field-label">
-                      原始观测
-                      <GeoSelect<ResearchEngine>
-                        label="任务原始观测"
-                        value={researchContext.engine}
-                        disabled={Boolean(researchContext.candidateId)}
-                        onChange={(engine) =>
-                          setResearchContext({
-                            ...researchContext,
-                            engine,
-                          })
-                        }
-                        options={getBatchResearchEngines(
-                          data.latestResearch,
-                        ).map((engine) => ({
-                          value: engine,
-                          label: RESEARCH_ENGINE_NAMES[engine],
-                        }))}
-                      />
-                    </label>
-                  </div>
-                )}
-                {researchContext && (
-                  <label className="og-field-label">
-                    目标材料
-                    <GeoSelect
-                      label="任务目标材料"
-                      value={researchContext.targetAssetId || ''}
-                      onChange={(value) =>
-                        setResearchContext({
-                          ...researchContext,
-                          targetAssetId: value || undefined,
-                        })
-                      }
-                      options={[
-                        { value: '', label: '由诊断匹配已有材料' },
-                        ...data.assets
-                          .filter((item) => item.publicUrl && item.markdown)
-                          .map((item) => ({
-                            value: item.id,
-                            label: item.title,
-                          })),
-                      ]}
-                    />
-                  </label>
-                )}
-              </>
-            )}
-            <label className="og-field-label">希望解决什么问题？</label>
-            <textarea
-              className="og-goal-input"
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              placeholder={`例如：让有相关需求的人找到 ${data?.project.name ?? '项目'} 的内容。`}
-              autoFocus
-            />
-            <label className="og-field-label" htmlFor="collection-provider">
-              本次观察哪个入口？
-            </label>
-            <GeoSelect<ResearchEngine>
-              id="collection-provider"
-              label="本次观察哪个入口？"
-              value={collectionProvider}
-              onChange={setCollectionProvider}
-              options={
-                providerOptions.length
-                  ? providerOptions.map((provider) => ({
-                      value: provider.id,
-                      label: `${provider.label}${provider.configured ? '' : ' · 待配置'}`,
-                    }))
-                  : [
-                      { value: 'chatgpt', label: 'ChatGPT' },
-                      { value: 'google', label: 'Google' },
-                    ]
-              }
-            />
-            <p className="og-muted">
-              {collectionProvider === 'google'
-                ? '观察 Google 搜索结果与 AI 概览是否包含目标内容。'
-                : '观察 ChatGPT 联网回答是否引用目标内容。'}
-              {newProviderStatus &&
-                !newProviderStatus.configured &&
-                ` 可先创建任务；真实采集还需要：${newProviderStatus.missing.join('、')}。`}
-            </p>
-            <div className="og-task-scope">
-              <span className="og-project-avatar small">
-                {data?.project.name.slice(0, 1).toUpperCase()}
-              </span>
-              <div>
-                <strong>{data?.project.name}</strong>
-                <p>
-                  {researchContext
-                    ? '选定问题' +
-                      ' · ' +
-                      (researchContext.language === 'zh' ? '中文' : '英文') +
-                      ' · 1 道研究题及其原始观测'
-                    : '使用历史题单：已有 ' +
-                      (data?.assets.length ?? 0) +
-                      ' 份内容和 ' +
-                      selectedQuestionCount +
-                      ' 道草稿题调查'}
-                </p>
-              </div>
-              <Check size={17} />
-            </div>
-            <div className="og-inline-note">
-              <ShieldCheck size={16} /> 创建任务不会开始付费搜索。
-            </div>
-            {researchContext?.candidateId && (
-              <div className="og-task-scope">
-                <div>
-                  <strong>参照：{competitorReferenceName}</strong>
-                  <p>自身比之前好 · 与参照差距缩小</p>
-                  <p className="og-muted">
-                    创建时保存参照与基线，结果待同条件复测。
-                  </p>
-                </div>
-              </div>
-            )}
-            {researchContext && (
-              <p className="og-muted">
-                原始观测随任务保留。后续采集会建立自己的基线；不同入口或条件不直接比较。
-              </p>
-            )}
-            {data?.latestResearch && !researchContext && (
-              <details>
-                <summary>历史题单入口</summary>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={legacyQuestionPlan}
-                    onChange={(event) =>
-                      setLegacyQuestionPlan(event.target.checked)
-                    }
-                  />{' '}
-                  使用旧题单创建兼容任务（{selectedQuestionCount}题）
-                </label>
-              </details>
-            )}
-          </div>
-          <div className="og-modal-actions">
-            <button
-              className="og-button secondary"
-              onClick={() => {
-                setDialog(null);
-                setResearchContext(null);
-              }}
-            >
-              取消
-            </button>
-            <button
-              className="og-button primary"
-              disabled={
-                !!busy ||
-                !goal.trim() ||
-                (!!data?.latestResearch &&
-                  !researchContext &&
-                  !legacyQuestionPlan)
-              }
-              onClick={createTask}
-            >
-              {loadingButton(
-                'create_task',
-                '创建任务',
-                <ArrowRight size={16} />,
-              )}
-            </button>
-          </div>
-        </Modal>
       )}
       {dialog === 'implementation' && (
         <Modal title="登记实施情况" onClose={() => setDialog(null)}>

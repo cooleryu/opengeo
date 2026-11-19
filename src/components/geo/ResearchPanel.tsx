@@ -75,7 +75,11 @@ type Props = {
     engine: ResearchEngine,
   ) => void;
   claimReviews?: ClaimReviewRecord[];
-  onPlan?: (question: ResearchQuestion, language: 'zh' | 'en', engine: ResearchEngine) => Promise<void>;
+  onPlan?: (
+    question?: ResearchQuestion,
+    language?: 'zh' | 'en',
+    engine?: ResearchEngine,
+  ) => Promise<void> | void;
   onClaimReview?: (input: ClaimReviewInput) => Promise<void>;
 };
 type Drawer = {

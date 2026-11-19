@@ -6,6 +6,10 @@ import type {
   ResearchQuestion,
   ResearchEngine,
 } from './research-types';
+import {
+  extractRegistrableDomainParts,
+  parseGitHubRepoUrl,
+} from './source-identity';
 import type { GeoProject } from './types';
 
 export type ResearchFilter = {
@@ -56,81 +60,6 @@ export function isBrandPrompt(question: ResearchQuestion, projectName?: string):
 }
 
 const SKIP_INTERNAL_HOST_RE = /(^|\.)(google\.[a-z.]+|chatgpt\.com|openai\.com|bing\.com)$/i;
-const GITHUB_NON_REPO_OWNERS = new Set([
-  'topics',
-  'search',
-  'orgs',
-  'features',
-  'pricing',
-  'about',
-  'settings',
-  'explore',
-  'marketplace',
-  'sponsors',
-  'collections',
-  'events',
-  'login',
-  'signup',
-  'trending',
-  'blog',
-  'customer-stories',
-  'security',
-  'enterprise',
-  'readme',
-  'pulls',
-  'issues',
-  'notifications',
-]);
-
-const TWO_PART_PUBLIC_SUFFIXES = new Set([
-  'co.uk',
-  'org.uk',
-  'ac.uk',
-  'gov.uk',
-  'com.au',
-  'net.au',
-  'org.au',
-  'co.jp',
-  'ne.jp',
-  'or.jp',
-  'com.cn',
-  'net.cn',
-  'org.cn',
-  'com.br',
-  'co.in',
-  'co.kr',
-  'co.nz',
-  'com.sg',
-  'com.hk',
-  'com.tw',
-  'github.io',
-  'gitlab.io',
-  'vercel.app',
-  'netlify.app',
-  'pages.dev',
-  'readthedocs.io',
-  'gitbook.io',
-  'substack.com',
-]);
-
-function extractRegistrableDomainParts(
-  host: string,
-): { registrableDomain: string; sld: string } | null {
-  const labels = host.split('.').filter(Boolean);
-  if (labels.length < 2) return null;
-  if (labels.length >= 3) {
-    const tailTwo = `${labels[labels.length - 2]}.${labels[labels.length - 1]}`;
-    if (TWO_PART_PUBLIC_SUFFIXES.has(tailTwo)) {
-      const sld = labels[labels.length - 3] ?? '';
-      return sld
-        ? { registrableDomain: `${sld}.${tailTwo}`, sld }
-        : { registrableDomain: tailTwo, sld: tailTwo.split('.')[0] ?? '' };
-    }
-  }
-  const sld = labels[labels.length - 2] ?? '';
-  const tld = labels[labels.length - 1] ?? '';
-  return sld && tld ? { registrableDomain: `${sld}.${tld}`, sld } : null;
-}
 
 const MULTI_TENANT_HOSTS = new Set([
   'github.com',
@@ -175,25 +104,20 @@ function normalizeExternalCitedSource(
     if (!host || SKIP_INTERNAL_HOST_RE.test(host)) return null;
     if (host === 'github.com' || host.endsWith('.github.com')) {
       if (host !== 'github.com') return null;
-      const parts = u.pathname.split('/').filter(Boolean);
-      const owner = parts[0];
-      const repo = parts[1]?.replace(/\.git$/i, '');
-      if (!owner || !repo || GITHUB_NON_REPO_OWNERS.has(owner.toLowerCase())) {
-        return null;
-      }
-      const key = `github.com/${owner.toLowerCase()}/${repo.toLowerCase()}`;
-      const isAwesomeOrList = /awesome|list|directory|curated/i.test(`${owner}/${repo}`);
-      const ownerStem = stripVendorSuffix(owner);
+      const gh = parseGitHubRepoUrl(rawUrl, { allowSubpaths: true });
+      if (!gh) return null;
+      const isAwesomeOrList = /awesome|list|directory|curated/i.test(`${gh.owner}/${gh.repo}`);
+      const ownerStem = stripVendorSuffix(gh.owner);
       const entityKey =
-        !isAwesomeOrList && ownerStem.length >= 4 ? `brand:${ownerStem}` : key;
+        !isAwesomeOrList && ownerStem.length >= 4 ? `brand:${ownerStem}` : gh.key;
       return {
-        key,
+        key: gh.key,
         entityKey,
         ...(entityKey.startsWith('brand:')
           ? { mergedLabel: capitalizeBrand(ownerStem) }
           : {}),
-        label: `${owner}/${repo}`,
-        url: `https://github.com/${owner}/${repo}`,
+        label: `${gh.owner}/${gh.repo}`,
+        url: gh.url,
       };
     }
 
@@ -605,6 +529,226 @@ export function extractOutreachCitedPages(
     limit - primary.length,
   );
   return [...primary, ...supplemental];
+}
+
+export type OverviewGapSourceKind = 'awesome' | 'community' | 'roundup' | 'competitor';
+
+export interface OverviewGapSource {
+  key: string;
+  title: string;
+  subtitle: string;
+  url: string;
+  kind: OverviewGapSourceKind;
+  questionCount: number;
+  engines: ResearchEngine[];
+  actionHint: 'submit_pr' | 'community_draft' | 'inspect';
+}
+
+function inferDisplayHost(host: string, title: string, url: string): string {
+  if (host) return host;
+  const hay = `${title} ${url}`.toLowerCase();
+  if (/\breddit\b|(?:^|[\s·/])r\/[a-z0-9_]+/i.test(hay)) return 'reddit.com';
+  if (/\byoutube\b|watch on youtube/i.test(hay)) return 'youtube.com';
+  if (/hacker news|news\.ycombinator/i.test(hay)) return 'news.ycombinator.com';
+  return 'web';
+}
+
+function classifyOverviewGapKind(
+  title: string,
+  url: string,
+  host: string,
+): OverviewGapSourceKind {
+  const hay = `${title} ${url} ${host}`.toLowerCase();
+  if (
+    host === 'github.com' &&
+    /\/(?:awesome-[^/]+|[^/]*awesome[^/]*|[^/]*curated[^/]*)/i.test(url)
+  ) {
+    return 'awesome';
+  }
+  if (
+    /\breddit\b|(?:^|[\s·/])r\/[a-z0-9_]+|news\.ycombinator\.com|hacker news|\bdev\.to\b|stackoverflow\.com|\/discussions/i.test(
+      hay,
+    )
+  ) {
+    return 'community';
+  }
+  if (
+    /\bbest\b|\btop\s+\d+|\balternatives?\b|\bcompared\b|\bcomparison\b|\bvs\.?\b|\bhow to\b|\bguide\b|watch on youtube/i.test(
+      hay,
+    )
+  ) {
+    return 'roundup';
+  }
+  return 'competitor';
+}
+
+function cleanGapTitle(rawTitle: string, url: string, host: string): string {
+  const trimmed = rawTitle.replace(/\s+/g, ' ').trim();
+  if (host === 'github.com') {
+    const gh = parseGitHubRepoUrl(url, { allowSubpaths: true });
+    if (gh) return `${gh.owner}/${gh.repo}`;
+  }
+  if (/^github repository$/i.test(trimmed) && host) {
+    return host;
+  }
+  return trimmed.length > 74 ? `${trimmed.slice(0, 73).trimEnd()}…` : trimmed;
+}
+
+/**
+ * Extracts a Peec-style Top-N external citation gap table for Overview:
+ * prioritizes actionable third-party targets (Awesome lists, community threads,
+ * roundup guides) alongside top cited competitor domains/repos.
+ */
+export function extractOverviewGapSources(
+  batch: ResearchBatch | null | undefined,
+  project?: { repositoryUrl?: string | null; siteUrl?: string | null } | null,
+  options?: {
+    engine?: 'all' | ResearchEngine;
+    language?: 'en' | 'zh';
+    limit?: number;
+  },
+): OverviewGapSource[] {
+  if (!batch?.questions?.length) return [];
+
+  const limit = Math.max(1, options?.limit ?? 5);
+  const targetEngine = options?.engine ?? 'all';
+  const engines =
+    targetEngine === 'all' ? getBatchResearchEngines(batch) : [targetEngine];
+  const language = options?.language;
+  const ownedProject = project
+    ? {
+        repositoryUrl: project.repositoryUrl ?? '',
+        siteUrl: project.siteUrl ?? '',
+      }
+    : null;
+
+  const map = new Map<
+    string,
+    {
+      key: string;
+      title: string;
+      subtitle: string;
+      url: string;
+      kind: OverviewGapSourceKind;
+      questionIds: Set<string>;
+      engines: Set<ResearchEngine>;
+      totalHits: number;
+    }
+  >();
+
+  for (const question of batch.questions) {
+    for (const engine of engines) {
+      const matching = question.observations.filter(
+        (obs) =>
+          obs.engine === engine &&
+          obs.entryType === 'web_answer' &&
+          (!language || obs.language === language),
+      );
+      const fallback =
+        matching.length > 0
+          ? matching
+          : question.observations.filter(
+              (obs) => obs.engine === engine && obs.entryType === 'web_answer',
+            );
+      const latest = getLatestResearchObservation(fallback);
+      if (!latest) continue;
+
+      for (const ref of latest.sources ?? []) {
+        const rawTitle = (ref?.title ?? '').replace(/\s+/g, ' ').trim();
+        if (!rawTitle || !isUsefulOutreachTitle(rawTitle)) continue;
+        const normalized = normalizeOutreachSourceUrl(ref.url ?? '');
+        if (!normalized) continue;
+        if (ownedProject && isProjectOwnedUrl(normalized.url, ownedProject)) continue;
+
+        const gh =
+          normalized.host === 'github.com'
+            ? parseGitHubRepoUrl(normalized.url, { allowSubpaths: true })
+            : null;
+
+        const displayHost = inferDisplayHost(
+          normalized.host,
+          rawTitle,
+          normalized.url,
+        );
+        const kind = classifyOverviewGapKind(
+          rawTitle,
+          normalized.url,
+          normalized.host,
+        );
+        const title = cleanGapTitle(rawTitle, normalized.url, normalized.host);
+
+        let dedupKey: string;
+        if (gh) {
+          dedupKey = gh.key;
+        } else if (kind === 'competitor' && normalized.host) {
+          dedupKey = `host:${normalized.host}`;
+        } else {
+          dedupKey = `page:${displayHost}:${title.toLowerCase().slice(0, 56)}`;
+        }
+
+        const subtitle = gh
+          ? 'github.com'
+          : displayHost;
+
+        const existing = map.get(dedupKey);
+        if (!existing) {
+          map.set(dedupKey, {
+            key: dedupKey,
+            title: kind === 'competitor' && !gh && normalized.host ? normalized.host : title,
+            subtitle,
+            url: gh ? gh.url : normalized.url,
+            kind,
+            questionIds: new Set([question.id]),
+            engines: new Set([engine]),
+            totalHits: 1,
+          });
+        } else {
+          existing.questionIds.add(question.id);
+          existing.engines.add(engine);
+          existing.totalHits += 1;
+          if (!existing.subtitle || existing.subtitle === 'web') {
+            existing.subtitle = subtitle;
+          }
+          if (existing.url.includes('google.com/goto') && !normalized.url.includes('google.com/goto')) {
+            existing.url = normalized.url;
+          }
+        }
+      }
+    }
+  }
+
+  const kindPriority: Record<OverviewGapSourceKind, number> = {
+    awesome: 4,
+    community: 3,
+    roundup: 2,
+    competitor: 1,
+  };
+
+  return [...map.values()]
+    .sort(
+      (a, b) =>
+        kindPriority[b.kind] - kindPriority[a.kind] ||
+        b.questionIds.size - a.questionIds.size ||
+        b.engines.size - a.engines.size ||
+        b.totalHits - a.totalHits ||
+        a.title.localeCompare(b.title),
+    )
+    .slice(0, limit)
+    .map((entry) => ({
+      key: entry.key,
+      title: entry.title,
+      subtitle: entry.subtitle,
+      url: entry.url,
+      kind: entry.kind,
+      questionCount: entry.questionIds.size,
+      engines: [...entry.engines],
+      actionHint:
+        entry.kind === 'awesome'
+          ? 'submit_pr'
+          : entry.kind === 'community'
+            ? 'community_draft'
+            : 'inspect',
+    }));
 }
 
 export function observationTime(observation: Pick<ResearchObservation, 'collectedAt' | 'recordedAt'>): number {

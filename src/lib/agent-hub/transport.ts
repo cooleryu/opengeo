@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { getGeoModelConnection, GeoSettingsError } from '../geo/connection-settings';
+import { getChatGPTStatus } from '../geo/chatgpt-auth';
+import {
+  getGeoModelConnection,
+  GeoSettingsError,
+  shouldUseChatGPTSubscription,
+} from '../geo/connection-settings';
 import type { LLMCompletionRequest, LLMCompletionResult, LLMTransport } from './types';
 
 export interface OpenAICompatibleConfig {
@@ -107,5 +112,11 @@ export function resolveAgentTransport(role: 'default' | 'fast' = 'default', pref
   }
   if (deepseekKey) return resolveAgentTransport(role, 'deepseek');
   if (geminiKey) return resolveAgentTransport(role, 'gemini');
-  throw new GeoSettingsError('尚未配置可用的分析模型（支持 Gemini 或 DeepSeek）。');
+  if (shouldUseChatGPTSubscription(getChatGPTStatus())) {
+    throw new GeoSettingsError(
+      '当前仅登录了 ChatGPT 订阅账号：该通道用于回答审核与项目理解，暂不支持多步骤工具调用写稿；请在设置中配置 Gemini、DeepSeek 或 OpenAI 兼容 API Key 后生成优化方案。',
+      409,
+    );
+  }
+  throw new GeoSettingsError('尚未配置可用的分析模型（支持 Gemini、DeepSeek 或 OpenAI 兼容接口）。');
 }

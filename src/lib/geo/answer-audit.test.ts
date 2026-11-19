@@ -655,3 +655,33 @@ test('observed source hints help exclude homonym repositories while remaining se
   assert.equal(record.citation, 'unknown');
   assert.deepEqual(saved, [record]);
 });
+
+test('personal memory references cannot count as natural unauthenticated exposure', async () => {
+  const quote = '你在做的 SampleProject 可以配合现有工作流使用。';
+  const collected = answer({ text: quote, citations: [] });
+
+  const falselyPositive = await review(
+    {
+      ...positive(),
+      mentionQuote: quote,
+      citation: 'no',
+      officialUrls: [],
+      citationEvidence: '未引用官方链接。',
+    },
+    collected,
+  );
+  assert.equal(falselyPositive.analysisStatus, 'failed');
+  assert.equal(falselyPositive.mention, 'unknown');
+
+  const validPersonalMemory = await review(
+    {
+      ...negative(),
+      identity: 'personal_memory',
+      mentionQuote: quote,
+      mentionEvidence: '回答仅因聊天登录记忆顺嘴提到用户在做的项目，对陌生人并不成立。',
+    },
+    collected,
+  );
+  assert.equal(validPersonalMemory.analysisStatus, 'complete');
+  assert.equal(validPersonalMemory.mention, 'no');
+});

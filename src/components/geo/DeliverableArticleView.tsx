@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { translateUi, type GeoLanguage } from '@/lib/geo/i18n';
+import { buildCodingAgentEvidenceBrief } from '@/lib/geo/optimization/evidence-brief';
 import {
   buildExternalMarkdown,
   buildExternalRichHtml,
@@ -36,6 +37,7 @@ import {
   type FlowEdge,
 } from '@/lib/geo/optimization/external-export';
 import type { OptimizationDeliverable } from '@/lib/geo/optimization/types';
+import type { ResearchBatch } from '@/lib/geo/research-types';
 import { useUiLanguage } from './UiLanguageContext';
 import './deliverable-article-view.css';
 
@@ -589,6 +591,9 @@ export function githubHeadingSlug(text: string): string {
 
 export interface DeliverableArticleViewProps {
   projectId: string;
+  projectName?: string;
+  siteUrl?: string;
+  batch?: ResearchBatch | null;
   deliverable: OptimizationDeliverable;
   repositoryUrl?: string;
   onNavigateRelativeDoc?: (repoPath: string) => boolean;
@@ -602,6 +607,9 @@ export interface DeliverableArticleViewProps {
 
 export default function DeliverableArticleView({
   projectId,
+  projectName,
+  siteUrl,
+  batch,
   deliverable,
   repositoryUrl,
   onNavigateRelativeDoc,
@@ -615,7 +623,7 @@ export default function DeliverableArticleView({
   const { uiLanguage, t } = useUiLanguage();
   const effectiveDestination = destinationOverride ?? deliverable.destination;
   const effectiveBranch = (branch || 'main').trim() || 'main';
-  const [copiedKind, setCopiedKind] = useState<'none' | 'title' | 'md' | 'rich'>('none');
+  const [copiedKind, setCopiedKind] = useState<'none' | 'title' | 'md' | 'rich' | 'brief'>('none');
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
   const [showReviewChecks, setShowReviewChecks] = useState(false);
@@ -651,10 +659,27 @@ export default function DeliverableArticleView({
     };
   }, []);
 
-  const markCopied = (kind: 'title' | 'md' | 'rich') => {
+  const markCopied = (kind: 'title' | 'md' | 'rich' | 'brief') => {
     setCopiedKind(kind);
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     copyTimerRef.current = setTimeout(() => setCopiedKind('none'), 2200);
+  };
+
+  const copyBriefText = async () => {
+    try {
+      const text = buildCodingAgentEvidenceBrief({
+        projectName,
+        repositoryUrl,
+        siteUrl,
+        deliverable,
+        batch,
+        targetLanguage: uiLanguage,
+      });
+      await navigator.clipboard.writeText(text);
+      markCopied('brief');
+    } catch {
+      // Ignore clipboard permission failure in restricted frames
+    }
   };
 
   const exportOptions = {
@@ -816,16 +841,28 @@ export default function DeliverableArticleView({
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                className="dav-copy-btn"
-                onClick={() => void copyMarkdownText()}
-              >
-                {copiedKind === 'md' ? <Check size={13} /> : <Copy size={13} />}
-                <span>
-                  {t(copiedKind === 'md' ? 'dav.copiedFull' : 'dav.copyFull')}
-                </span>
-              </button>
+              <div className="dav-copy-group">
+                <button
+                  type="button"
+                  className="dav-copy-btn"
+                  onClick={() => void copyBriefText()}
+                >
+                  {copiedKind === 'brief' ? <Check size={13} /> : <Copy size={13} />}
+                  <span>
+                    {t(copiedKind === 'brief' ? 'dav.copiedBrief' : 'dav.copyBrief')}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="dav-copy-btn"
+                  onClick={() => void copyMarkdownText()}
+                >
+                  {copiedKind === 'md' ? <Check size={13} /> : <Copy size={13} />}
+                  <span>
+                    {t(copiedKind === 'md' ? 'dav.copiedFull' : 'dav.copyFull')}
+                  </span>
+                </button>
+              </div>
             ))}
         </div>
       )}

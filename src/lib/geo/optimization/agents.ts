@@ -3,6 +3,7 @@ import { defaultAgentHub, type AgentSpec } from '../../agent-hub';
 import { readAgentParameters, readAgentText } from '../agent-files';
 import { resolveAssetOwnership } from '../asset-ownership';
 import { ensureProjectRelationalData, withProjectDb } from '../db';
+import { readProjectContext } from '../project-context';
 import { loadProjectSeed } from '../project-data';
 import { getProjectOnboarding } from '../project-onboarding-store';
 import {
@@ -36,14 +37,22 @@ export function loadOptimizationSkillParams() {
 
 const skillParams = loadOptimizationSkillParams();
 
-export type OptimizationScenario = 'open-source-repo';
+export type OptimizationScenario = 'open-source-repo' | 'website-product';
 
 export function resolveProjectScenario(projectId: string): OptimizationScenario {
   try {
     const onboarding = getProjectOnboarding(projectId);
     if (onboarding?.kind === 'repository') return 'open-source-repo';
+    if (onboarding) return 'website-product';
   } catch {
-    // Non-onboarding or isolated test project defaults cleanly to open-source-repo until other packs ship
+    // Non-onboarding or isolated test project inspects seed URLs below
+  }
+  try {
+    const seed = loadProjectSeed(projectId);
+    if (seed.project.repositoryUrl?.trim()) return 'open-source-repo';
+    if (seed.project.siteUrl?.trim()) return 'website-product';
+  } catch {
+    // Default safely when metadata is absent
   }
   return 'open-source-repo';
 }
@@ -52,7 +61,11 @@ export function resolveWriterArchetypeFile(
   scenario: OptimizationScenario,
   deliverable: { kind: string; destination: string; title: string },
 ): string {
-  if (deliverable.kind === 'update_asset' && /readme/i.test(deliverable.destination)) {
+  if (
+    scenario === 'open-source-repo' &&
+    deliverable.kind === 'update_asset' &&
+    /readme/i.test(deliverable.destination)
+  ) {
     return `${scenario}/readme.md`;
   }
   if (
@@ -60,6 +73,9 @@ export function resolveWriterArchetypeFile(
     /(?:getting-started|quickstart|start|how-it-works|docs\/guide)/i.test(deliverable.destination)
   ) {
     return `${scenario}/quickstart.md`;
+  }
+  if (scenario === 'website-product' && deliverable.kind === 'update_asset') {
+    return `${scenario}/landing-page.md`;
   }
   return `${scenario}/public-article.md`;
 }
@@ -98,17 +114,10 @@ const LEGACY_DEFENSIVE_TAIL_RE =
   /(?:能说明什么.{0,8}不能说明什么|不等于改法已经?证明有效|样本差距不等于市场份额|审核通过.{0,4}不代表流量|当前为开发版|演示数据不随安装提供|仍然?由团队决定|仍由用户自己决定|未测、未知与真实零值|不是一个黑箱分数)/u;
 
 const SELF_DIARY_TITLE_RE =
-  /(?:给自己做\s*GEO|AI\s*为什么找不到(?:这个|我们)|介绍的却是另一个项目|我们(?:怎么|如何)(?:查自己|修好)|how\s+we\s+(?:audited|tested|fixed)\s+opengeo|why\s+(?:chatgpt|google|ai)\s+(?:confuses|ignores)\s+opengeo)/iu;
+  /(?:给自己做\s*GEO|AI\s*为什么找不到(?:这个|我们)|介绍的却是另一个项目|我们(?:怎么|如何)(?:查自己|修好)|how\s+we\s+(?:audited|tested|fixed)\s+(?:our|this)\s+(?:own\s+)?(?:app|repo|product|site|project)|why\s+(?:chatgpt|google|ai)\s+(?:confuses|ignores)\s+(?:us|our\b))/iu;
 
 const AI_JARGON_AND_CLICHE_RE =
   /(?:身份锚点|实体消歧|显式否定|证据落点|证据密度|生成式引擎|同协议复测|自有内容引用率|问题不在.{1,18}而在于|两条结论，?先说清楚|值得注意的是|名字被叫到了，身份被别人拿走了)/u;
-
-const TECH_SETUP_SCARE_RE =
-  /\b(?:git\s+clone|npm\s+(?:install|run\s+dev|ci)|Node\.js\s*\d+|cp\s+\.env(?:\.example)?|localhost:\d{4}|127\.0\.0\.1:\d{4})\b/i;
-
-function isDedicatedTechSetupDoc(destination: string): boolean {
-  return /(?:getting-started|install|deploy|setup)/i.test(destination);
-}
 
 export const optimizationStrategistAgent: AgentSpec<StrategistInput, StrategistOutput> = {
   id: 'optimization-strategist',
@@ -120,6 +129,7 @@ export const optimizationStrategistAgent: AgentSpec<StrategistInput, StrategistO
   tools: (input) => createProjectInspectionTools({ targetLanguage: input.targetLanguage }),
   buildPrompt(input, ctx) {
     const seed = loadProjectSeed(ctx.projectId);
+    const projectContext = readProjectContext(ctx.projectId).markdown;
     const maxItems = input.mode === 'focus' ? 1 : 3;
     const scenario = resolveProjectScenario(ctx.projectId);
     const strategistSystem = readAgentText('improvement-planning', `${scenario}/strategist.md`);
@@ -158,6 +168,7 @@ export const optimizationStrategistAgent: AgentSpec<StrategistInput, StrategistO
           repositoryUrl: seed.project.repositoryUrl,
           description: seed.project.description,
         },
+        projectContext,
       }),
     };
   },
@@ -247,9 +258,10 @@ function extractReferencedImages(content: string): string[] {
   return paths;
 }
 
-const ZH_ONLY_SCREENSHOT_RE = /(?:^|[\\/])(?:overview|question-answer|improvement-tracking)\.png$/i;
+const ZH_ONLY_SCREENSHOT_RE =
+  /(?:^|[\\/])(?:(?:overview|question-answer|improvement-tracking)|.*-zh(?:-cn)?)\.(?:png|jpe?g|webp|svg)$/i;
 
-const EN_UI_SCREENSHOT_RE = /(?:^|[\\/])(?:overview|question-answer|improvement-tracking)-en\.png$/i;
+const EN_UI_SCREENSHOT_RE = /-en\.(?:png|jpe?g|webp|svg)$/i;
 
 const EN_AI_SLOP_RE =
   /\b(?:delve into|rich tapestry|testament to|in today['’]s rapidly evolving|in the ever-evolving landscape|unlock the power of|game[- ]changer|seamless synergy)\b/i;
@@ -268,6 +280,7 @@ export const deliverableWriterAgent: AgentSpec<WriterInput, WriterOutput> = {
       : createProjectInspectionTools({ targetLanguage: input.targetLanguage }),
   buildPrompt(input, ctx) {
     const seed = loadProjectSeed(ctx.projectId);
+    const projectContext = readProjectContext(ctx.projectId).markdown;
     const targetLanguage = input.targetLanguage ?? seed.project.targetLanguage ?? 'en';
     const availableMedia = listAvailableProjectMedia(ctx.projectId, { targetLanguage }).map((m) => ({
       embedPath: formatMediaPathForDestination(m, input.deliverable.destination),
@@ -281,14 +294,15 @@ export const deliverableWriterAgent: AgentSpec<WriterInput, WriterOutput> = {
       targetLanguage === 'en'
         ? [
             '## OUTPUT LANGUAGE & VISUAL REQUIREMENT (targetLanguage = en)',
-            '- Write `title`, `afterContent`, and `mediaManifest[].caption` 100% in natural, crisp developer English (ZERO Chinese characters anywhere in `title`, headings, prose, tables, Mermaid labels, or captions; ONLY an optional `[简体中文](README.zh-CN.md)` / `[简体中文](getting-started.zh-CN.md)` language switcher link may contain 简体中文).',
-            '- When `availableMedia` includes English UI screenshots (`*-en.png`), embed the relevant ones naturally in walkthrough / How-it-works / setup sections using the exact `embedPath` (`README.md` may also keep `<img src="docs/images/opengeo-logo.png" width="80" height="80" alt="OpenGEO" />`). Never embed Chinese-UI `overview.png`, `question-answer.png`, or `improvement-tracking.png` in English drafts.',
+            '- Write `title`, `afterContent`, and `mediaManifest[].caption` 100% in natural, crisp English matching the project audience (ZERO Chinese characters anywhere in `title`, headings, prose, tables, Mermaid labels, or captions; ONLY an optional `[简体中文](README.zh-CN.md)` / `[简体中文](getting-started.zh-CN.md)` language switcher link may contain 简体中文).',
+            '- When `availableMedia` includes English screenshots (`*-en.*`) or a neutral project logo, embed the relevant ones naturally using their exact `embedPath`. Never embed Chinese-UI screenshots in English drafts.',
             '- Avoid English AI-slop clichés (`delve into`, `rich tapestry`, `testament to`, `in today’s rapidly evolving`, `game-changer`, `unlock the power of`).',
           ].join('\n')
         : '';
     const structuralGuardrail = [
       '## REFERENCE WINNERS & LENGTH GUARDRAIL',
       '- Only adopt H2/opening structural patterns from `referenceWinners` whose `probeStatus !== "local_fallback"` and `headings.length > 0`. NEVER invent or claim structural patterns across winners marked `local_fallback`.',
+      '- Ground all capabilities, product scope, and competitors strictly in `projectContext` and `referenceWinners`—never import another product’s features or assumptions.',
       /readme/i.test(input.deliverable.destination)
         ? '- Target length for README updates: keep total length crisp and scannable (~650-1,100 words, ~4-6 min read max). Lead with sharp positioning and link out to dedicated docs instead of padding a 15-minute manual.'
         : '- Keep sections tight, scannable, and concrete—avoid repeating the same pitch across multiple headings.',
@@ -305,6 +319,7 @@ export const deliverableWriterAgent: AgentSpec<WriterInput, WriterOutput> = {
           siteUrl: seed.project.siteUrl,
           repositoryUrl: seed.project.repositoryUrl,
         },
+        projectContext,
         availableMedia,
         referenceWinners: (input.referenceWinners ?? []).map((w) => ({
           domain: w.domain,
@@ -366,31 +381,27 @@ export const deliverableWriterAgent: AgentSpec<WriterInput, WriterOutput> = {
     if (/icon(?:-50|-100)?\.png/i.test(output.afterContent)) {
       return '请勿引用旧应用图标 icon.png，只使用 availableMedia 中的真实界面截图。';
     }
-    if (/(?:10\s*[~～到至-]\s*15\s*道题|准备几道题[\s\S]{0,30}10)/.test(output.afterContent)) {
-      return 'OpenGEO 新建项目时会自动读懂产品并精选最多 8 道核心监测问题，严禁编造“让用户自己准备 10~15 道题”！';
-    }
     if (/readme/i.test(input.deliverable.destination)) {
       const bodyBeforeFooter = output.afterContent.slice(
         0,
         Math.max(0, output.afterContent.length - 220),
       );
       if (
-        /(?:在\s*ChatGPT\s*里问|去\s*ChatGPT\s*搜|多半会介绍\s*opengeo\.work|省得你走错门)/i.test(
+        /(?:在\s*ChatGPT\s*里问|去\s*ChatGPT\s*搜|多半会介绍(?:别的|其他)|省得你走错门|ask\s+chatgpt\s+about\s+us.{0,40}wrong)/i.test(
           bodyBeforeFooter,
         )
       ) {
         return 'README 正文前部严禁抱怨或展开“在 ChatGPT 里搜我们会搜出别的同名项目”，同名无隶属声明只能放在全篇最底部一行！';
       }
     }
-    if (!isDedicatedTechSetupDoc(input.deliverable.destination)) {
-      const techMatch = output.afterContent.match(TECH_SETUP_SCARE_RE);
-      if (techMatch) {
-        return `面向真人读者的文章出现了劝退用户的技术安装细节「${techMatch[0]}」！请分清“给真人读”与“给用户的 AI 读”：彻底删掉命令行代码块、Node 版本和端口号，改为让读者直接把仓库链接发给自己的 AI 助手帮忙装好跑起来。`;
-      }
-    }
     const referencedImages = extractReferencedImages(output.afterContent);
+    const zhMediaPaths = new Set(
+      listAvailableProjectMedia(ctx.projectId, { targetLanguage: 'zh' })
+        .filter((m) => m.screenshotLanguage === 'zh')
+        .flatMap((m) => [m.embedPath, formatMediaPathForDestination(m, input.deliverable.destination)]),
+    );
     for (const imgPath of referencedImages) {
-      if (targetLanguage === 'en' && ZH_ONLY_SCREENSHOT_RE.test(imgPath)) {
+      if (targetLanguage === 'en' && (ZH_ONLY_SCREENSHOT_RE.test(imgPath) || zhMediaPaths.has(imgPath))) {
         return `英文成稿严禁嵌入中文界面截图「${imgPath}」，请改用英文界面截图（*-en.png）或纯英文 Markdown 对比表/流程图。`;
       }
       if (!localMediaPathExists(ctx.projectId, imgPath, input.deliverable.destination)) {
@@ -427,6 +438,8 @@ export interface ReviewerInput {
   beforeContent: string;
   afterContent: string;
   targetLanguage?: 'en' | 'zh';
+  targetQuestions?: Array<{ id: string; queryZh: string; queryEn: string }>;
+  referenceWinners?: ReferenceWinner[];
 }
 
 const redLineSchema = z.object({
@@ -456,6 +469,7 @@ export const deliverableReviewerAgent: AgentSpec<ReviewerInput, ReviewerOutput> 
   outputSchema: reviewerOutputSchema,
   buildPrompt(input, ctx) {
     const seed = loadProjectSeed(ctx.projectId);
+    const projectContext = readProjectContext(ctx.projectId).markdown;
     const ownedAssets = seed.assets
       .filter((a) => resolveAssetOwnership(a, seed).ownership === 'owned')
       .map((a) => ({ title: a.title, publicUrl: a.publicUrl }));
@@ -463,10 +477,11 @@ export const deliverableReviewerAgent: AgentSpec<ReviewerInput, ReviewerOutput> 
       targetLanguage: input.targetLanguage,
     }).map((m) => formatMediaPathForDestination(m, input.destination));
     const reviewerPrompt = readAgentText('improvement-planning', 'common-reviewer.md');
+    const targetLanguage = input.targetLanguage ?? seed.project.targetLanguage ?? 'en';
     return {
       system: reviewerPrompt,
       user: JSON.stringify({
-        targetLanguage: input.targetLanguage ?? seed.project.targetLanguage ?? 'en',
+        targetLanguage,
         project: {
           name: seed.project.name,
           owner: seed.project.owner,
@@ -475,6 +490,27 @@ export const deliverableReviewerAgent: AgentSpec<ReviewerInput, ReviewerOutput> 
           ownedAssets,
           validMediaPaths,
         },
+        projectContext,
+        ...(input.targetQuestions?.length
+          ? {
+              targetQuestions: input.targetQuestions.map((q) =>
+                targetLanguage === 'en' ? q.queryEn || q.queryZh : q.queryZh || q.queryEn,
+              ),
+            }
+          : {}),
+        ...(input.referenceWinners?.length
+          ? {
+              referenceWinners: input.referenceWinners.map((w) => ({
+                domain: w.domain,
+                title: w.title,
+                probeStatus: w.probeStatus,
+                ...(w.stars !== undefined ? { stars: w.stars } : {}),
+                ...(w.whyWon ? { whyWon: w.whyWon } : {}),
+                headings: w.headings,
+                localSnippet: w.localSnippet,
+              })),
+            }
+          : {}),
         deliverable: {
           kind: input.kind,
           format: input.format,
@@ -538,11 +574,11 @@ export const chineseCompanionAgent: AgentSpec<ChineseCompanionInput, ChineseComp
       captionHint: m.captionHint,
     }));
     const systemPrompt = [
-      '你是 OpenGEO 的双语产品编辑，负责把已通过审核的英文交付稿重写成地道、克制、可直接阅读或发布到中文技术博客及中文仓库文档的简体中文版。',
+      '你是专业的技术产品双语产品编辑，负责把已通过审核的英文交付稿重写成地道、克制、可直接阅读或发布到中文技术博客及中文仓库文档的简体中文版。',
       '要求：',
       '1. 忠实保留英文原稿的事实、数据、表格结构、Mermaid 流程图、仓库链接与真实产品能力，绝不编造新数字、未实现的命令行参数、虚假承诺或 AI 套话。',
-      '2. 用真人程序员/独立开发者的自然中文表达，避免生硬机翻腔；专有名词（如 OpenGEO、ChatGPT、Google AI Overviews、Markdown、SQLite）保留英文原称。',
-      '3. 若原文中嵌入了英文界面截图（`*-en.png`），必须在中文版里替换为 `availableMedia` 中对应的中文界面截图 `embedPath`（如 `overview.png`、`question-answer.png`、`improvement-tracking.png`）；图片路径必须匹配 `companionPath` 所在目录的相对路径。`opengeo-logo.png` 等中性 logo 保持合法相对路径。',
+      '2. 用真人程序员/独立开发者的自然中文表达，避免生硬机翻腔；品牌原名与技术专有名词保留英文原称。',
+      '3. 若原文中嵌入了英文界面截图（`*-en.*`），必须在中文版里替换为 `availableMedia` 中对应的中文界面截图 `embedPath`；图片路径必须匹配 `companionPath` 所在目录的相对路径。中性品牌 logo 保持合法相对路径。',
       input.isRepoDoc
         ? '4. 当前稿件用于 GitHub 仓库中文同步文件：请在顶部保留语言切换链接（例如 `README.zh-CN.md` 指向 `[English](README.md)`，`docs/getting-started.zh-CN.md` 指向 `[English](getting-started.md)`），正文里的相对文档链接也应自然对应到中文版（如 `./docs/getting-started.zh-CN.md` 或 `../README.zh-CN.md`）。'
         : '4. 当前稿件为中文对照阅读及中文平台另发版本，可直接用流畅的中文长文结构输出，不要添加多余的元说明或翻译腔按语。',

@@ -1406,6 +1406,330 @@
   color: #3f3f46;
 }
 
+/* Peec Insights-Style 0-Cost Situation Verdict Hero */
+.pov-insights-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 22px 18px;
+  border-radius: 14px;
+  border: 1px solid #e4e6eb;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.pov-insights-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pov-shell .pov-insights-copy h2 {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.32;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  color: #111214;
+}
+
+.pov-insights-copy p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #52525b;
+  max-width: 78ch;
+}
+
+.pov-insights-metrics {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid #f1f2f5;
+}
+
+.pov-kpi-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid #e6e7eb;
+  background: #fafafa;
+  color: #52525b;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.pov-kpi-pill strong {
+  font-weight: 650;
+  color: #111214;
+}
+
+.pov-kpi-pill strong.is-pos {
+  color: #15803d;
+}
+
+.pov-shell .pov-kpi-pill.is-btn {
+  cursor: pointer;
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+
+.pov-shell .pov-kpi-pill.is-btn:hover {
+  border-color: #d4d4d8;
+  background: #f4f4f5;
+}
+
+.pov-shell .pov-kpi-pill.is-warn {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.pov-shell .pov-kpi-pill.is-warn strong {
+  color: #92400e;
+}
+
+.pov-shell .pov-kpi-pill.is-active {
+  border-color: #111214;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px #111214;
+}
+
+.pov-kpi-engine {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pov-kpi-engine svg,
+.pov-kpi-engine img {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+.pov-insights-comp-link {
+  margin-left: auto;
+}
+
+/* Peec Gap analysis -> URLs Compact External Gap Table */
+.pov-gap-card {
+  border-radius: 14px;
+  border: 1px solid #e4e6eb;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  overflow: hidden;
+}
+
+.pov-gap-card .pov-section-bar {
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid #f1f2f5;
+}
+
+.pov-gap-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pov-gap-sub {
+  font-size: 12.5px;
+  color: #71717a;
+}
+
+.pov-gap-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.pov-gap-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.pov-gap-table thead th {
+  padding: 10px 14px;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: #71717a;
+  background: #fafafa;
+  border-bottom: 1px solid #eceef2;
+  white-space: nowrap;
+}
+
+.pov-gap-table thead th:first-child,
+.pov-gap-table tbody td:first-child {
+  padding-left: 20px;
+}
+
+.pov-gap-table thead th:last-child,
+.pov-gap-table tbody td:last-child {
+  padding-right: 20px;
+}
+
+.pov-gap-table thead th.is-num,
+.pov-gap-table tbody td.is-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pov-gap-table thead th.is-action,
+.pov-gap-table tbody td.is-action {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pov-gap-table tbody tr {
+  border-bottom: 1px solid #f1f2f5;
+  transition: background-color 0.12s ease;
+}
+
+.pov-gap-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.pov-gap-table tbody tr:hover {
+  background: #fafafa;
+}
+
+.pov-gap-table tbody td {
+  padding: 11px 14px;
+  vertical-align: middle;
+}
+
+.pov-gap-source-link {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-decoration: none;
+  min-width: 220px;
+}
+
+.pov-gap-source-link strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111214;
+  line-height: 1.35;
+}
+
+.pov-gap-source-link:hover strong {
+  text-decoration: underline;
+}
+
+.pov-gap-source-link span {
+  font-size: 11.5px;
+  color: #71717a;
+}
+
+/* Peec Low-Saturation Micro-Pills */
+.pov-gap-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.pov-gap-badge.is-awesome {
+  background: #eff6ff;
+  border-color: #dbeafe;
+  color: #1d4ed8;
+}
+
+.pov-gap-badge.is-community {
+  background: #f0f9ff;
+  border-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.pov-gap-badge.is-roundup {
+  background: #f5f3ff;
+  border-color: #ede9fe;
+  color: #6d28d9;
+}
+
+.pov-gap-badge.is-competitor {
+  background: #fff7ed;
+  border-color: #ffedd5;
+  color: #c2410c;
+}
+
+.pov-gap-engines {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pov-gap-engine-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid #eceef2;
+  background: #ffffff;
+}
+
+.pov-gap-engine-dot svg,
+.pov-gap-engine-dot img {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+.pov-gap-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #27272a;
+}
+
+.pov-shell .pov-gap-action-btn,
+a.pov-gap-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid #e4e4e7;
+  background: #ffffff;
+  color: #27272a;
+  font-size: 12px;
+  font-weight: 550;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.pov-shell .pov-gap-action-btn:hover,
+a.pov-gap-action-btn:hover {
+  border-color: #cbd5e1;
+  background: #f4f4f5;
+  color: #111214;
+}
+
+.pov-shell .pov-gap-action-btn.is-primary {
+  border-color: #111214;
+  background: #111214;
+  color: #ffffff;
+}
+
+.pov-shell .pov-gap-action-btn.is-primary:hover {
+  border-color: #27272a;
+  background: #27272a;
+  color: #ffffff;
+}
+
 @media (max-width: 1020px) {
   .pov-bento {
     grid-template-columns: 1fr;
@@ -1413,6 +1737,9 @@
 }
 
 @media (max-width: 860px) {
+  .pov-insights-comp-link {
+    margin-left: 0;
+  }
   .pov-matrix-row {
     flex-direction: column;
     align-items: flex-start;

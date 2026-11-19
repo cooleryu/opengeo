@@ -1,11 +1,14 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { AgentTool } from '../../agent-hub';
 import { resolveAssetOwnership } from '../asset-ownership';
 import { ensureProjectRelationalData, parseSourcesJson, withProjectDb } from '../db';
+import { readProjectContext } from '../project-context';
 import { loadProjectSeed } from '../project-data';
 import { evidenceLocation, withGeoProject } from '../projects';
+import { parseGitHubRepoUrl } from '../source-identity';
 import type { GeoAsset, GeoSeed } from '../types';
 
 function readAnswerTextFromFile(fullPath: string): string {
@@ -22,18 +25,62 @@ function readAnswerTextFromFile(fullPath: string): string {
   return raw;
 }
 
-function isSelfWorkspaceRepo(seed: GeoSeed): boolean {
-  const repoUrl = (seed.project.repositoryUrl || '').toLowerCase();
-  return repoUrl.includes('github.com/cooleryu/opengeo');
+let cachedWorkspaceRepoSlug: { owner: string; repo: string } | null | undefined;
+
+/** Parses GitHub owner/repo from the workspace's git `origin` remote once per process. */
+export function resolveWorkspaceRepoSlug(): { owner: string; repo: string } | null {
+  if (cachedWorkspaceRepoSlug !== undefined) return cachedWorkspaceRepoSlug;
+  try {
+    const rawRemote = execFileSync('git', ['config', '--get', 'remote.origin.url'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 2_000,
+    }).trim();
+    const sshMatch = rawRemote.match(
+      /^(?:ssh:\/\/)?git@github\.com[:/]([^/\s]+)\/([^/\s#?]+?)(?:\.git)?\/?$/i,
+    );
+    if (sshMatch) {
+      cachedWorkspaceRepoSlug = { owner: sshMatch[1], repo: sshMatch[2] };
+      return cachedWorkspaceRepoSlug;
+    }
+    const parsed = parseGitHubRepoUrl(rawRemote, { allowSubpaths: true });
+    cachedWorkspaceRepoSlug = parsed ? { owner: parsed.owner, repo: parsed.repo } : null;
+  } catch {
+    cachedWorkspaceRepoSlug = null;
+  }
+  return cachedWorkspaceRepoSlug;
+}
+
+export function isSelfWorkspaceRepo(seed: GeoSeed): boolean {
+  const workspaceSlug = resolveWorkspaceRepoSlug();
+  if (!workspaceSlug) return false;
+  const projectSlug = parseGitHubRepoUrl(seed.project.repositoryUrl ?? '', { allowSubpaths: true });
+  if (!projectSlug) return false;
+  return (
+    projectSlug.owner.toLowerCase() === workspaceSlug.owner.toLowerCase() &&
+    projectSlug.repo.toLowerCase() === workspaceSlug.repo.toLowerCase()
+  );
 }
 
 /** Maps a GitHub blob URL of the current workspace repo to its safe local file path, if inside cwd. */
 export function resolveLocalRepoFileForAsset(projectId: string, asset: GeoAsset): string | null {
   const seed = loadProjectSeed(projectId);
   if (!isSelfWorkspaceRepo(seed) || !asset.publicUrl) return null;
-  const match = asset.publicUrl.match(/^https?:\/\/github\.com\/cooleryu\/opengeo\/blob\/[^/]+\/(.+)$/i);
+  const workspaceSlug = resolveWorkspaceRepoSlug();
+  if (!workspaceSlug) return null;
+  const match = asset.publicUrl.match(
+    /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/[^/]+\/(.+)$/i,
+  );
   if (!match) return null;
-  const relPath = decodeURIComponent(match[1]);
+  const [, urlOwner, urlRepo, rawPath] = match;
+  if (
+    urlOwner.toLowerCase() !== workspaceSlug.owner.toLowerCase() ||
+    urlRepo.toLowerCase() !== workspaceSlug.repo.toLowerCase()
+  ) {
+    return null;
+  }
+  const relPath = decodeURIComponent(rawPath);
   const root = path.resolve(process.cwd());
   const resolved = path.resolve(root, relPath);
   if (resolved === root || !resolved.startsWith(`${root}${path.sep}`)) return null;
@@ -75,32 +122,38 @@ export interface ProjectMediaItem {
   screenshotLanguage?: 'zh' | 'en';
 }
 
-const KNOWN_MEDIA_META: Record<string, { captionHint: string; screenshotLanguage: 'zh' | 'en' }> = {
-  'docs/images/overview.png': {
-    captionHint: 'OpenGEO 概览页界面截图（中文界面）：AI 回答提及率、官网链接引用与各平台对比一览',
-    screenshotLanguage: 'zh',
-  },
-  'docs/images/overview-en.png': {
-    captionHint: 'OpenGEO Overview dashboard (English UI): Track brand mention rate, official link citations, and competitor comparisons across ChatGPT and Google.',
-    screenshotLanguage: 'en',
-  },
-  'docs/images/question-answer.png': {
-    captionHint: 'OpenGEO 回答详情页界面截图（中文界面）：逐题对比原始提问、AI 回答正文、引文与竞品提及',
-    screenshotLanguage: 'zh',
-  },
-  'docs/images/question-answer-en.png': {
-    captionHint: 'OpenGEO Question Detail view (English UI): Inspect verbatim AI answers, inline citations, and competitor mentions per question.',
-    screenshotLanguage: 'en',
-  },
-  'docs/images/improvement-tracking.png': {
-    captionHint: 'OpenGEO 改进工作台界面截图（中文界面）：对照短板生成三份优化稿与中英对照预览，采纳后再复查前后变化',
-    screenshotLanguage: 'zh',
-  },
-  'docs/images/improvement-tracking-en.png': {
-    captionHint: 'OpenGEO Optimization Studio (English UI): Compare drafts, inspect evidence, publish updates, and re-audit the same prompts over time.',
-    screenshotLanguage: 'en',
-  },
-};
+function inferMediaLanguageAndCaption(
+  projectName: string,
+  embedPath: string,
+  allEmbedPaths: Set<string>,
+): { screenshotLanguage?: 'zh' | 'en'; captionHint: string } {
+  const baseName = path.basename(embedPath);
+  if (/-en\.(png|jpe?g|webp|svg)$/i.test(embedPath)) {
+    return {
+      screenshotLanguage: 'en',
+      captionHint: `${projectName} English UI screenshot (${baseName})`,
+    };
+  }
+  if (/-zh(?:-cn)?\.(png|jpe?g|webp|svg)$/i.test(embedPath)) {
+    return {
+      screenshotLanguage: 'zh',
+      captionHint: `${projectName} 中文界面截图（${baseName}）`,
+    };
+  }
+  const extMatch = embedPath.match(/(\.[^.]+)$/);
+  if (extMatch) {
+    const enSibling = `${embedPath.slice(0, -extMatch[1].length)}-en${extMatch[1]}`;
+    if (allEmbedPaths.has(enSibling)) {
+      return {
+        screenshotLanguage: 'zh',
+        captionHint: `${projectName} 界面截图（${baseName}）`,
+      };
+    }
+  }
+  return {
+    captionHint: `${projectName} media asset (${baseName})`,
+  };
+}
 
 export function listAvailableProjectMedia(
   projectId: string,
@@ -128,16 +181,18 @@ export function listAvailableProjectMedia(
   };
 
   for (const { dir, toEmbed } of scanDirs) {
-    for (const rel of walk(dir)) {
+    const relFiles = walk(dir);
+    const allEmbedPaths = new Set(relFiles.map((rel) => toEmbed(rel)));
+    for (const rel of relFiles) {
       const diskPath = path.join(dir, rel);
       const embedPath = toEmbed(rel);
-      const meta = KNOWN_MEDIA_META[embedPath];
+      const inferred = inferMediaLanguageAndCaption(seed.project.name, embedPath, allEmbedPaths);
       const item: ProjectMediaItem = {
         embedPath,
         diskPath,
         bytes: fs.statSync(diskPath).size,
-        captionHint: meta?.captionHint ?? `项目真实配图（${path.basename(embedPath)}）`,
-        screenshotLanguage: meta?.screenshotLanguage,
+        captionHint: inferred.captionHint,
+        screenshotLanguage: inferred.screenshotLanguage,
       };
       if (options?.targetLanguage === 'en' && item.screenshotLanguage === 'zh') {
         continue;
@@ -374,5 +429,20 @@ export function createProjectInspectionTools(options?: {
       })),
   };
 
-  return [listQuestionsTool, readObservationTool, readOwnedAssetTool, listMediaTool];
+  const readProjectContextTool: AgentTool<Record<string, never>> = {
+    name: 'read_project_context',
+    description: '读取当前项目的开放事实档案（project-context.md：产品定位、核心能力、目标受众、同名排除与真实外部被引用竞品）。',
+    parameters: z.object({}),
+    readOnly: true,
+    humanLabel: () => '正在读取当前项目的事实档案（project-context.md）…',
+    execute: (_args, ctx) => readProjectContext(ctx.projectId),
+  };
+
+  return [
+    readProjectContextTool,
+    listQuestionsTool,
+    readObservationTool,
+    readOwnedAssetTool,
+    listMediaTool,
+  ];
 }

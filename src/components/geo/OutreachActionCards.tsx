@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { GeoLanguage } from '@/lib/geo/i18n';
 import type { OutreachActionRecord } from '@/lib/geo/outreach/outreach-store';
+import ResearchEngineIcon from './ResearchEngineIcon';
 import { useUiLanguage } from './UiLanguageContext';
 
 export interface OutreachActionCardsProps {
@@ -153,11 +154,32 @@ export default function OutreachActionCards({
     );
   }
 
-  return (
-    <div className="oap-card-grid">
-      {actions.map((item, idx) => {
-        const isBusy = busyId === item.id;
-        const isTopPriority = highlightFirst && idx === 0;
+  const renderEvidenceBox = (item: OutreachActionRecord) => {
+    const engines = item.citedEngines ?? [];
+    return (
+      <div className="oap-evidence-box">
+        <div className="oap-evidence-head">
+          <span className="oap-evidence-kicker">
+            {isEn ? 'Evidence' : '证据'}
+          </span>
+          {engines.length > 0 && (
+            <span className="oap-evidence-engines">
+              {engines.map((eng) => (
+                <span key={eng} className="oap-evidence-engine-tag">
+                  <ResearchEngineIcon engine={eng} />
+                  <span>{eng === 'chatgpt' ? 'ChatGPT' : 'Google'}</span>
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
+        <p className="oap-evidence-text">{item.subtitle}</p>
+      </div>
+    );
+  };
+
+  const renderCard = (item: OutreachActionRecord, isTopPriority: boolean) => {
+    const isBusy = busyId === item.id;
 
         if (item.kind === 'repo_meta' && item.repoMetaDraft) {
           return (
@@ -185,7 +207,7 @@ export default function OutreachActionCards({
               </div>
 
               <h3>{item.title}</h3>
-              <p className="oap-card-sub">{item.subtitle}</p>
+              {renderEvidenceBox(item)}
 
               <div className="oap-inline-fields">
                 <label className="oap-field">
@@ -308,7 +330,7 @@ export default function OutreachActionCards({
               </div>
 
               <h3>{item.title}</h3>
-              <p className="oap-card-sub">{item.subtitle}</p>
+              {renderEvidenceBox(item)}
 
               {draft && (
                 <div className="oap-diff-wrap">
@@ -463,7 +485,7 @@ export default function OutreachActionCards({
             </div>
 
             <h3>{item.title}</h3>
-            <p className="oap-card-sub">{item.subtitle}</p>
+            {renderEvidenceBox(item)}
 
             {postDraft && (
               <div className="oap-inline-fields">
@@ -631,7 +653,45 @@ export default function OutreachActionCards({
             </div>
           </article>
         );
-      })}
+  };
+
+  const primaryActions = actions.filter((a) => a.kind !== 'community_post');
+  const communityActions = actions.filter((a) => a.kind === 'community_post');
+  const firstActionId = highlightFirst ? actions[0]?.id : null;
+
+  return (
+    <div className="oap-outreach-groups">
+      {primaryActions.length > 0 && (
+        <div className="oap-outreach-subgroup">
+          {communityActions.length > 0 && (
+            <div className="oap-sub-heading">
+              <span>{isEn ? 'GitHub lists & repo metadata' : 'GitHub 榜单 PR 与仓库元信息'}</span>
+              <em>{primaryActions.length}</em>
+            </div>
+          )}
+          <div className="oap-card-grid">
+            {primaryActions.map((item) =>
+              renderCard(item, item.id === firstActionId),
+            )}
+          </div>
+        </div>
+      )}
+
+      {communityActions.length > 0 && (
+        <div className="oap-outreach-subgroup">
+          {primaryActions.length > 0 && (
+            <div className="oap-sub-heading">
+              <span>{isEn ? 'Community threads & launch posts' : '社区高引用讨论与发布渠道'}</span>
+              <em>{communityActions.length}</em>
+            </div>
+          )}
+          <div className="oap-card-grid">
+            {communityActions.map((item) =>
+              renderCard(item, item.id === firstActionId),
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

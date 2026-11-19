@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   extractOutreachCitedPages,
+  extractOverviewGapSources,
   extractQuestionTopWinners,
   extractTopExternalCitedSources,
   isBrandPrompt,
@@ -279,4 +280,48 @@ test('extractTopExternalCitedSources merges on registrable domain rather than do
 
   const rowWinners = extractQuestionTopWinners(q1, batch);
   assert.equal(rowWinners.some((w) => w.label === 'Docs' || w.label === 'github.com'), false);
+});
+
+test('extractOverviewGapSources prioritizes awesome lists and community threads, normalizes Reddit redirects, and deduplicates competitors', () => {
+  const q1 = makeQuestion('Q1', 'Best open-source GEO tools', [
+    {
+      engine: 'chatgpt',
+      sources: [
+        { title: 'awesome-geo', url: 'https://github.com/deeflect/awesome-geo', kind: 'other' },
+        { title: 'Peec AI', url: 'https://peec.ai/?utm_source=chatgpt.com', kind: 'other' },
+        { title: 'My own repo', url: 'https://github.com/cooleryu/opengeo', kind: 'other' },
+      ],
+    },
+    {
+      engine: 'google',
+      sources: [
+        {
+          title: 'How do you track AI visibility? - Reddit',
+          url: 'https://www.google.com/goto?url=CAES_opaque_token',
+          kind: 'other',
+        },
+        { title: 'awesome-geo', url: 'https://github.com/deeflect/awesome-geo', kind: 'other' },
+      ],
+    },
+  ]);
+
+  const gapSources = extractOverviewGapSources(
+    makeBatch([q1]),
+    { repositoryUrl: 'https://github.com/cooleryu/opengeo' },
+    { language: 'en', limit: 5 },
+  );
+
+  assert.equal(gapSources.length, 3);
+  assert.equal(gapSources[0].kind, 'awesome');
+  assert.equal(gapSources[0].title, 'deeflect/awesome-geo');
+  assert.equal(gapSources[0].actionHint, 'submit_pr');
+  assert.deepEqual(gapSources[0].engines.sort(), ['chatgpt', 'google']);
+
+  assert.equal(gapSources[1].kind, 'community');
+  assert.equal(gapSources[1].subtitle, 'reddit.com');
+  assert.equal(gapSources[1].actionHint, 'community_draft');
+
+  assert.equal(gapSources[2].kind, 'competitor');
+  assert.equal(gapSources[2].title, 'peec.ai');
+  assert.equal(gapSources[2].actionHint, 'inspect');
 });

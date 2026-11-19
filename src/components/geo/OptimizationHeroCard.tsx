@@ -47,6 +47,7 @@ export interface OptimizationHeroCardProps {
   questionCount: number;
   missedQuestionCount?: number;
   topCitedSources?: HeroCitedSource[];
+  hideCitedStrip?: boolean;
   onOpenStudio: (runId?: string) => void;
   onOpenQuestions: () => void;
   onStatusChange?: (viewModel: OptimizationRunViewModel | null) => void;
@@ -143,18 +144,20 @@ export default function OptimizationHeroCard({
   questionCount,
   missedQuestionCount = 0,
   topCitedSources = [],
+  hideCitedStrip = false,
   onOpenStudio,
   onOpenQuestions,
   onStatusChange,
 }: OptimizationHeroCardProps) {
   const { uiLanguage } = useUiLanguage();
   const isEn = uiLanguage === 'en';
+  const visibleCitedSources = hideCitedStrip ? [] : topCitedSources;
   const [includeChineseCompanion, setIncludeChineseCompanion] =
     useChineseCompanionPreference();
   const [viewModel, setViewModel] = useState<OptimizationRunViewModel | null>(null);
   const [topNextOutreach, setTopNextOutreach] = useState<HeroNextOutreach | null>(null);
   const [latestShippedAt, setLatestShippedAt] = useState<string | null>(null);
-  const [mountNowMs] = useState(() => Date.now());
+  const [mountNowMs, setMountNowMs] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [streamingStatus, setStreamingStatus] = useState<OptimizationRunStatus | null>(null);
   const [streamingSteps, setStreamingSteps] = useState<HumanProgressStep[]>([]);
@@ -163,6 +166,10 @@ export default function OptimizationHeroCard({
   const [error, setError] = useState('');
   const statusCallbackRef = useRef(onStatusChange);
   statusCallbackRef.current = onStatusChange;
+
+  useEffect(() => {
+    setMountNowMs(Date.now());
+  }, []);
 
   const loadStatus = useCallback(
     async (signal?: AbortSignal) => {
@@ -414,7 +421,7 @@ export default function OptimizationHeroCard({
               </ul>
             )}
 
-            {renderTopCitedStrip(topCitedSources, isEn)}
+            {renderTopCitedStrip(visibleCitedSources, isEn)}
 
             {!isMulti && (
               <ol className="ohc-safe-steps" aria-label={isEn ? '3-step workflow' : '后续三步流程'}>
@@ -738,7 +745,7 @@ export default function OptimizationHeroCard({
                   ? 'Search engines typically take 3–7 days to re-index new pages. Tackle external AI-cited lists while indexing settles.'
                   : '搜索引擎建立网页索引通常需要 3～7 天；等待期间可以先拿下已经被 AI 直接引用的外部榜单或社区渠道。'}
             </p>
-            {renderTopCitedStrip(topCitedSources, isEn)}
+            {renderTopCitedStrip(visibleCitedSources, isEn)}
           </div>
           <button
             type="button"
@@ -772,9 +779,10 @@ export default function OptimizationHeroCard({
     const afterC = retestSummary?.afterCitationYes ?? 0;
 
     const shippedMs = latestShippedAt ? Date.parse(latestShippedAt) : NaN;
-    const elapsedHours = Number.isFinite(shippedMs)
-      ? Math.max(0, (mountNowMs - shippedMs) / 3_600_000)
-      : null;
+    const elapsedHours =
+      mountNowMs !== null && Number.isFinite(shippedMs)
+        ? Math.max(0, (mountNowMs - shippedMs) / 3_600_000)
+        : null;
     const retestIso = retestSummary?.latestRetestAt ?? run.updatedAt;
     const retestMs = retestIso ? Date.parse(retestIso) : NaN;
     const retestAfterShipHours =
@@ -819,7 +827,7 @@ export default function OptimizationHeroCard({
                   ? `Early re-checks (${beforeM} → ${afterM} across ${compared} answers) hit pre-index caches rather than reflecting the new docs.${topNextOutreach ? ' Tackle the top AI-cited outreach channel next while indexing settles.' : ''}`
                   : `刚推送完不久重测（${beforeM} → ${afterM}，共 ${compared} 条）多半命中旧缓存，不代表改稿无效。${topNextOutreach ? '等待期间建议先推进排名第一的外链/榜单曝光渠道。' : ''}`}
               </p>
-              {renderTopCitedStrip(topCitedSources, isEn)}
+              {renderTopCitedStrip(visibleCitedSources, isEn)}
             </div>
             <button
               type="button"
@@ -862,7 +870,7 @@ export default function OptimizationHeroCard({
                   ? `Your previous re-check (${beforeM} → ${afterM} across ${compared} answers) ran ~${earlyCheckHours}h after shipping, before search engines could index the changes. Run a fresh retest now to measure actual movement.`
                   : `上次复测（${beforeM} → ${afterM}，共 ${compared} 条）是在上线约 ${earlyCheckHours} 小时后跑的，当时还没完成收录；现在重测才能看到真实变化。`}
               </p>
-              {renderTopCitedStrip(topCitedSources, isEn)}
+              {renderTopCitedStrip(visibleCitedSources, isEn)}
             </div>
             <button
               type="button"
@@ -932,7 +940,7 @@ export default function OptimizationHeroCard({
                     ? 'Inspect answer-by-answer comparisons or start a new round.'
                     : '可查看逐题回答对比，或针对其余未提及问题开启下一轮改进。')}
             </p>
-            {renderTopCitedStrip(topCitedSources, isEn)}
+            {renderTopCitedStrip(visibleCitedSources, isEn)}
           </div>
           <button
             type="button"
@@ -1019,7 +1027,7 @@ export default function OptimizationHeroCard({
               ? 'When AI answers skip your product, public docs are usually unclear or missing practical walkthroughs. Generate a package of drafts to inspect before publishing anything.'
               : 'AI 回答里没提你，通常是因为公开介绍还不够清楚或缺少直接解答客户疑问的内容。点击右侧按钮，我们会结合当前曝光缺口为你备好配套方案，先给你逐篇过目再决定采用哪些。'}
           </p>
-          {renderTopCitedStrip(topCitedSources, isEn)}
+          {renderTopCitedStrip(visibleCitedSources, isEn)}
         </div>
 
         {questionCount > 0 ? (

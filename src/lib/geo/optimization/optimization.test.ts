@@ -10,8 +10,15 @@ import { readAgentMeta, readAgentText } from '../agent-files';
 import { ensureProjectRelationalData, withProjectDb } from '../db';
 import { ingestBrowserObservation } from '../browser-collection';
 import { loadProjectSeed } from '../project-data';
+import { completeProjectOnboarding, createProjectOnboarding } from '../project-onboarding-store';
 import { readLatestResearch } from '../research-store';
-import { deliverableWriterAgent, optimizationStrategistAgent } from './agents';
+import {
+  deliverableReviewerAgent,
+  deliverableWriterAgent,
+  optimizationStrategistAgent,
+  resolveProjectScenario,
+  resolveWriterArchetypeFile,
+} from './agents';
 import {
   buildExternalMarkdown,
   buildExternalRichHtml,
@@ -135,15 +142,17 @@ test('runs full single-track lifecycle including reviewing -> veto -> drafting r
             revisionInstructions: [],
           });
         }
-      } else if (sys.includes('阅卷官')) {
+      } else if (sys.includes('回答证据审核')) {
         content = JSON.stringify({
           identity: 'matched',
           mention: 'yes',
           citation: 'yes',
-          mentionQuote: 'Example Project 提供了逐条核对 AI 搜索回答与引用的能力',
+          mentionQuote: 'SampleProject 提供了逐条核对 AI 搜索回答与引用的能力',
           mentionEvidence: '回答明确识别并介绍了目标项目。',
           citationEvidence: '原生引用包含项目官网地址。',
           officialUrls: [ownedSiteUrl],
+          answerComplete: true,
+          limitations: [],
         });
       }
 
@@ -199,7 +208,7 @@ test('runs full single-track lifecycle including reviewing -> veto -> drafting r
       {
         questionId: activeQuestion.id,
         engine: 'chatgpt',
-        answerText: '在排查工具中，Example Project 提供了逐条核对 AI 搜索回答与引用的能力。',
+        answerText: '在排查工具中，SampleProject 提供了逐条核对 AI 搜索回答与引用的能力。',
         citationSource: 'native',
         citationsComplete: true,
         citations: [{ title: 'Example Docs', url: ownedSiteUrl }],
@@ -299,15 +308,17 @@ test('supports deep multi-deliverable partial adoption and immediate retest befo
           },
           revisionInstructions: [],
         });
-      } else if (sys.includes('阅卷官')) {
+      } else if (sys.includes('回答证据审核')) {
         content = JSON.stringify({
           identity: 'matched',
           mention: 'yes',
           citation: 'yes',
-          mentionQuote: 'Example Project 支持完整问答记录核对',
+          mentionQuote: 'SampleProject 支持完整问答记录核对',
           mentionEvidence: '明确提及目标品牌。',
           citationEvidence: '引用了官网网址。',
           officialUrls: [ownedSiteUrl],
+          answerComplete: true,
+          limitations: [],
         });
       }
 
@@ -340,7 +351,7 @@ test('supports deep multi-deliverable partial adoption and immediate retest befo
       {
         questionId: activeQuestions[0].id,
         engine: 'chatgpt',
-        answerText: 'Example Project 支持完整问答记录核对。',
+        answerText: 'SampleProject 支持完整问答记录核对。',
         citationSource: 'native',
         citationsComplete: true,
         citations: [{ title: 'How It Works', url: ownedSiteUrl }],
@@ -357,15 +368,56 @@ test('supports deep multi-deliverable partial adoption and immediate retest befo
   assert.equal(finalRun.deliverables[1].status, 'skipped');
 });
 
-test('loads modular YAML skill metadata and routes writer archetypes per deliverable role', () => {
+test('loads modular YAML skill metadata, avoids hardcoded dogfood strings, and injects projectContext across scenarios', () => {
   const meta = readAgentMeta('improvement-planning', 'open-source-repo/readme.md');
   assert.equal(meta.tab, '改进与追踪');
   assert.equal(meta.scenario, 'open-source-repo');
   assert.equal(meta.role, 'writer');
 
-  const body = readAgentText('improvement-planning', 'open-source-repo/readme.md');
-  assert.ok(!body.startsWith('---'));
-  assert.ok(body.includes('OpenGEO 适合你吗'));
+  for (const relFile of [
+    'common-writer.md',
+    'common-reviewer.md',
+    'open-source-repo/strategist.md',
+    'open-source-repo/readme.md',
+    'open-source-repo/quickstart.md',
+    'open-source-repo/public-article.md',
+    'website-product/strategist.md',
+    'website-product/landing-page.md',
+  ]) {
+    const body = readAgentText('improvement-planning', relFile);
+    assert.ok(!body.startsWith('---'));
+    assert.equal(/cooleryu\/opengeo|Pupok462\/open-geo|opengeo\.work/i.test(body), false, relFile);
+  }
+
+  assert.equal(resolveProjectScenario('sample-project'), 'open-source-repo');
+  const websiteCreated = createProjectOnboarding({
+    kind: 'company',
+    url: 'https://acme-analytics.example',
+    targetLanguage: 'en',
+    uiLanguage: 'en',
+  });
+  completeProjectOnboarding(websiteCreated.project.id, {
+    summary: 'Acme Analytics tracks conversion funnels without cookies.',
+    audience: 'Growth teams at B2B SaaS startups',
+    capabilities: ['Privacy-first funnel analytics', 'Self-serve JS snippet'],
+    unknowns: ['Mobile SDK roadmap is unverified'],
+  });
+  assert.equal(resolveProjectScenario(websiteCreated.project.id), 'website-product');
+  assert.equal(
+    resolveWriterArchetypeFile('website-product', {
+      kind: 'update_asset',
+      destination: 'landing-page.md',
+      title: 'Homepage refresh',
+    }),
+    'website-product/landing-page.md',
+  );
+
+  const strategistPrompt = optimizationStrategistAgent.buildPrompt(
+    { mode: 'focus', targetLanguage: 'en', uiLanguage: 'en' },
+    { projectId: websiteCreated.project.id },
+  );
+  assert.ok(strategistPrompt.system.includes('策略官'));
+  assert.ok(strategistPrompt.user.includes('Privacy-first funnel analytics'));
 
   const readmePrompt = deliverableWriterAgent.buildPrompt(
     {
@@ -373,7 +425,7 @@ test('loads modular YAML skill metadata and routes writer archetypes per deliver
         priority: 1,
         kind: 'update_asset',
         format: 'rich_markdown',
-        title: 'OpenGEO 主页介绍改写',
+        title: '主页介绍改写',
         targetAssetId: 'sample-project-asset-1',
         destination: 'README.md',
         audienceAndGoal: '帮访客看清产品定位。面向仓库新访客。',
@@ -386,6 +438,7 @@ test('loads modular YAML skill metadata and routes writer archetypes per deliver
     { projectId: 'sample-project' },
   );
   assert.ok(readmePrompt.system.includes('开源代码仓库 GitHub README 门面改写'));
+  assert.ok(readmePrompt.user.includes('Project Fact Sheet'));
 
   const quickstartPrompt = deliverableWriterAgent.buildPrompt(
     {
@@ -427,39 +480,22 @@ test('loads modular YAML skill metadata and routes writer archetypes per deliver
   );
   assert.ok(articlePrompt.system.includes('对外公开获客实操长文'));
 
-  const hallucinationErr = deliverableWriterAgent.validate?.(
+  const reviewPrompt = deliverableReviewerAgent.buildPrompt(
     {
-      title: '快速上手',
-      afterContent: [
-        '# 快速上手',
-        '',
-        '### 第一次要准备几道题？',
-        '准备 10~15 道题，包含一个对比表：',
-        '',
-        '| 列1 | 列2 |',
-        '| --- | --- |',
-        '| A | B |',
-      ].join('\n'),
-      mediaManifest: [{ type: 'table', pathOrTitle: '对比表', caption: '说明' }],
-    },
-    {
-      deliverable: {
-        priority: 2,
-        kind: 'new_content',
-        format: 'rich_markdown',
-        title: '快速上手',
-        targetAssetId: null,
-        destination: 'docs/getting-started.md',
-        audienceAndGoal: '带新手走通三步。',
-        questionIds: ['q1'],
-        writingBrief: '写快速上手。',
-      },
-      targetQuestions: [{ id: 'q1', queryZh: '怎么用', queryEn: 'How to use' }],
+      kind: 'new_content',
+      format: 'rich_markdown',
+      title: 'Quick Start',
+      destination: 'docs/getting-started.md',
+      audienceAndGoal: 'Help new buyers onboard in 5 minutes.',
       beforeContent: '',
+      afterContent: '# Quick Start\n\nPrivacy-first funnel analytics.',
+      targetLanguage: 'en',
+      targetQuestions: [{ id: 'q1', queryZh: '', queryEn: 'Best cookie-free analytics?' }],
     },
-    { projectId: 'sample-project' },
+    { projectId: websiteCreated.project.id },
   );
-  assert.ok(hallucinationErr && hallucinationErr.includes('最多 8 道核心监测问题'));
+  assert.ok(reviewPrompt.user.includes('Privacy-first funnel analytics'));
+  assert.ok(reviewPrompt.user.includes('Best cookie-free analytics?'));
 });
 
 test('publishes adopted bilingual repo deliverables to a bare git remote and cleans up legacy README.en.md', async () => {
@@ -1534,4 +1570,133 @@ test('cancelOptimizationRun deletes unapplied drafting runs safely and onlyNewCo
   assert.equal(cancelled.cancelledRunId, accidentalRun.id);
   assert.equal(getOptimizationRun(projectId, accidentalRun.id), null);
   assert.equal(listOptimizationRuns(projectId).some((r) => r.id === shippedRun.id), true);
+});
+
+test('quarantines single persistent veto after 2 internal revisions without blocking passing sibling deliverables', async () => {
+  const projectId = 'sample-project';
+  ensureProjectRelationalData(projectId);
+  const activeQuestion = withProjectDb(projectId, (db, id) =>
+    db
+      .prepare("SELECT id FROM opengeo_questions WHERE project_id = ? AND status = 'active' ORDER BY sort_order LIMIT 1")
+      .get(id) as { id: string },
+  );
+
+  let writerCount = 0;
+  let reviewCountForSecond = 0;
+  const partialVetoTransport: LLMTransport = {
+    provider: 'test',
+    async complete(req) {
+      const sys = req.messages[0]?.content ?? '';
+      const usr = req.messages[1]?.content ?? '';
+      if (sys.includes('策略官')) {
+        return {
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({
+              summary: 'Deliver two docs; isolate any persistent review failure internally.',
+              deliverables: [
+                {
+                  priority: 1,
+                  kind: 'new_content',
+                  format: 'rich_markdown',
+                  title: 'Solid Passing Guide',
+                  targetAssetId: null,
+                  destination: 'docs/guide.md',
+                  audienceAndGoal: 'Helps new developers start quickly.',
+                  questionIds: [activeQuestion.id],
+                  writingBrief: 'Clean practical guide with comparison table.',
+                },
+                {
+                  priority: 2,
+                  kind: 'new_content',
+                  format: 'rich_markdown',
+                  title: 'Troublesome Draft',
+                  targetAssetId: null,
+                  destination: 'docs/blog/troublesome.md',
+                  audienceAndGoal: 'Experimental comparison post.',
+                  questionIds: [activeQuestion.id],
+                  writingBrief: 'Experimental draft that stalls in review.',
+                },
+              ],
+            }),
+          },
+          model: 'mock-flash',
+          latencyMs: 3,
+        };
+      }
+      if (sys.includes('技术产品主笔')) {
+        writerCount += 1;
+        const isSecond = usr.includes('Troublesome Draft');
+        return {
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({
+              title: isSecond ? 'Troublesome Draft' : 'Solid Passing Guide',
+              afterContent: [
+                `# ${isSecond ? 'Troublesome Draft' : 'Solid Passing Guide'}`,
+                '',
+                'Direct answer first so readers and search engines see concrete workflow tradeoffs.',
+                '',
+                '| Option | Setup | Output |',
+                '| --- | --- | --- |',
+                '| Manual | Slow | Notes |',
+                '| Structured | Fast | Evidence |',
+              ].join('\n'),
+              mediaManifest: [{ type: 'table', pathOrTitle: 'Tradeoffs', caption: 'Clear comparison' }],
+            }),
+          },
+          model: 'mock-flash',
+          latencyMs: 3,
+        };
+      }
+      const isSecondReview = usr.includes('Troublesome Draft');
+      if (isSecondReview) reviewCountForSecond += 1;
+      return {
+        message: {
+          role: 'assistant',
+          content: JSON.stringify(
+            isSecondReview
+              ? {
+                  verdict: 'veto',
+                  summary: 'Unverified capability claim remains.',
+                  checks: {
+                    authenticity: { passed: false, note: 'Unsupported claim.' },
+                    compliance: { passed: true, note: 'Objective.' },
+                    readability: { passed: true, note: 'Readable.' },
+                  },
+                  revisionInstructions: ['Remove unsupported capability claim.'],
+                }
+              : {
+                  verdict: 'pass',
+                  summary: 'All three checks passed.',
+                  checks: {
+                    authenticity: { passed: true, note: 'Grounded.' },
+                    compliance: { passed: true, note: 'Objective.' },
+                    readability: { passed: true, note: 'Readable.' },
+                  },
+                  revisionInstructions: [],
+                },
+          ),
+        },
+        model: 'mock-flash',
+        latencyMs: 3,
+      };
+    },
+  };
+
+  const run = await startOptimizationRun(projectId, {
+    mode: 'deep',
+    targetLanguage: 'en',
+    transport: partialVetoTransport,
+  });
+
+  assert.equal(run.status, 'awaiting_approval', run.errorMessage ?? undefined);
+  assert.equal(writerCount, 4);
+  assert.equal(reviewCountForSecond, 3);
+  const passing = run.deliverables.find((d) => d.title === 'Solid Passing Guide');
+  const quarantined = run.deliverables.find((d) => d.title === 'Troublesome Draft');
+  assert.equal(passing?.status, 'ready');
+  assert.equal(quarantined?.status, 'skipped');
+  assert.equal(quarantined?.review?.verdict, 'veto');
+  assert.equal(quarantined?.review?.revisionRound, 2);
 });

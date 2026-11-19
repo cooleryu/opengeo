@@ -8,6 +8,7 @@ import {
   BookOpen,
   Check,
   Clock,
+  Copy,
   ExternalLink,
   GitCommit,
   GitPullRequest,
@@ -24,6 +25,7 @@ import {
 import type { HumanProgressStep } from '@/lib/agent-hub';
 import type { OptimizationRunStatus } from '@/lib/geo/db/schema';
 import type { GeoLanguage } from '@/lib/geo/i18n';
+import { buildCodingAgentEvidenceBrief } from '@/lib/geo/optimization/evidence-brief';
 import { buildExternalMarkdown } from '@/lib/geo/optimization/external-export';
 import type {
   OptimizationDeliverable,
@@ -117,9 +119,12 @@ interface ShippedHistoryEntry {
 
 export default function OptimizationStudio({
   projectId,
+  projectName,
   repositoryUrl,
+  siteUrl,
   selectedRunId,
   batch,
+  targetLanguage,
   onBackOverview,
   onOpenQuestions,
   onSelectRun,
@@ -657,6 +662,33 @@ export default function OptimizationStudio({
     }
   };
 
+  const [copiedBriefId, setCopiedBriefId] = useState<string | null>(null);
+
+  const handleCopyBrief = async (deliverable: OptimizationDeliverable) => {
+    try {
+      const brief = buildCodingAgentEvidenceBrief({
+        projectName,
+        repositoryUrl,
+        siteUrl,
+        deliverable,
+        batch,
+        targetLanguage: targetLanguage ?? uiLanguage,
+      });
+      await navigator.clipboard.writeText(brief);
+      setCopiedBriefId(deliverable.id);
+      setNotice(
+        isEn
+          ? `Copied evidence brief for "${deliverable.title}" — paste into Claude Code or Cursor.`
+          : `已复制《${deliverable.title}》证据 Brief——直接粘贴给 Claude Code / Cursor 即可动手改写。`,
+      );
+      setTimeout(() => {
+        setCopiedBriefId((curr) => (curr === deliverable.id ? null : curr));
+      }, 2200);
+    } catch {
+      setError(isEn ? 'Could not copy brief.' : '复制 Brief 失败，请打开预览复制。');
+    }
+  };
+
   const handleOpenExternalInEgo = async (deliverable: OptimizationDeliverable) => {
     if (busyDocId) return;
     setBusyDocId(deliverable.id);
@@ -1055,7 +1087,21 @@ export default function OptimizationStudio({
                     </div>
 
                     <h3>{d.title}</h3>
-                    {purpose && <p className="oap-card-sub">{purpose}</p>}
+                    {purpose && (
+                      <div className="oap-evidence-box">
+                        <div className="oap-evidence-head">
+                          <span className="oap-evidence-kicker">
+                            {isEn ? 'Evidence' : '证据'}
+                          </span>
+                          <span className="oap-evidence-meta">
+                            {isEn
+                              ? `Covers ${d.questionIds.length} missed buyer prompts`
+                              : `覆盖 ${d.questionIds.length} 道买家提问缺口`}
+                          </span>
+                        </div>
+                        <p className="oap-evidence-text">{purpose}</p>
+                      </div>
+                    )}
 
                     {isMarking && (
                       <div className="oap-mark-sent-box">
@@ -1097,6 +1143,19 @@ export default function OptimizationStudio({
                         onClick={() => void handleSkipDoc(runIdForDoc, d.id)}
                       >
                         {t('actionPlan.skipCardBtn')}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="ost-btn-secondary is-sm"
+                        onClick={() => void handleCopyBrief(d)}
+                      >
+                        {copiedBriefId === d.id ? <Check size={13} /> : <Copy size={13} />}
+                        <span>
+                          {copiedBriefId === d.id
+                            ? t('dav.copiedBrief')
+                            : t('actionPlan.copyBriefBtn')}
+                        </span>
                       </button>
 
                       <button
@@ -1353,6 +1412,9 @@ export default function OptimizationStudio({
               <div className="oap-drawer-body">
                 <DeliverableArticleView
                   projectId={projectId}
+                  projectName={projectName}
+                  siteUrl={siteUrl}
+                  batch={batch}
                   deliverable={deliverable}
                   repositoryUrl={repositoryUrl}
                   showMetaStrip={readingTab === 'after'}

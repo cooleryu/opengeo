@@ -9,8 +9,11 @@ import {
   ChevronRight,
   ChevronUp,
   Copy,
+  ExternalLink,
+  GitPullRequest,
   Layers3,
   Loader2,
+  MessageSquarePlus,
   Minus,
   Play,
   RefreshCw,
@@ -28,11 +31,13 @@ import type {
   ResearchSource,
 } from '@/lib/geo/research-types';
 import {
+  extractOverviewGapSources,
   extractQuestionTopWinners,
   extractTopExternalCitedSources,
   getResearchMetrics,
   getResearchRows,
   isBrandPrompt,
+  type OverviewGapSourceKind,
   type ResearchFilter,
   type ResearchRow,
 } from '@/lib/geo/research-view';
@@ -436,10 +441,10 @@ type Props = {
   onRefresh?: () => void;
   onAssets?: () => void;
   onPlan?: (
-    question: ResearchQuestion,
-    language: 'zh' | 'en',
-    engine: ResearchEngine,
-  ) => Promise<void>;
+    question?: ResearchQuestion,
+    language?: 'zh' | 'en',
+    engine?: ResearchEngine,
+  ) => Promise<void> | void;
 };
 
 type FocusFilter =
@@ -465,6 +470,7 @@ export default function ProjectOverview({
   onCompetitor,
   onQuestions,
   onRefresh,
+  onPlan,
 }: Props) {
   const { uiLanguage, t } = useUiLanguage();
   const isEn = uiLanguage === 'en';
@@ -640,7 +646,12 @@ export default function ProjectOverview({
     expandedQuestions: false,
   });
   const [earlyRetestHours, setEarlyRetestHours] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState<number | null>(null);
   const questionSectionRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    setNowMs(Date.now());
+  }, []);
 
   const inScope = uiState.scope === scopeKey;
   const focus: FocusFilter = inScope ? uiState.focus : 'all';
@@ -1078,9 +1089,10 @@ export default function ProjectOverview({
   const dateRange = overviewObservationDates(rows, isEn);
 
   const shippedMs = latestShippedAt ? Date.parse(latestShippedAt) : NaN;
-  const hrsSinceShip = Number.isFinite(shippedMs)
-    ? Math.max(0, (Date.now() - shippedMs) / 3_600_000)
-    : Infinity;
+  const hrsSinceShip =
+    nowMs !== null && Number.isFinite(shippedMs)
+      ? Math.max(0, (nowMs - shippedMs) / 3_600_000)
+      : Infinity;
 
   const isColdZeroStage =
     !sourceOnly &&
@@ -1089,9 +1101,115 @@ export default function ProjectOverview({
     citation.yes === 0 &&
     mention.unknown === 0 &&
     citation.unknown === 0;
-  const overviewTopWinners = isColdZeroStage
-    ? extractTopExternalCitedSources(batch, project, activeLanguage, 4)
-    : [];
+  const overviewTopWinners = extractTopExternalCitedSources(
+    batch,
+    project,
+    activeLanguage,
+    4,
+  );
+  const overviewGapSources = extractOverviewGapSources(batch, project, {
+    engine: selectedEngine,
+    language: activeLanguage,
+    limit: 5,
+  });
+
+  // Deterministic 0-cost Peec Insights-style situation verdict
+  const topLeaderNames = overviewTopWinners
+    .slice(0, 2)
+    .map((w) => w.label)
+    .join(' & ');
+  const measuredPlatforms = platformStats.filter((p) => p.rate !== null);
+  const sortedByRate = [...measuredPlatforms].sort(
+    (a, b) => (b.rate ?? 0) - (a.rate ?? 0),
+  );
+  const strongestPlatform =
+    sortedByRate.length >= 2 &&
+    (sortedByRate[0].rate ?? 0) > (sortedByRate[sortedByRate.length - 1].rate ?? 0)
+      ? sortedByRate[0]
+      : null;
+  const weakestPlatform =
+    strongestPlatform ? sortedByRate[sortedByRate.length - 1] : null;
+
+  const situationVerdict = (() => {
+    if (sourceOnly) {
+      return {
+        headline: isEn
+          ? `${officialMetrics.found}/${officialMetrics.completed} web search checks included your site`
+          : `网页搜索出现 ${officialMetrics.found}/${officialMetrics.completed} 次`,
+        subline: isEn
+          ? 'Switch to All or an AI answer engine to inspect mention and citation gaps.'
+          : '切换到「全部」或 AI 回答平台查看完整提及与外部引用缺口。',
+      };
+    }
+    if (mention.completed === 0) {
+      return {
+        headline: isEn ? 'Waiting for first completed measurements' : '等待首轮实测完成',
+        subline: isEn
+          ? 'Run local browser checks to build your real citation baseline.'
+          : '运行本地浏览器实测后，这里会直接给出局势判断与高权重引用缺口。',
+      };
+    }
+    if (mention.yes === 0) {
+      const headline = topLeaderNames
+        ? isEn
+          ? `Not yet in AI recommendations — ${topLeaderNames} lead`
+          : `当前在 AI 推荐中未上榜 — ${topLeaderNames} 领跑`
+        : isEn
+          ? 'Not yet appearing in AI answers'
+          : '当前在 AI 回答中暂未出现提及';
+      const subline =
+        brandSplit.total > 0 && brandSplit.yes === 0
+          ? isEn
+            ? `The gap is presence: 0/${discoverySplit.total} non-branded buyer prompts mentioned you, and even direct "${brandLabel}" searches missed. Start with the AI-cited lists below.`
+            : `核心瓶颈是「缺席」：${discoverySplit.total} 道非品牌拉新题全部未提及，连直接搜「${brandLabel}」也未认出。优先抢占下方 AI 高频引用的外部榜单。`
+          : isEn
+            ? `The gap is presence: 0/${mention.completed} measured answers name you yet. Start by getting listed on the AI-cited sources below.`
+            : `核心瓶颈是「缺席」：${mention.completed} 次实测回答暂未出现你的名字，建议优先拿下下方 AI 正在引用的外部榜单与对比页。`;
+      return { headline, subline };
+    }
+    if (discoverySplit.total > 0 && discoverySplit.yes === 0) {
+      return {
+        headline: isEn
+          ? `Visible on brand searches only — 0/${discoverySplit.total} non-branded prompts`
+          : `仅搜「${brandLabel}」时出现 — 非品牌拉新仍为 0/${discoverySplit.total}`,
+        subline: isEn
+          ? 'Buyers who already know your name can find you, but category discovery still goes to competitors. Prioritize external lists and comparisons.'
+          : '已经认识你的用户能搜到你，但按需求找工具的新买家全流向了竞品；优先铺设外部榜单和品类对比。',
+      };
+    }
+    const rate = mention.rate ?? 0;
+    const engineHint =
+      strongestPlatform && weakestPlatform
+        ? isEn
+          ? ` Strongest on ${getPlatformName(strongestPlatform.engine, true)} (${pct(strongestPlatform.rate)}), weakest on ${getPlatformName(weakestPlatform.engine, true)} (${pct(weakestPlatform.rate)}).`
+          : ` ${getPlatformName(strongestPlatform.engine)}表现最强（${pct(strongestPlatform.rate)}），${getPlatformName(weakestPlatform.engine)}最弱（${pct(weakestPlatform.rate)}）。`
+        : '';
+    if (rate < 50) {
+      return {
+        headline: isEn
+          ? `Appearing in ${mention.yes}/${mention.completed} answers (${pct(rate)}) — not yet the default choice`
+          : `已在部分回答中露面（${mention.yes}/${mention.completed}，${pct(rate)}）— 距默认首选还有差距`,
+        subline: isEn
+          ? `Official citations stand at ${citation.yes}/${citation.completed}.${engineHint} Close the top external list gaps below to raise presence.`
+          : `官网/仓库直接引用为 ${citation.yes}/${citation.completed}。${engineHint}继续补齐下方外部高频榜单可稳定拉升曝光。`,
+      };
+    }
+    return {
+      headline: isEn
+        ? `Strong AI presence (${mention.yes}/${mention.completed}, ${pct(rate)})`
+        : `已进入核心推荐位（${mention.yes}/${mention.completed}，${pct(rate)}）`,
+      subline: isEn
+        ? `Official citations: ${citation.yes}/${citation.completed}.${engineHint}`
+        : `官网/仓库直接引用 ${citation.yes}/${citation.completed}。${engineHint}`,
+    };
+  })();
+
+  const gapKindLabel = (kind: OverviewGapSourceKind): string => {
+    if (kind === 'awesome') return isEn ? 'Awesome List' : 'Awesome 榜单';
+    if (kind === 'community') return isEn ? 'Community' : '社区讨论';
+    if (kind === 'roundup') return isEn ? 'Listicle' : '横评指南';
+    return isEn ? 'Competitor' : '竞品来源';
+  };
 
   const mentionDisplay = sourceOnly
     ? {
@@ -1260,62 +1378,85 @@ export default function ProjectOverview({
         </div>
       )}
 
+      {/* Layer 1: Peec Insights-Style 0-Cost Situation Verdict */}
+      <section className="pov-insights-hero" aria-label={isEn ? 'AI search situation verdict' : '当前 AI 曝光局势诊断'}>
+        <div className="pov-insights-copy">
+          <h2>{situationVerdict.headline}</h2>
+          <p>{situationVerdict.subline}</p>
+        </div>
+
+        <div className="pov-insights-metrics">
+          <div className="pov-kpi-pill">
+            <span>{isEn ? 'AI Mentions' : 'AI 提及'}</span>
+            <strong className={mention.yes > 0 ? 'is-pos' : ''}>
+              {sourceOnly
+                ? `${officialMetrics.found}/${officialMetrics.completed}`
+                : `${mention.yes}/${mention.completed}`}
+            </strong>
+          </div>
+          {!sourceOnly && (
+            <div className="pov-kpi-pill">
+              <span>{isEn ? 'Official Cited' : '官方引用'}</span>
+              <strong className={citation.yes > 0 ? 'is-pos' : ''}>
+                {citation.yes}/{citation.completed}
+              </strong>
+            </div>
+          )}
+          {discoverySplit.total > 0 && (
+            <div className="pov-kpi-pill">
+              <span>{isEn ? 'Non-branded' : '非品牌拉新'}</span>
+              <strong>
+                {discoverySplit.yes}/{discoverySplit.total}
+              </strong>
+            </div>
+          )}
+          {brandSplit.total > 0 && (
+            <button
+              type="button"
+              className={`pov-kpi-pill is-btn ${brandSplit.yes === 0 ? 'is-warn' : ''} ${focus === 'brand' ? 'is-active' : ''}`.trim()}
+              onClick={() => jumpFocus(focus === 'brand' ? 'all' : 'brand')}
+            >
+              <span>{isEn ? `Brand "${brandLabel}"` : `搜「${brandLabel}」`}</span>
+              <strong>
+                {brandSplit.yes}/{brandSplit.total}
+              </strong>
+            </button>
+          )}
+          {platformStats.map((item) => (
+            <button
+              key={item.engine}
+              type="button"
+              className={`pov-kpi-pill is-btn ${selectedEngine === item.engine ? 'is-active' : ''}`.trim()}
+              onClick={() =>
+                onFilters({
+                  engine: selectedEngine === item.engine ? 'all' : item.engine,
+                  kind: 'all',
+                  result: 'all',
+                })
+              }
+            >
+              <span className="pov-kpi-engine">
+                <ResearchEngineIcon engine={item.engine} />
+                {getPlatformName(item.engine, isEn)}
+              </span>
+              <strong>
+                {item.yesCount}/{item.totalCount}
+              </strong>
+            </button>
+          ))}
+          <button
+            type="button"
+            className="pov-inline-link pov-insights-comp-link"
+            onClick={onCompetitor}
+          >
+            {t('overview.vsCompetitor')} <ChevronRight size={13} />
+          </button>
+        </div>
+      </section>
+
       {isColdZeroStage ? (
         <>
-          {/* Focused Cold-Start 0-Exposure Readout (avoids repeating 6 zeros) */}
-          <section className="pov-zero-hero" aria-label={isEn ? 'Current visibility baseline' : '当前曝光基线'}>
-            <div className="pov-zero-main">
-              <div className="pov-zero-stat">
-                <strong>0 / {mention.completed}</strong>
-                <span>
-                  {isEn
-                    ? `AI answers mentioned you across ${allQuestions.length} buyer questions (${availableEngines.map((e) => getPlatformName(e, true)).join(' & ')})`
-                    : `次 AI 回答提到你（覆盖 ${allQuestions.length} 道买家提问 · ${availableEngines.map((e) => getPlatformName(e, false)).join(' + ')}）`}
-                </span>
-              </div>
-
-              <div className="pov-zero-signals">
-                {brandSplit.total > 0 && (
-                  <button
-                    type="button"
-                    className={`pov-zero-collision ${focus === 'brand' ? 'is-active' : ''}`}
-                    onClick={() => jumpFocus(focus === 'brand' ? 'all' : 'brand')}
-                  >
-                    {isEn
-                      ? `Even searching "${brandLabel}" directly missed`
-                      : `连直接搜「${brandLabel}」也未认出`}
-                  </button>
-                )}
-
-                {overviewTopWinners.length > 0 && (
-                  <div className="pov-zero-winners">
-                    <span>{isEn ? 'Currently taking your spot:' : '当前占据推荐位：'}</span>
-                    {overviewTopWinners.map((winner) => (
-                      <a
-                        key={winner.key}
-                        href={winner.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="pov-zero-winner-chip"
-                      >
-                        <span>{winner.label}</span>
-                        <em>{winner.questionCount}{isEn ? 'q' : '题'}</em>
-                      </a>
-                    ))}
-                    <button
-                      type="button"
-                      className="pov-inline-link"
-                      onClick={onCompetitor}
-                    >
-                      {t('overview.vsCompetitor')} <ChevronRight size={13} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-
-          {/* Promote #1 Next Move directly under focused baseline */}
+          {/* Layer 2: Crisp Monochrome Next Move Bar */}
           {projectOptimization && (
             <div className="pov-optimization-slot">{projectOptimization}</div>
           )}
@@ -1614,6 +1755,128 @@ export default function ProjectOverview({
         <div className="pov-optimization-slot">{projectOptimization}</div>
       )}
         </>
+      )}
+
+      {/* Layer 3: Peec Gap analysis -> URLs Compact Top-5 External Gap Table */}
+      {overviewGapSources.length > 0 && (
+        <section
+          className="pov-gap-card"
+          aria-label={isEn ? 'External sources AI cites instead of you' : 'AI 正在引用的外部页面'}
+        >
+          <div className="pov-section-bar">
+            <div className="pov-section-title pov-gap-title-wrap">
+              <h2>
+                {isEn
+                  ? 'External sources AI cites instead of you'
+                  : 'AI 正在抄作业的外部缺口页面'}
+              </h2>
+              <span className="pov-gap-sub">
+                {isEn
+                  ? 'Top third-party lists, threads, and competitors appearing in answers where you are missing'
+                  : '你在这些被 AI 真实引用的外部榜单与页面中目前缺席，优先从最前面突破'}
+              </span>
+            </div>
+            <div className="pov-section-tools">
+              <button
+                type="button"
+                className="pov-inline-link"
+                onClick={() => void onPlan?.()}
+              >
+                {isEn ? 'Open Action Plan' : '查看全部优化方案'} <ArrowRight size={13} />
+              </button>
+            </div>
+          </div>
+
+          <div className="pov-gap-table-wrap">
+            <table className="pov-gap-table">
+              <thead>
+                <tr>
+                  <th scope="col">{isEn ? 'Source URL / Repo' : '页面 / 仓库'}</th>
+                  <th scope="col">{isEn ? 'Type' : '类型'}</th>
+                  <th scope="col">{isEn ? 'Engines' : '引用平台'}</th>
+                  <th scope="col" className="is-num">
+                    {isEn ? 'Prompts' : '出现题数'}
+                  </th>
+                  <th scope="col" className="is-action">
+                    {isEn ? 'Next move' : '一步动作'}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {overviewGapSources.map((src) => (
+                  <tr key={src.key}>
+                    <td>
+                      <a
+                        href={src.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="pov-gap-source-link"
+                      >
+                        <strong>{src.title}</strong>
+                        <span>{src.subtitle}</span>
+                      </a>
+                    </td>
+                    <td>
+                      <span className={`pov-gap-badge is-${src.kind}`}>
+                        {gapKindLabel(src.kind)}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="pov-gap-engines">
+                        {src.engines.map((eng) => (
+                          <span
+                            key={eng}
+                            className="pov-gap-engine-dot"
+                            title={getPlatformName(eng, isEn)}
+                          >
+                            <ResearchEngineIcon engine={eng} />
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="is-num">
+                      <span className="pov-gap-count">
+                        {src.questionCount}
+                        {isEn ? 'q' : ' 题'}
+                      </span>
+                    </td>
+                    <td className="is-action">
+                      {src.actionHint === 'submit_pr' ? (
+                        <button
+                          type="button"
+                          className="pov-gap-action-btn is-primary"
+                          onClick={() => void onPlan?.()}
+                        >
+                          <GitPullRequest size={12} />
+                          <span>{isEn ? 'Submit PR' : '去提 PR'}</span>
+                        </button>
+                      ) : src.actionHint === 'community_draft' ? (
+                        <button
+                          type="button"
+                          className="pov-gap-action-btn"
+                          onClick={() => void onPlan?.()}
+                        >
+                          <MessageSquarePlus size={12} />
+                          <span>{isEn ? 'Draft note' : '去发声'}</span>
+                        </button>
+                      ) : (
+                        <a
+                          href={src.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="pov-gap-action-btn"
+                        >
+                          <span>{isEn ? 'Inspect' : '查看'}</span>
+                          <ExternalLink size={11} />
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {/* Row 3: Top-3 Collapsible Priority Questions + Colorful Platform Tile Matrix */}

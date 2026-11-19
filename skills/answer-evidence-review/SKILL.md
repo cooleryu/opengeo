@@ -23,6 +23,7 @@ description: 审核已采集的 AI 回答是否真正识别目标品牌，以及
 | --- | --- | --- |
 | 正确识别本项目，给出相符的具体介绍、用途、评价或明确的身份信息 | yes | matched |
 | 正确识别本项目后批评、不推荐，或缺少某项资料 | yes | matched |
+| 仅因登录态聊天记忆顺嘴提到“你在做的某某”、“用于你的某某”，对陌生人并不成立 | no | personal_memory |
 | 仅复述名称或问题，明确不知道/无法识别项目，且全文没有其他内容正确识别项目 | no | unrecognized |
 | 明确介绍的是其他同名对象，可以依据所有者、用途等确认并非本项目 | no | excluded |
 | 提到名称或称“存在多个同名项目”，但未给出足够识别本项目的仓库/作者/核心特征，读者无法从回答定位到你 | no | ambiguous |
@@ -30,9 +31,9 @@ description: 审核已采集的 AI 回答是否真正识别目标品牌，以及
 
 例如，“由于 Example Project 未在参考资料中被定义，无法提供其官方仓库和使用文档”和“I don't know what Example Project is”都属于 `no + unrecognized`；回答把项目模糊写成“某同名平台/多个项目共用该名”却未定位到当前项目所有者或核心产品时，属于 `no + ambiguous`。
 
-正确介绍本项目并澄清它不是某个同名论文，仍是 `yes + matched`；不能因为这段澄清出现了排除项作者或名称就否定整段识别。`excluded` 不限于事先列出的排除项，但必须有具体身份依据。特别地：当 `project` 明确指出了所属仓库所有者或官网（`officialRoots` / `owner`），而回答正文、链接或 `observedSourceHints` 将提到的项目归属为**另一个所有者、作者、GitHub 仓库或不同官网域名**（例如另一作者的 `Pupok462/open-geo` 与本项目的 `cooleryu/opengeo`，即便产品类别接近或同样本地运行），应判定为同名他项目（`mention=no`、`identity=excluded`），绝不判成 `matched`。
+正确介绍本项目并澄清它不是某个同名论文，仍是 `yes + matched`；不能因为这段澄清出现了排除项作者或名称就否定整段识别。`excluded` 不限于事先列出的排除项，但必须有具体身份依据。特别地：当 `project` 明确指出了所属仓库所有者或官网（`officialRoots` / `owner`），而回答正文、链接或 `observedSourceHints` 将提到的项目归属为**另一个所有者、作者、GitHub 仓库或不同官网域名**（例如另一作者的 `other-org/sample-tool` 与本项目的 `acme/sample-tool`，即便产品类别接近或同样本地运行），应判定为同名他项目（`mention=no`、`identity=excluded`），绝不判成 `matched`。
 
-`matched`、`unrecognized`、`excluded`、`ambiguous` 必须提供逐字 `mentionQuote`，包含项目名或别名以及支持结论的上下文；不能只摘名字。`mentionQuote` 必须一字不差、一换行不改地复制自 `answer.text` 中的连续片段（尤其跨段时必须原样保留 `\n` 或 `\n\n`，不要把换行替换成空格，否则也可优先摘录包含项目名与身份归属的完整单段）。`absent` 的 `mentionQuote` 为空字符串。回答有不同结论时，要考虑全文，不能挑一句“不知道”忽略后面正确的项目介绍。
+`matched`、`personal_memory`、`unrecognized`、`excluded`、`ambiguous` 必须提供逐字 `mentionQuote`，包含项目名或别名以及支持结论的上下文；不能只摘名字。`mentionQuote` 必须一字不差、一换行不改地复制自 `answer.text` 中的连续片段（尤其跨段时必须原样保留 `\n` 或 `\n\n`，不要把换行替换成空格，否则也可优先摘录包含项目名与身份归属的完整单段）。`absent` 的 `mentionQuote` 为空字符串。回答有不同结论时，要考虑全文，不能挑一句“不知道”忽略后面正确的项目介绍。
 
 对 `excluded`、`ambiguous` 和 `unrecognized`，如果品牌名只在相邻标题中，身份说明或“不知道”的表述在后面的正文中，须连续摘录品牌标题及这段正文，保留原有换行。不能只摘“是什么：它是……”或“我不知道它是什么”，也不能只摘品牌标题。标题出现品牌名、正文明确不认识该项目且全文无其他正确识别时，仍判 `no + unrecognized`，不因标题有名字而算已提及。
 

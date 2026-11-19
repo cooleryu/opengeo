@@ -7,43 +7,15 @@ import { loadProjectSeed } from '../project-data';
 import { readPublicSource, type PublicSourceRuntime } from '../project-public-source';
 import { evidenceLocation, withGeoProject } from '../projects';
 import type { ResearchEngine } from '../research-types';
+import { parseGitHubRepoUrl } from '../source-identity';
 import type { DeliverableArchetypeRole, ReferenceWinner } from './types';
-
-const GITHUB_NON_REPO_OWNERS = new Set([
-  'topics',
-  'orgs',
-  'users',
-  'features',
-  'about',
-  'collections',
-  'sponsors',
-  'marketplace',
-  'explore',
-  'settings',
-  'search',
-]);
 
 const DOC_OR_GUIDE_RE =
   /\b(docs|guide|quickstart|getting[-_]?started|tutorial|manual|how[-_]?to|walkthrough|playbook|checklist|awesome)\b/i;
 
 export function parseGitHubRepoCandidate(rawUrl: string): { owner: string; repo: string } | null {
-  try {
-    const parsed = new URL(rawUrl.trim());
-    if (parsed.hostname.replace(/^www\./i, '').toLowerCase() !== 'github.com') return null;
-    const segments = parsed.pathname.split('/').filter(Boolean);
-    if (segments.length < 2) return null;
-    const owner = segments[0];
-    const repo = segments[1].replace(/\.git$/i, '');
-    if (!owner || !repo || GITHUB_NON_REPO_OWNERS.has(owner.toLowerCase())) return null;
-    if (segments.length === 2) return { owner, repo };
-    if (segments[2] === 'tree') return { owner, repo };
-    if (segments[2] === 'blob' && /readme/i.test(segments[segments.length - 1] ?? '')) {
-      return { owner, repo };
-    }
-    return null;
-  } catch {
-    return null;
-  }
+  const parsed = parseGitHubRepoUrl(rawUrl, { allowTreeOrReadme: true });
+  return parsed ? { owner: parsed.owner, repo: parsed.repo } : null;
 }
 
 export interface WinnerStructure {

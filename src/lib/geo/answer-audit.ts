@@ -35,8 +35,11 @@ const resultSchema = z.object({
   answerComplete: z.boolean(),
   limitations: z.array(reason).max(12),
   mentionQuote: z.string().max(1600),
-  identity: z.enum(['matched', 'unrecognized', 'excluded', 'ambiguous', 'absent']),
+  identity: z.enum(['matched', 'personal_memory', 'unrecognized', 'excluded', 'ambiguous', 'absent']),
 }).strict();
+
+const PERSONAL_MEMORY_CUE =
+  /(?:你在做的|你正在做的|你的项目|你提到的|结合你|用于你的|the\s+project\s+you(?:'re|\s+are)\s+building|your\s+project)/iu;
 
 type ModelResult = z.infer<typeof resultSchema>;
 type Identity = {
@@ -224,6 +227,14 @@ function semanticIssue(result: ModelResult, answer: CollectedAnswer, seed: GeoSe
   if (result.mentionQuote && !normalizedText.includes(normalizedQuote)) {
     return '模型的提及摘录与回答原文不一致。';
   }
+  if (
+    result.identity === 'personal_memory' ||
+    (normalizedQuote && PERSONAL_MEMORY_CUE.test(normalizedQuote))
+  ) {
+    if (result.mention !== 'no' || result.identity !== 'personal_memory') {
+      return '检测到“你在做的…”等个人记忆提及，不属于陌生用户自然曝光，mention 必须判为 no 且 identity 为 personal_memory。';
+    }
+  }
   if (result.mention === 'yes' && (!normalizedQuote.trim() ||
       !containsName(normalizedQuote, identity) || result.identity !== 'matched' ||
       (containsExclusion(normalizedQuote, identity) &&
@@ -238,8 +249,13 @@ function semanticIssue(result: ModelResult, answer: CollectedAnswer, seed: GeoSe
         if (!normalizedQuote.trim() || !containsName(normalizedQuote, identity)) {
           return '未识别项目的结论缺少含项目名称的逐字依据。';
         }
-      } else if ((result.identity !== 'excluded' && result.identity !== 'ambiguous') || !containsName(normalizedQuote, identity)) {
-        return '回答出现项目名称或别名，未提供未识别项目或同名排除的依据。';
+      } else if (
+        (result.identity !== 'excluded' &&
+          result.identity !== 'ambiguous' &&
+          result.identity !== 'personal_memory') ||
+        !containsName(normalizedQuote, identity)
+      ) {
+        return '回答出现项目名称或别名，未提供未识别项目、个人记忆或同名排除的依据。';
       } else if (containsProjectIdentityCue(normalizedText.replace(normalizedQuote, ''), seed, identity)) {
         return '摘录之外仍有本项目所有者或官方链接，不能仅凭同名摘录确认未提及。';
       }

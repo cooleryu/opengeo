@@ -1,27 +1,11 @@
-export type ProjectEntryKind = 'repository' | 'store' | 'company' | 'creator';
+import { parseGitHubRepoUrl } from './source-identity';
 
-const NON_REPO_GH_OWNERS = new Set([
-  'topics',
-  'orgs',
-  'users',
-  'features',
-  'about',
-  'collections',
-  'sponsors',
-  'marketplace',
-  'explore',
-  'settings',
-  'search',
-]);
+export type ProjectEntryKind = 'repository' | 'store' | 'company' | 'creator';
 
 /** Infers open-source repository vs company/product site directly from the pasted entry URL. */
 export function inferProjectEntryKind(rawUrl: string): 'repository' | 'company' {
-  const trimmed = rawUrl.trim();
-  const match = trimmed.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+)/i);
-  if (match && !NON_REPO_GH_OWNERS.has(match[1].toLowerCase())) {
-    return 'repository';
-  }
-  return 'company';
+  const parsed = parseGitHubRepoUrl(rawUrl, { allowSubpaths: true, allowSchemeless: true });
+  return parsed ? 'repository' : 'company';
 }
 
 export interface OnboardingAnalysis {

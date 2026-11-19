@@ -1,19 +1,17 @@
 .ohc-stage {
   position: relative;
-  border-radius: 18px;
-  border: 1px solid #badecf;
-  background: linear-gradient(132deg, #eef8f2 0%, #f8fcfa 48%, #ffffff 100%);
-  box-shadow:
-    0 12px 30px rgba(16, 88, 62, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85);
-  padding: 24px 26px;
-  color: #16201c;
+  border-radius: 14px;
+  border: 1px solid #e4e6eb;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  padding: 20px 22px;
+  color: #18181b;
 }
 
 .ohc-stage.is-failed,
 .ohc-stage.is-warn {
-  border-color: #f3d5a5;
-  background: linear-gradient(132deg, #fffaf0 0%, #fffdf9 55%, #ffffff 100%);
+  border-color: #fde68a;
+  background: #fffdf8;
 }
 
 .ohc-loading-row {
@@ -61,40 +59,42 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 11px;
+  padding: 3px 10px;
   border-radius: 999px;
-  background: #dff3e9;
-  color: #0f684c;
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  color: #3f3f46;
   font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
+  font-weight: 550;
+  letter-spacing: 0.005em;
 }
 
 .ohc-eyebrow.is-warn {
-  background: #fef0d6;
-  color: #9a5b08;
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
 }
 
 .ohc-stage .ohc-headline {
-  margin: 11px 0 8px;
-  font-size: 21px;
-  line-height: 1.34;
-  font-weight: 700;
+  margin: 10px 0 6px;
+  font-size: 17.5px;
+  line-height: 1.38;
+  font-weight: 650;
   letter-spacing: -0.02em;
-  color: #111b17;
+  color: #111214;
 }
 
 .ohc-stage .ohc-why {
   margin: 0;
-  font-size: 14px;
-  line-height: 1.68;
-  color: #3d4a44;
-  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #52525b;
+  max-width: 66ch;
 }
 
 .ohc-stage .ohc-why strong {
-  color: #111b17;
-  font-weight: 650;
+  color: #18181b;
+  font-weight: 600;
 }
 
 .ohc-stage .ohc-gap-bullets {
@@ -184,26 +184,24 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
-  height: 44px;
-  padding: 0 22px;
-  border-radius: 11px;
-  background: #147a5b;
+  gap: 8px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 9px;
+  background: #111214;
   color: #ffffff;
-  font-size: 14.5px;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-  box-shadow:
-    0 6px 18px rgba(20, 122, 91, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
   flex-shrink: 0;
-  transition: background 0.16s ease, transform 0.14s ease, box-shadow 0.16s ease;
+  transition: background 0.14s ease, transform 0.12s ease;
 }
 
 .ohc-stage .ohc-cta-primary:hover {
-  background: #0f664b;
+  background: #27272a;
   transform: translateY(-1px);
-  box-shadow: 0 9px 22px rgba(20, 122, 91, 0.3);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.14);
 }
 
 /* Right Column: Static Visual Showcase (Single Paper or Package Card) */

@@ -12,9 +12,11 @@ import { singleRequestModel } from '../connection-test';
 import type { GeoLanguage } from '../i18n';
 import { OptimizationStateError, parseGitHubRepoSlug } from '../optimization';
 import { loadProjectSeed } from '../project-data';
+import { getProjectOnboarding } from '../project-onboarding-store';
 import { withGeoProject } from '../projects';
 import type { ResearchBatch, ResearchEngine } from '../research-types';
 import { extractOutreachCitedPages } from '../research-view';
+import { parseGitHubRepoUrl, SAFE_GH_SEGMENT_RE } from '../source-identity';
 import { getGeoState } from '../store';
 import type { GeoProject } from '../types';
 import {
@@ -27,10 +29,20 @@ import {
   type RepoMetaDraft,
 } from './outreach-store';
 
-const SAFE_GH_SEGMENT_RE = /^[A-Za-z0-9_.-]{1,100}$/;
 const HAS_CJK_RE = /[\u3400-\u9fff]/;
-const RELEVANT_OUTREACH_TOPIC_RE =
-  /\b(geo|aeo|generative[- ]engine|ai[- ]search|ai[- ]overviews?|ai[- ]visibility|llm[- ]visibility|llm[- ]seo|ai[- ]seo|citation[- ]track\w*|brand[- ]mention\w*|chatgpt[- ]search|perplexity[- ]seo)\b/i;
+const NOISE_THREAD_PAGE_RE =
+  /(?:^|\/)(?:login|signin|sign-in|signup|sign-up|privacy(?:-policy)?|terms(?:-of-service)?|cookie-policy)(?:\/|$|\?)/i;
+const TOPIC_STOPWORDS = new Set([
+  'about', 'across', 'after', 'already', 'also', 'and', 'another', 'answers', 'any',
+  'app', 'are', 'based', 'best', 'build', 'built', 'can', 'check', 'code', 'compare',
+  'docs', 'does', 'for', 'from', 'good', 'guide', 'help', 'how', 'into', 'just',
+  'like', 'list', 'make', 'more', 'most', 'need', 'new', 'not', 'open', 'our',
+  'other', 'over', 'page', 'pages', 'project', 'projects', 'real', 'repo', 'repository',
+  'should', 'show', 'some', 'source', 'that', 'the', 'their', 'them', 'then', 'there',
+  'these', 'this', 'those', 'tool', 'tools', 'use', 'used', 'user', 'users', 'using',
+  'want', 'way', 'what', 'when', 'where', 'which', 'who', 'why', 'will', 'with',
+  'work', 'works', 'would', 'your',
+]);
 const LIST_HEADING_PRIORITY_RE =
   /tools|open[- ]source|monitoring|analytics|tracking|visibility|platforms|software|projects|resources|trackers|utilities/i;
 const SKIP_HEADING_RE = /table of contents|contents|contributing|license|acknowledg/i;
@@ -413,7 +425,7 @@ export function parseAwesomeInsertion(
   const rawDesc = (
     modelSuggestion?.description ||
     cleanProjectDesc ||
-    'Open-source, local-first AI search visibility & GEO workbench.'
+    'Open-source software project.'
   )
     .replace(/\s+/g, ' ')
     .replace(/\|/g, '/')
@@ -550,38 +562,26 @@ function discoverCitedAwesomeRepos(
   for (const question of batch.questions ?? []) {
     for (const obs of question.observations ?? []) {
       for (const source of obs.sources ?? []) {
-        const rawUrl = (source.url || '').trim();
-        let parsedUrl: URL;
-        try {
-          parsedUrl = new URL(rawUrl);
-        } catch {
-          continue;
-        }
-        if (parsedUrl.hostname.replace(/^www\./, '').toLowerCase() !== 'github.com') continue;
-        const segments = parsedUrl.pathname.split('/').filter(Boolean);
-        if (segments.length < 2) continue;
-        const owner = segments[0];
-        const repo = segments[1].replace(/\.git$/i, '');
-        if (!SAFE_GH_SEGMENT_RE.test(owner) || !SAFE_GH_SEGMENT_RE.test(repo)) continue;
-        if (owner.toLowerCase() === 'topics') continue;
+        const gh = parseGitHubRepoUrl(source.url || '', { allowSubpaths: true });
+        if (!gh) continue;
         if (
           ownSlug &&
-          owner.toLowerCase() === ownSlug.owner.toLowerCase() &&
-          repo.toLowerCase() === ownSlug.repo.toLowerCase()
+          gh.owner.toLowerCase() === ownSlug.owner.toLowerCase() &&
+          gh.repo.toLowerCase() === ownSlug.repo.toLowerCase()
         ) {
           continue;
         }
-        const combinedLabel = `${repo} ${source.title || ''}`;
+        const combinedLabel = `${gh.repo} ${source.title || ''}`;
         if (!/awesome|list|directory|curated|resources|collection/i.test(combinedLabel)) {
           continue;
         }
-        const key = `${owner.toLowerCase()}/${repo.toLowerCase()}`;
+        const key = gh.key;
         const existing = byRepo.get(key);
         if (!existing) {
           byRepo.set(key, {
-            owner,
-            repo,
-            url: `https://github.com/${owner}/${repo}`,
+            owner: gh.owner,
+            repo: gh.repo,
+            url: gh.url,
             questionIds: new Set([question.id]),
             engines: new Set([obs.engine]),
           });
@@ -697,6 +697,94 @@ export function buildDefaultShowHnDraft(
   };
 }
 
+function extractAsciiTokens(text: string): string[] {
+  const matches = text.toLowerCase().match(/[a-z][a-z0-9-]{1,34}/g) ?? [];
+  return matches.filter((tok) => tok.length >= 2 && !TOPIC_STOPWORDS.has(tok));
+}
+
+function collectProjectKeywords(
+  project: Pick<GeoProject, 'name' | 'description'>,
+  batch: ResearchBatch | null,
+  onboardingSummary = '',
+): Set<string> {
+  const sources = [
+    project.name || '',
+    project.description || '',
+    onboardingSummary,
+    ...(batch?.questions ?? []).map((q) => q.en || ''),
+  ];
+  const tokens = new Set<string>();
+  for (const src of sources) {
+    for (const tok of extractAsciiTokens(src)) {
+      if (tok.length >= 3) tokens.add(tok);
+      for (const part of tok.split('-')) {
+        if (part.length >= 3 && !TOPIC_STOPWORDS.has(part)) tokens.add(part);
+      }
+    }
+  }
+  return tokens;
+}
+
+export function deriveRecommendedTopics(
+  project: Pick<GeoProject, 'name' | 'description'>,
+  currentTopics: string[],
+  batch: ResearchBatch | null = null,
+  onboardingSummary = '',
+): string[] {
+  const cleanCurrent = currentTopics
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => /^[a-z0-9][a-z0-9-]{0,34}$/.test(t));
+  const out = new Set<string>(cleanCurrent);
+  const combinedSource = [project.name || '', project.description || '', onboardingSummary].join(' ');
+  const isGeoDomain = /\b(geo|aeo|ai[- ]search|generative[- ]engine|ai[- ]visibility|citation)\b/i.test(
+    combinedSource,
+  );
+  if (isGeoDomain) {
+    for (const tag of ['generative-engine-optimization', 'ai-search-visibility', 'local-first', 'geo']) {
+      out.add(tag);
+    }
+  }
+  const candidateTokens = extractAsciiTokens(
+    [
+      project.description || '',
+      onboardingSummary,
+      ...(batch?.questions ?? []).slice(0, 6).map((q) => q.en || ''),
+    ].join(' '),
+  );
+  for (const tok of candidateTokens) {
+    if (out.size >= Math.max(5, cleanCurrent.length + 3)) break;
+    const normalized = tok.replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
+    if (normalized.length >= 2 && normalized.length <= 35 && !TOPIC_STOPWORDS.has(normalized)) {
+      out.add(normalized);
+    }
+  }
+  return [...out].slice(0, 8);
+}
+
+export function isRelevantCitedThread(
+  page: { title: string; url: string; questionCount?: number },
+  project: Pick<GeoProject, 'name' | 'description'>,
+  batch: ResearchBatch | null = null,
+  onboardingSummary = '',
+): boolean {
+  if (NOISE_THREAD_PAGE_RE.test(page.url)) return false;
+  if ((page.questionCount ?? 0) >= 2) return true;
+  const projectKeywords = collectProjectKeywords(project, batch, onboardingSummary);
+  if (projectKeywords.size === 0) return false;
+  const pageTokens = extractAsciiTokens(`${page.title} ${page.url}`);
+  for (const tok of pageTokens) {
+    if (projectKeywords.has(tok)) return true;
+    for (const part of tok.split('-')) {
+      if (part.length >= 3 && projectKeywords.has(part)) return true;
+    }
+  }
+  const cleanName = (project.name || '').trim().toLowerCase();
+  if (cleanName.length >= 2 && page.title.toLowerCase().includes(cleanName)) {
+    return true;
+  }
+  return false;
+}
+
 export function listOutreachActions(
   projectId: string,
   lang: GeoLanguage = 'zh',
@@ -705,6 +793,20 @@ export function listOutreachActions(
   const seed = loadProjectSeed(projectId);
   const project = seed.project;
   const latestBatch = withGeoProject(projectId, () => getGeoState().latestResearch) ?? null;
+  let onboardingSummary = '';
+  try {
+    const onboarding = getProjectOnboarding(projectId);
+    if (onboarding?.analysis) {
+      onboardingSummary = [
+        onboarding.analysis.summary || '',
+        ...(onboarding.analysis.capabilities ?? []),
+      ]
+        .filter(Boolean)
+        .join(' ');
+    }
+  } catch {
+    // Non-onboarding projects rely on seed project description & batch questions
+  }
   const persistedList = readOutreachRecords(projectId);
   const persistedMap = new Map(persistedList.map((r) => [r.id, r]));
   const now = new Date().toISOString();
@@ -725,14 +827,11 @@ export function listOutreachActions(
     const externalSiteUrl =
       rawSiteUrl && !rawSiteUrl.toLowerCase().includes(ownRepoStem) ? rawSiteUrl : '';
 
-    const recommendedTopics = Array.from(
-      new Set([
-        ...currentTopics,
-        'generative-engine-optimization',
-        'ai-search-visibility',
-        'local-first',
-        'geo',
-      ]),
+    const recommendedTopics = deriveRecommendedTopics(
+      project,
+      currentTopics,
+      latestBatch,
+      onboardingSummary,
     );
     const suggestedHomepage = currentHomepage.trim() || externalSiteUrl || '';
     const savedSuggestedHome = saved?.repoMetaDraft?.suggestedHomepage?.trim() || '';
@@ -747,13 +846,24 @@ export function listOutreachActions(
         ? saved.repoMetaDraft.suggestedDescription
         : '';
     const cleanCurrentDesc =
-      currentDescription.trim().length >= 30 && !HAS_CJK_RE.test(currentDescription)
+      currentDescription.trim().length >= 20 && !HAS_CJK_RE.test(currentDescription)
         ? currentDescription.trim()
+        : '';
+    const cleanSeedDesc =
+      project.description?.trim().length >= 20 && !HAS_CJK_RE.test(project.description)
+        ? project.description.trim()
+        : '';
+    const cleanOnboardingDesc =
+      onboardingSummary.trim().length >= 20 && !HAS_CJK_RE.test(onboardingSummary)
+        ? onboardingSummary.trim().slice(0, 220)
         : '';
     const suggestedDescription =
       cleanSavedDesc ||
       cleanCurrentDesc ||
-      `${project.name} (${ownSlug.owner}/${ownSlug.repo}): Open-source, local-first AI search visibility workbench to audit real ChatGPT & Google AI citations.`;
+      cleanSeedDesc ||
+      cleanOnboardingDesc ||
+      currentDescription.trim() ||
+      `${project.name} (${ownSlug.owner}/${ownSlug.repo})`;
 
     const needsSync =
       liveMeta !== null &&
@@ -781,8 +891,8 @@ export function listOutreachActions(
           ? `GitHub About & Topics (${ownSlug.owner}/${ownSlug.repo})`
           : `GitHub 仓库简介与 Topics（${ownSlug.owner}/${ownSlug.repo}）`,
         subtitle: isEn
-          ? 'Keep repo About description and GEO topics up to date so GitHub search and topic pages match your project.'
-          : '检测到仓库简介或 GEO Topics 标签尚未补齐，补充后有助于搜索索引与榜单核验。',
+          ? 'Keep repo About description and repository topics up to date so GitHub search and topic pages match your project.'
+          : '检测到仓库简介或 Topics 标签尚未补齐，补充后有助于搜索索引与榜单核验。',
         targetUrl: `https://github.com/${ownSlug.owner}/${ownSlug.repo}`,
         status: saved?.status ?? (needsSync ? 'prepared' : 'suggested'),
         repoMetaDraft: draft,
@@ -843,7 +953,7 @@ export function listOutreachActions(
     records.push(devtoSaved);
   }
 
-  // 4. Cited External Threads / Articles strictly matching GEO / AI search topics
+  // 4. Cited External Threads / Articles matching current project topics & prompts
   const citedPages = extractOutreachCitedPages(
     latestBatch,
     { repositoryUrl: project.repositoryUrl ?? '', siteUrl: project.siteUrl ?? '' },
@@ -852,20 +962,27 @@ export function listOutreachActions(
     (page) =>
       !/github\.com\/[^/]+\/[^/]+/i.test(page.url) &&
       !/github topics/i.test(page.title) &&
-      RELEVANT_OUTREACH_TOPIC_RE.test(`${page.title} ${page.url}`),
+      isRelevantCitedThread(page, project, latestBatch, onboardingSummary),
   );
 
   for (const page of citedPages.slice(0, 3)) {
     const safeKey = createHash('sha256').update(page.url).digest('base64url').slice(0, 16);
     const id = `post:thread:${safeKey}`;
     const saved = persistedMap.get(id);
+    const hostLabel =
+      page.host ||
+      (/\breddit\b|(?:^|[\s·/])r\/[a-z0-9_]+/i.test(page.title)
+        ? 'reddit.com'
+        : isEn
+          ? 'External'
+          : '该外部');
     records.push({
       id,
       kind: 'community_post',
       title: page.title,
       subtitle: isEn
-        ? `${page.host} page already cited by AI — draft an honest developer note and open in Ego Lite.`
-        : `${page.host} 页面已被 AI 直接引用 — 生成一段克制的开发者补充说明并在 Ego Lite 打开。`,
+        ? `${hostLabel} page already cited by AI — draft an honest developer note and open in Ego Lite.`
+        : `${hostLabel} 页面已被 AI 直接引用 — 生成一段克制的开发者补充说明并在 Ego Lite 打开。`,
       targetUrl: page.url,
       citedCount: page.questionCount,
       citedEngines: page.engines,
@@ -987,6 +1104,8 @@ export async function prepareAwesomePrAction(
     stars: ownStars,
     language: ownLanguage,
   });
+  const rawSummary = (seed.project.description || '').replace(/\s+/g, ' ').trim();
+  const cleanSummary = rawSummary && !HAS_CJK_RE.test(rawSummary) ? rawSummary.replace(/\.+$/, '') : '';
   const draft: AwesomePrDraft = {
     upstreamOwner: owner,
     upstreamRepo: repo,
@@ -998,7 +1117,9 @@ export async function prepareAwesomePrAction(
     prBody: [
       `Hi! Adding [${seed.project.name}](${seed.project.repositoryUrl || seed.project.siteUrl}) under **${insertion.sectionHeading}**.`,
       ``,
-      `It's an open-source, local-first AI search visibility workbench that captures live ChatGPT Web & Google AI Overview answers in your own browser and audits brand mentions/citations.`,
+      cleanSummary
+        ? `${cleanSummary}.`
+        : `Open-source project maintained at ${seed.project.repositoryUrl || seed.project.siteUrl}.`,
       ``,
       `Happy to adjust the wording or section placement if needed!`,
     ].join('\n'),
@@ -1207,17 +1328,24 @@ export async function prepareCommunityPostAction(
     },
   );
 
+  const cleanSummary =
+    project.description && !HAS_CJK_RE.test(project.description)
+      ? project.description.replace(/\s+/g, ' ').trim()
+      : '';
   const fallbackDraft: CommunityPostDraft = existing.postDraft ?? {
     channelLabel: existing.title,
     submitUrl: existing.targetUrl,
     draftUrl: repoUrl,
-    draftTitle: `Sharing a local-first way to check ChatGPT & Google AI citations (${project.name})`,
+    draftTitle: cleanSummary
+      ? `Notes from building ${project.name}: ${cleanSummary.slice(0, 80)}`
+      : `Sharing ${project.name} (${repoUrl})`,
     draftBody: [
-      `When benchmarking AI visibility tools recently, one gap stood out: API-only checks rarely match what logged-in users actually see in ChatGPT web search or Google AI Overviews.`,
+      cleanSummary
+        ? `Sharing a practical update from building ${project.name}: ${cleanSummary}`
+        : `Sharing ${project.name} (${repoUrl}) for folks exploring related workflows.`,
       ``,
-      `We built an open-source local workbench (${repoUrl}) to capture real temporary-chat answers in your own browser, compare cited URLs against competitors, and avoid paying SaaS subscriptions just to inspect raw evidence.`,
-      ``,
-      `Curious if anyone else here tests temporary-chat / web-answer outputs directly instead of relying solely on API prompts?`,
+      ...(repoUrl ? [`Repo & docs: ${repoUrl}`, ``] : []),
+      `Curious how others here handle this in practice and what edge cases you've run into?`,
     ].join('\n'),
   };
 
@@ -1258,7 +1386,7 @@ const targetUrl = ${JSON.stringify(targetUrl)};
 const draftTitle = ${JSON.stringify(input.draftTitle || '')};
 const draftBody = ${JSON.stringify(input.draftBody || '')};
 const draftUrl = ${JSON.stringify(input.draftUrl || '')};
-const task = await taskSpace("OpenGEO 发布工作台");
+const task = await taskSpace("外发发布工作台");
 const pages = await task.pages();
 const page = pages.length === 0 ? task.page("p1") : await task.newPage();
 await page.goto(targetUrl);

@@ -2,6 +2,11 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import { isPublicProjectAddress, lookupPublicProjectHost, PublicProjectNetworkError } from './project-public-network';
 import { loadProjectSeed, readRuntimeProjects, writeRuntimeProjects } from './project-data';
+import {
+  projectContextExists,
+  synthesizeProjectContextMarkdown,
+  writeProjectContext,
+} from './project-context';
 import { listGeoProjects, resolveGeoProject } from './projects';
 import type { GeoProject, GeoSeed } from './types';
 import { inferProjectEntryKind, type OnboardingAnalysis, type OnboardingRecord, type ProjectEntryKind } from './project-onboarding-types';
@@ -226,6 +231,13 @@ export function completeProjectOnboarding(projectId: string, analysis: Onboardin
   delete entry.onboarding.error;
   entry.owner = owner;
   writeRuntimeProjects(entries);
+  try {
+    if (!projectContextExists(projectId)) {
+      writeProjectContext(projectId, synthesizeProjectContextMarkdown(projectId));
+    }
+  } catch {
+    // Non-fatal: runtime context still synthesizes cleanly on demand
+  }
   return structuredClone(entry.onboarding);
 }
 
