@@ -39,7 +39,7 @@ export default function ObservedCompetitorView({
   onOpenQuestions,
   onOpenActionPlan,
 }: Props) {
-  const { uiLanguage } = useUiLanguage();
+  const { uiLanguage, t } = useUiLanguage();
   const isEn = uiLanguage === 'en';
   const [engineFilter, setEngineFilter] = useState<'all' | ResearchEngine>('all');
   const [copiedReport, setCopiedReport] = useState(false);
@@ -72,7 +72,7 @@ export default function ObservedCompetitorView({
     return (
       <div className="ocv-shell">
         <div className="ocv-empty-card">
-          <h1>{isEn ? 'Competitors' : '竞品对照'}</h1>
+          <h1>{t('term.whoAiRecommends')}</h1>
           <p>
             {isEn
               ? 'Run your first real AI search capture from Overview. Cited competitors and winning pages will appear here automatically—no manual setup required.'
@@ -105,7 +105,7 @@ export default function ObservedCompetitorView({
     <div className="ocv-shell">
       <header className="ocv-topbar">
         <div className="ocv-title-group">
-          <h1>{isEn ? 'Competitors' : '竞品对照'}</h1>
+          <h1>{t('term.whoAiRecommends')}</h1>
           <span className="ocv-scope-pill">
             {isEn
               ? `${snapshot.totalQuestions} prompts · ${snapshot.measuredAnswers} answers${snapshot.latestObservedDate ? ` · ${snapshot.latestObservedDate}` : ''}`

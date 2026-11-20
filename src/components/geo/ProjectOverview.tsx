@@ -1244,7 +1244,7 @@ export default function ProjectOverview({
       {/* Top Bar */}
       <header className="pov-topbar">
         <div className="pov-title-group">
-          <h1>{t('overview.title')}</h1>
+          <h1>{t('term.overview')}</h1>
           <span className="pov-scope-pill">
             {t('overview.scopePill', {
               questions: allQuestions.length,

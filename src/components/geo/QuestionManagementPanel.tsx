@@ -149,7 +149,7 @@ export default function QuestionManagementPanel({
   onBackOverview,
   onRefresh,
 }: Props) {
-  const { uiLanguage } = useUiLanguage();
+  const { uiLanguage, t } = useUiLanguage();
   const isEn = uiLanguage === 'en';
   const [scope, setScope] = useState<'observed' | 'backlog'>('observed');
   const [search, setSearch] = useState('');
@@ -585,9 +585,7 @@ export default function QuestionManagementPanel({
               ? isEn
                 ? 'Unconfirmed questions'
                 : '待确认的新问题'
-              : isEn
-                ? 'Monitored questions'
-                : '当前监测问题'}
+              : t('term.buyerQuestions')}
           </h1>
           <span className="qm-count-pill">
             {scope === 'backlog'

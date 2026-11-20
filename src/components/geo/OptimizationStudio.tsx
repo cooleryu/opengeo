@@ -1040,7 +1040,7 @@ export default function OptimizationStudio({
             <span className="ost-title-divider" aria-hidden="true">
               /
             </span>
-            <h1>{t('actionPlan.title')}</h1>
+            <h1>{t('term.actionPlan')}</h1>
           </div>
           <p className="oap-header-sub">
             {pageAudit

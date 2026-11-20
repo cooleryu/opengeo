@@ -1053,7 +1053,7 @@ function OpenGeoAppInner() {
                   </a>
                   <h1>
                     {page === 'settings'
-                      ? (uiLanguage === 'en' ? 'Settings' : '设置')
+                      ? t('term.settings')
                       : page === 'traffic'
                         ? t('nav.traffic')
                         : nav.find((item) => item.id === sidebarPage)?.label}
