@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node scripts/run-tests.mjs",
     "lint": "eslint src",
+    "check:i18n": "node scripts/check-i18n.mjs",
     "format:write": "prettier . --write"
   },
   "dependencies": {

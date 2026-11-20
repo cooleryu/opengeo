@@ -24,6 +24,7 @@ import {
   type OnboardingRecord,
 } from '@/lib/geo/project-onboarding-types';
 import BackgroundPreparationStatus from './BackgroundPreparationStatus';
+import DevI18nLeakHighlighter from './DevI18nLeakHighlighter';
 import OpenGeoBrandMark from './OpenGeoBrandMark';
 import { UiLanguageProvider, useUiLanguage } from './UiLanguageContext';
 import './project-onboarding.css';
@@ -844,6 +845,7 @@ export default function ProjectOnboardingPage() {
   return (
     <UiLanguageProvider>
       <ProjectOnboardingPageInner />
+      <DevI18nLeakHighlighter />
     </UiLanguageProvider>
   );
 }

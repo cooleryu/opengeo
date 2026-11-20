@@ -54,6 +54,7 @@ import ResearchPanel, { clearResearchDetailParams } from './ResearchPanel';
 import ObservedCompetitorView from './ObservedCompetitorView';
 import TrafficPanel from './TrafficPanel';
 import ConnectionSettingsPanel from './ConnectionSettingsPanel';
+import DevI18nLeakHighlighter from './DevI18nLeakHighlighter';
 import { normalizeQuestionMonitoringUrl } from './question-monitoring-url';
 import {
   resolveProjectTargetLanguage,
@@ -1545,6 +1546,7 @@ export default function OpenGeoApp() {
   return (
     <UiLanguageProvider>
       <OpenGeoAppInner />
+      <DevI18nLeakHighlighter />
     </UiLanguageProvider>
   );
 }
