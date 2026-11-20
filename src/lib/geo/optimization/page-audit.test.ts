@@ -446,3 +446,13 @@ test('applyPageFindingBatch never overwrites stored snapshots and markPageAuditF
   assert.equal(fs.readFileSync(snapshotPath, 'utf8'), originalSnapshot);
   assert.equal(readLatestPageAudit(projectId)?.shippedRecords?.[0]?.liveUrl, 'https://example.com/sample-project/');
 });
+
+test('rows inserted after a table row or list item stay in the same table or list', () => {
+  const table = '| A | B |\n| --- | --- |\n| one | two |\n\nNext paragraph.';
+  const rows = applySurgicalPatchToContent(table, { insertionMode: 'insert_after', beforeExcerpt: '| one | two |', afterExcerpt: '| three | four |' });
+  assert.equal(rows.patchedContent, '| A | B |\n| --- | --- |\n| one | two |\n| three | four |\n\nNext paragraph.');
+  const list = applySurgicalPatchToContent('- first\n- second\n\nAfter.', { insertionMode: 'insert_after', beforeExcerpt: '- second', afterExcerpt: '- third' });
+  assert.equal(list.patchedContent, '- first\n- second\n- third\n\nAfter.');
+  const paragraph = applySurgicalPatchToContent('| one | two |\n\nEnd.', { insertionMode: 'insert_after', beforeExcerpt: '| one | two |', afterExcerpt: 'A new paragraph.' });
+  assert.equal(paragraph.patchedContent, '| one | two |\n\nA new paragraph.\n\nEnd.');
+});

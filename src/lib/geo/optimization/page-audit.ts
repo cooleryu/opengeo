@@ -387,6 +387,18 @@ export function computeCompactUnifiedDiff(
   return out.join('\n');
 }
 
+// Rows added after a table row, or items after a list item, continue that block: a blank
+// line between them would split the table or list. Anything else starts a new block.
+const TABLE_ROW = /^\s*\|/;
+const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s/;
+function insertSeparator(matched: string, inserted: string, tail: string): string {
+  const last = matched.split('\n').pop() ?? '';
+  const first = inserted.split('\n')[0] ?? '';
+  const atLineEnd = tail === '' || tail.startsWith('\n');
+  const sameBlock = (TABLE_ROW.test(last) && TABLE_ROW.test(first)) || (LIST_ITEM.test(last) && LIST_ITEM.test(first));
+  return atLineEnd && sameBlock ? '\n' : '\n\n';
+}
+
 /** Deterministically applies a surgical section patch without disturbing any other line. */
 export function applySurgicalPatchToContent(
   fullContent: string,
@@ -435,7 +447,7 @@ export function applySurgicalPatchToContent(
 
   const patchedContent =
     patch.insertionMode === 'insert_after'
-      ? `${head}${matched}\n\n${normalizedAfter}${tail}`
+      ? `${head}${matched}${insertSeparator(matched, normalizedAfter, tail)}${normalizedAfter}${tail}`
       : `${head}${normalizedAfter}${tail}`;
 
   return { patchedContent, matchedIndex: idx };

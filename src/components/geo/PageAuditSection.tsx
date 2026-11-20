@@ -606,7 +606,7 @@ export default function PageAuditSection({
           <p className="oap-lp-desc">
             {activeAudit
               ? isEn
-                ? `Read ${activeAudit.shardStats.totalAnswers} full AI answers (${activeAudit.shardStats.shardCount} shards) and pinpointed ${findings.length} exact spots affecting citations.`
+                ? `Read ${activeAudit.shardStats.totalAnswers} full AI answers and pinpointed ${findings.length} exact spots affecting citations.`
                 : `并发读完 ${activeAudit.shardStats.totalAnswers} 条真实 AI 回答并核对${canWriteLocalFile ? '本地源码' : '页面原文'}，标出 ${findings.length} 处最影响 AI 引用的缺口。`
               : isEn
                 ? 'Reads full ChatGPT & Google AI answers in parallel to pinpoint 3–4 surgical improvements on your actual page.'
@@ -720,7 +720,8 @@ export default function PageAuditSection({
           )}
         </div>
 
-        {markingLiveScope === 'card' && activeAudit && (
+        {/* Row 3: Aligned Card Footer — the live-URL form takes this row while it is open */}
+        {markingLiveScope === 'card' && activeAudit ? (
           <div className="oap-mark-sent-box oap-lp-mark-live-box">
             <input
               type="url"
@@ -759,9 +760,7 @@ export default function PageAuditSection({
               </button>
             </div>
           </div>
-        )}
-
-        {/* Row 3: Aligned Card Footer */}
+        ) : (
         <div className="oap-lp-footer">
           {!activeAudit ? (
             questionTotal > 0 ? (
@@ -816,15 +815,14 @@ export default function PageAuditSection({
                     </span>
                   ) : (
                     <>
-                      <span className="oap-lp-done-badge">
-                        <CheckCircle2 size={14} />
-                        <span>
-                          {isEn ? 'Written locally' : `已写入本地 ${activeAudit.targetLabel}`}
-                        </span>
+                      <span className="oap-lp-desc">
+                        {isEn
+                          ? `Next: publish ${activeAudit.targetLabel}`
+                          : `下一步：发布 ${activeAudit.targetLabel}`}
                       </span>
                       <button
                         type="button"
-                        className="ost-btn-secondary is-sm"
+                        className="ost-btn-primary is-sm"
                         disabled={Boolean(busyBatchOp) || Boolean(busyFindingId)}
                         onClick={() => openMarkLiveBar('card')}
                       >
@@ -889,6 +887,7 @@ export default function PageAuditSection({
             </>
           )}
         </div>
+        )}
       </section>
 
       {/* IDEA B: Continuous Single-Page Visual Review Modal (<dialog closedby="any">) */}
