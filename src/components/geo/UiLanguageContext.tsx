@@ -91,6 +91,23 @@ export function UiLanguageProvider({
       uiLanguage === 'en'
         ? 'OpenGEO · AI Search Visibility Workbench'
         : 'OpenGEO · AI 搜索可见性工作台';
+    try {
+      const urlParam = new URLSearchParams(window.location.search).get('ui');
+      if (urlParam === 'en' || urlParam === 'zh') return;
+      const saved = window.localStorage.getItem(STORAGE_KEY);
+      if (saved === 'en' || saved === 'zh') {
+        const cookieMatch = document.cookie
+          .split(';')
+          .map((part) => part.trim())
+          .find((part) => part.startsWith(`${COOKIE_NAME}=`));
+        const currentCookie = cookieMatch?.slice(COOKIE_NAME.length + 1);
+        if (currentCookie !== saved) {
+          document.cookie = `${COOKIE_NAME}=${saved}; Path=/; Max-Age=31536000; SameSite=Lax`;
+        }
+      }
+    } catch {
+      // Ignore locked-down storage or cookie errors.
+    }
   }, [uiLanguage]);
 
   const setUiLanguage = useCallback((next: GeoLanguage) => {

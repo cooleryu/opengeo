@@ -194,9 +194,21 @@ export default function ObservedCompetitorView({
                     : `我方 ${item.ownMentionYes}/${item.measured}`}
                   {item.topWinner && (
                     <em>
-                      {isEn
-                        ? ` · Top: ${item.topWinner.label} (${item.topWinner.questionCount}q)`
-                        : ` · 领跑：${item.topWinner.label}（${item.topWinner.questionCount} 题）`}
+                      {isEn ? (
+                        <>
+                          {' '}
+                          · Top:{' '}
+                          <span data-i18n-skip="">{item.topWinner.label}</span> (
+                          {item.topWinner.questionCount}q)
+                        </>
+                      ) : (
+                        <>
+                          {' '}
+                          · 领跑：
+                          <span data-i18n-skip="">{item.topWinner.label}</span>
+                          （{item.topWinner.questionCount} 题）
+                        </>
+                      )}
                     </em>
                   )}
                 </span>
@@ -216,7 +228,7 @@ export default function ObservedCompetitorView({
             <div className="ocv-bar-row is-own">
               <div className="ocv-bar-meta">
                 <span className="ocv-bar-name">
-                  {snapshot.projectName}
+                  <span data-i18n-skip="">{snapshot.projectName}</span>
                   <em>{isEn ? 'You' : '我方'}</em>
                 </span>
                 <span className="ocv-bar-count">
@@ -253,12 +265,15 @@ export default function ObservedCompetitorView({
                         target="_blank"
                         rel="noreferrer"
                         className="ocv-bar-name ocv-bar-link"
+                        data-i18n-skip=""
                       >
                         {comp.label}
                         <ExternalLink size={11} />
                       </a>
                     ) : (
-                      <span className="ocv-bar-name">{comp.label}</span>
+                      <span className="ocv-bar-name" data-i18n-skip="">
+                        {comp.label}
+                      </span>
                     )}
                     <span className="ocv-bar-count">
                       {comp.questionCount}/{snapshot.totalQuestions}
@@ -322,12 +337,13 @@ export default function ObservedCompetitorView({
                       target="_blank"
                       rel="noreferrer"
                       className="ocv-winner-title"
+                      data-i18n-skip=""
                     >
                       <strong>{comp.label}</strong>
                       <ExternalLink size={12} />
                     </a>
                   ) : (
-                    <span className="ocv-winner-title">
+                    <span className="ocv-winner-title" data-i18n-skip="">
                       <strong>{comp.label}</strong>
                     </span>
                   )}
@@ -360,7 +376,7 @@ export default function ObservedCompetitorView({
                 </div>
 
                 {comp.samplePages.length > 0 && (
-                  <ul className="ocv-sample-pages">
+                  <ul className="ocv-sample-pages" data-i18n-skip="">
                     {comp.samplePages.slice(0, 2).map((page) => (
                       <li key={page.url}>
                         <a href={page.url} target="_blank" rel="noreferrer">

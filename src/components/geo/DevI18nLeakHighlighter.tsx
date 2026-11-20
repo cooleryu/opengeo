@@ -5,6 +5,8 @@ import { useUiLanguage } from './UiLanguageContext';
 
 const SESSION_KEY = 'opengeo:i18n-check';
 const HAN_RE = /\p{Script=Han}/u;
+const URL_OR_DOMAIN_RE =
+  /https?:\/\/\S+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/\S*)?\b/gi;
 const LATIN_WORD_RE = /\b[A-Za-z]{3,}\b/g;
 
 function readHighlighterActive(): boolean {
@@ -46,6 +48,8 @@ const ZH_LATIN_ALLOWLIST = new Set([
   'overviews',
   'key',
   'keys',
+  'agent',
+  'token',
   'umami',
   'english',
 ]);
@@ -102,7 +106,8 @@ function findLeakText(raw: string, uiLang: 'en' | 'zh'): string | null {
   if (uiLang === 'en') {
     return HAN_RE.test(trimmed) ? trimmed.slice(0, 80) : null;
   }
-  const matches = trimmed.match(LATIN_WORD_RE);
+  const stripped = trimmed.replace(URL_OR_DOMAIN_RE, ' ');
+  const matches = stripped.match(LATIN_WORD_RE);
   if (!matches) return null;
   const stray = matches.filter((w) => !ZH_LATIN_ALLOWLIST.has(w.toLowerCase()));
   return stray.length > 0 ? `${stray.slice(0, 4).join(', ')} — ${trimmed.slice(0, 60)}` : null;

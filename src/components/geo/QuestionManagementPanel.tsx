@@ -926,7 +926,7 @@ export default function QuestionManagementPanel({
                                   <button
                                     key={engine}
                                     className={`qm-platform-result ${status}`}
-                                    aria-label={`${research[language]} · ${RESEARCH_ENGINE_NAMES[engine]} · ${statusText}`}
+                                    aria-label={`${RESEARCH_ENGINE_NAMES[engine]} · ${statusText}`}
                                     onClick={() =>
                                       onResult(research, language, engine)
                                     }

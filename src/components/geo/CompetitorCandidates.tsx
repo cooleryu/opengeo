@@ -603,7 +603,7 @@ export default function CompetitorCandidates({
   return (
     <section
       className={`cc-candidates${compact ? ' is-compact' : ''}`}
-      aria-label="竞品候选"
+      aria-label={isEn ? 'Competitor candidates' : '竞品候选'}
     >
       {presentation ? (
         <>
@@ -799,15 +799,20 @@ export default function CompetitorCandidates({
           <article>
             <header className="cc-dialog-heading">
               <div>
-                <h2 id={dialogTitle}>候选对照</h2>
+                <h2 id={dialogTitle}>
+                  {isEn ? 'Competitor comparison' : '候选对照'}
+                </h2>
                 <p role={previewError ? 'alert' : 'status'}>
-                  {previewError || '正在读取候选资料…'}
+                  {previewError ||
+                    (isEn
+                      ? 'Loading competitor details…'
+                      : '正在读取候选资料…')}
                 </p>
               </div>
               <button
                 type="button"
                 className="cc-close"
-                aria-label="关闭候选对照"
+                aria-label={isEn ? 'Close comparison' : '关闭候选对照'}
                 onClick={closePreview}
               >
                 <X size={20} />
@@ -819,14 +824,14 @@ export default function CompetitorCandidates({
           <article>
             <header className="cc-dialog-heading">
               <div>
-                <span>候选对照</span>
+                <span>{isEn ? 'Competitor comparison' : '候选对照'}</span>
                 <h2 id={dialogTitle}>{selected.name}</h2>
                 <p>{selected.analysis?.description || selected.description}</p>
               </div>
               <button
                 type="button"
                 className="cc-close"
-                aria-label="关闭候选对照"
+                aria-label={isEn ? 'Close comparison' : '关闭候选对照'}
                 onClick={closePreview}
               >
                 <X size={20} />

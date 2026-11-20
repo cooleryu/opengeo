@@ -306,7 +306,15 @@ export default function ConnectionSettingsPanel({
           </span>
           <div>
             <h2 id="cs-context-title">
-              {isEn ? 'Project fact sheet (project-context.md)' : '项目事实档案（project-context.md）'}
+              {isEn ? (
+                <>
+                  Project fact sheet (<code>project-context.md</code>)
+                </>
+              ) : (
+                <>
+                  项目事实档案（<code>project-context.md</code>）
+                </>
+              )}
             </h2>
             <p>
               {isEn

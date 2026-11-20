@@ -3,6 +3,7 @@ import {
   buildServerErrorPayload,
   resolveRequestUiLanguage,
   serverErrorResponse,
+  translateServerCode,
 } from '@/lib/geo/i18n-server';
 import type { GeoLanguage } from '@/lib/geo/i18n';
 import { GeoError, getGeoState, handleGeoAction } from '@/lib/geo/store';
@@ -96,6 +97,16 @@ function failure(error: unknown, lang: GeoLanguage) {
     return serverErrorResponse(error, lang);
   }
   if (error instanceof GeoError) {
+    if (lang === 'en') {
+      return NextResponse.json(
+        {
+          error: translateServerCode(lang, 'invalid_request'),
+          code: 'invalid_request',
+          detail: error.message,
+        },
+        { status: error.status, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
     return NextResponse.json(
       { error: error.message, code: 'invalid_request' },
       { status: error.status, headers: { 'Cache-Control': 'no-store' } },

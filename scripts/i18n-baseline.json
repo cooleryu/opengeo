@@ -3,7 +3,7 @@
   "rules": {
     "unpaired-zh": {
       "src/components/geo/ClaimReviewPanel.tsx": 35,
-      "src/components/geo/CompetitorCandidates.tsx": 61,
+      "src/components/geo/CompetitorCandidates.tsx": 55,
       "src/components/geo/CompetitorExperience.tsx": 40,
       "src/components/geo/CompetitorGapJourney.tsx": 47,
       "src/components/geo/CompetitorPerformance.tsx": 29,
