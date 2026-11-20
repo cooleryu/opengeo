@@ -2,10 +2,20 @@ import http from 'node:http';
 import https from 'node:https';
 import { isIP, type LookupFunction } from 'node:net';
 import zlib from 'node:zlib';
+import { translateServerCode, type ServerErrorParams } from './i18n-server';
 import { isPublicProjectAddress, normalizeProjectEntryUrl } from './project-onboarding-store';
 import { lookupPublicProjectHost, PublicProjectNetworkError } from './project-public-network';
 
-export class PublicSourceError extends Error {}
+export class PublicSourceError extends Error {
+  constructor(
+    public code: string,
+    public params?: ServerErrorParams,
+    public status = 400,
+    public detail?: string,
+  ) {
+    super(translateServerCode('zh', code, params));
+  }
+}
 type Address = { address: string; family: number };
 type SourceResponse = { status: number; headers: Record<string, string | undefined>; body: string };
 export type PublicSourceRuntime = {
@@ -37,7 +47,7 @@ function decompressWithTransform(
     transform.on('data', (chunk: Buffer) => {
       outBytes += chunk.length;
       if (outBytes > maxBytes) {
-        fail(new PublicSourceError('公开页面超过读取大小上限，未截断为完整资料。'));
+        fail(new PublicSourceError('page_unreadable', { reason: 'too_large' }));
         return;
       }
       out.push(chunk);
@@ -58,7 +68,7 @@ export async function decodeCompressedBody(raw: Buffer, encodingHeader: string |
     return raw.toString('utf8');
   }
   if (!SUPPORTED_ENCODINGS.has(normalized)) {
-    throw new PublicSourceError('网站返回了暂不支持的压缩格式，未读取正文。');
+    throw new PublicSourceError('page_unreadable', { reason: 'unsupported_encoding' });
   }
   try {
     if (normalized === 'gzip' || normalized === 'x-gzip') {
@@ -75,7 +85,7 @@ export async function decodeCompressedBody(raw: Buffer, encodingHeader: string |
     }
   } catch (error) {
     if (error instanceof PublicSourceError) throw error;
-    throw new PublicSourceError('公开页面解压失败，未读取正文。');
+    throw new PublicSourceError('page_unreadable', { reason: 'unsupported_encoding' });
   }
 }
 
@@ -98,13 +108,13 @@ const request: PublicSourceRuntime['request'] = (url, address, signal, maxBytes,
     }
     if (Number(headers['content-length'] || 0) > maxBytes) {
       response.destroy();
-      reject(new PublicSourceError('公开页面超过读取大小上限，未截断为完整资料。'));
+      reject(new PublicSourceError('page_unreadable', { reason: 'too_large' }));
       return;
     }
     const contentEncoding = (headers['content-encoding'] ?? '').trim().toLowerCase();
     if (contentEncoding && !SUPPORTED_ENCODINGS.has(contentEncoding)) {
       response.destroy();
-      reject(new PublicSourceError('网站返回了暂不支持的压缩格式，未读取正文。'));
+      reject(new PublicSourceError('page_unreadable', { reason: 'unsupported_encoding' }));
       return;
     }
     const chunks: Buffer[] = [];
@@ -112,7 +122,7 @@ const request: PublicSourceRuntime['request'] = (url, address, signal, maxBytes,
     response.on('data', (chunk: Buffer) => {
       bytes += chunk.length;
       if (bytes > maxBytes) {
-        response.destroy(new PublicSourceError('公开页面超过读取大小上限，未截断为完整资料。'));
+        response.destroy(new PublicSourceError('page_unreadable', { reason: 'too_large' }));
       } else chunks.push(chunk);
     });
     response.on('error', reject);
@@ -136,7 +146,7 @@ export async function readPublicSource(value: string,
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
   const interrupted = new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () =>
-    reject(new PublicSourceError('公开资料读取超时，请稍后重新尝试。')), { once: true }));
+    reject(new PublicSourceError('page_unreadable', { reason: 'timeout' })), { once: true }));
   try {
     return await Promise.race([(async () => {
       let url = new URL(normalizeProjectEntryUrl(value));
@@ -146,33 +156,33 @@ export async function readPublicSource(value: string,
         const addresses = isIP(hostname) ? [{ address: hostname, family: isIP(hostname) }] : await runtime.lookup(hostname);
         controller.signal.throwIfAborted();
         if (!addresses.length || addresses.some(item => !isPublicProjectAddress(item.address))) {
-          throw new PublicSourceError('入口或跳转域名指向非公开地址，无法安全读取。');
+          throw new PublicSourceError('page_unreadable', { reason: 'private_address' });
         }
         const response = await runtime.request(url, addresses[0], controller.signal, options.maxBytes,
           options.accept ?? 'text/html, text/plain, text/markdown, application/json;q=0.9');
         controller.signal.throwIfAborted();
         if ([301, 302, 303, 307, 308].includes(response.status)) {
-          if (!response.headers.location) throw new PublicSourceError('页面跳转缺少目标地址。');
+          if (!response.headers.location) throw new PublicSourceError('page_unreadable', { reason: 'bad_redirect' });
           url = new URL(normalizeProjectEntryUrl(new URL(response.headers.location, url).href));
           continue;
         }
-        if ([401, 403, 429].includes(response.status)) throw new PublicSourceError('网站要求登录、限制访问或触发访问验证，未能读取公开正文。');
-        if (response.status === 404) throw new PublicSourceError('没有找到公开页面或仓库 README，请检查入口是否公开。');
-        if (response.status < 200 || response.status >= 300) throw new PublicSourceError(`公开页面读取失败（HTTP ${response.status}）。`);
-        if (Buffer.byteLength(response.body, 'utf8') > options.maxBytes) throw new PublicSourceError('公开页面超过读取大小上限，未截断为完整资料。');
+        if ([401, 403, 429].includes(response.status)) throw new PublicSourceError('page_unreadable', { reason: 'login_or_blocked' });
+        if (response.status === 404) throw new PublicSourceError('page_unreadable', { reason: 'not_found' });
+        if (response.status < 200 || response.status >= 300) throw new PublicSourceError('page_unreadable', { reason: 'http_status', status: response.status });
+        if (Buffer.byteLength(response.body, 'utf8') > options.maxBytes) throw new PublicSourceError('page_unreadable', { reason: 'too_large' });
         const contentType = response.headers['content-type'] ?? '';
         if (contentType && !/text\/|application\/(?:[\w.+-]*json|xhtml\+xml)/i.test(contentType)) {
-          throw new PublicSourceError('入口不是可读取的文字页面，请提供公开介绍页或仓库。');
+          throw new PublicSourceError('page_unreadable', { reason: 'non_text' });
         }
         return { url: url.href, text: response.body, contentType, readAt: new Date().toISOString() };
       }
-      throw new PublicSourceError('页面跳转次数过多，未继续读取。');
+      throw new PublicSourceError('page_unreadable', { reason: 'bad_redirect' });
     })(), interrupted]);
   } catch (error) {
     if (error instanceof PublicSourceError) throw error;
-    if (error instanceof PublicProjectNetworkError) throw new PublicSourceError(error.message);
-    if (controller.signal.aborted) throw new PublicSourceError('公开资料读取超时，请稍后重新尝试。');
+    if (error instanceof PublicProjectNetworkError) throw new PublicSourceError('page_unreadable', { reason: 'private_address' }, 400, error.message);
+    if (controller.signal.aborted) throw new PublicSourceError('page_unreadable', { reason: 'timeout' });
     // Network exceptions can include sensitive request details; only safe messages leave this boundary.
-    throw new PublicSourceError('无法安全读取公开资料，请检查链接、网络和网站访问限制。');
+    throw new PublicSourceError('page_unreadable');
   } finally { clearTimeout(timeout); }
 }

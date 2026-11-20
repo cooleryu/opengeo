@@ -33,6 +33,8 @@ export interface OnboardingRecord {
   uiLanguage?: 'en' | 'zh';
   status: 'queued' | 'reading' | 'analyzing' | 'ready' | 'failed';
   message: string;
+  messageCode?: string;
+  messageParams?: Record<string, string | number>;
   createdAt: string;
   updatedAt: string;
   analysis?: OnboardingAnalysis;
@@ -41,4 +43,7 @@ export interface OnboardingRecord {
   revision?: OnboardingRevision;
   revisionHistory?: OnboardingRevision[];
   error?: string;
+  errorCode?: string;
+  errorParams?: Record<string, string | number>;
+  outputLanguage?: 'en' | 'zh';
 }

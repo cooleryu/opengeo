@@ -35,9 +35,26 @@ import type { GeoWorkflow, LegacyCollectionConfig, StrategyMemory, WorkflowQuest
 import { buildProjectOptimization, freezeProjectOptimization, preserveProjectOptimizationHistory, recoverUnreadProjectEvidence, setProjectOptimizationProgress, validateProjectOptimizationMode, type ProjectOptimizationDependencies } from './project-optimization';
 import { selectProjectDelivery } from './project-optimization-delivery';
 import { editableAssetIssue } from './asset-ownership';
+import { translateServerCode, type ServerErrorParams } from './i18n-server';
 
 export class GeoError extends Error {
-  constructor(message: string, public status = 400) { super(message); }
+  constructor(
+    message: string,
+    public status = 400,
+    public code?: string,
+    public params?: ServerErrorParams,
+    public detail?: string,
+  ) {
+    super(message);
+  }
+  static coded(
+    code: string,
+    status = 400,
+    params?: ServerErrorParams,
+    detail?: string,
+  ): GeoError {
+    return new GeoError(translateServerCode('zh', code, params), status, code, params, detail);
+  }
 }
 
 function requireOwnedProposalTarget(task: GeoTask): void {
@@ -219,7 +236,7 @@ export function getQuestionPlan(): GeoQuestionPlan {
 }
 function currentQuestionPlan(body: Record<string, unknown>): GeoQuestionPlan {
   const plan = getQuestionPlan();
-  if (body.planId !== plan.id || body.revision !== plan.revision) throw new GeoError('题单已在其他窗口更新，请刷新后再操作。', 409);
+  if (body.planId !== plan.id || body.revision !== plan.revision) throw GeoError.coded('stale_request', 409);
   return plan;
 }
 function saveQuestionPlan(input: GeoQuestionPlan, expected: GeoQuestionPlan, onlyCandidateId?: string): void {
@@ -234,7 +251,7 @@ function saveQuestionPlan(input: GeoQuestionPlan, expected: GeoQuestionPlan, onl
     let plan = validateQuestionPlan({ ...input, id: expected.id, createdAt: expected.createdAt, revision: expected.revision + 1, updatedAt: nowISO() }, getSeed());
     if (onlyCandidateId) {
       const reviewed = plan.candidates.find(item => item.id === onlyCandidateId);
-      if (!reviewed || !expected.candidates.some(item => item.id === onlyCandidateId)) throw new GeoError('复评问题已变化，请刷新后重试。', 409);
+      if (!reviewed || !expected.candidates.some(item => item.id === onlyCandidateId)) throw GeoError.coded('stale_request', 409);
       plan = { ...plan, candidates: expected.candidates.map(item => item.id === onlyCandidateId ? reviewed : item) };
     }
     database().prepare('INSERT INTO geo_question_plans (project_id,plan_id,revision,payload,created_at) VALUES (?,?,?,?,?)').run(plan.projectId, plan.id, plan.revision, JSON.stringify(plan), plan.updatedAt);
@@ -257,8 +274,11 @@ function questionGenerationJobs(runtime: QuestionGenerationRuntime = {}): Questi
           analysis: onboarding.analysis, revision: onboarding.revision } })).digest('hex');
     },
     assertReady: () => {
-      if (projectRuntime().generatingQuestions) throw new GeoError('正在复评问题，请等本次完成。', 409);
+      if (projectRuntime().generatingQuestions) throw GeoError.coded('invalid_request', 409, { reason: 'question_busy' });
       getProjectOnboardingPlanningContext(projectId);
+      if (!runtime.generate && !getGeoModelSettings().modelConfigured && !shouldUseChatGPTSubscription(getChatGPTStatus(), false)) {
+        throw GeoError.coded('model_not_configured', 400);
+      }
     },
     generate: (positioning, onProgress, resume) =>
       (runtime.generate ?? generateQuestionPlan)(getSeed(), positioning, { onProgress, ...(resume ? { resume } : {}) }),
@@ -390,7 +410,7 @@ export function createProjectOptimizationTask(input: { mode: unknown; batchId: u
     if (!batch || input.batchId !== batch.id) throw new GeoError('当前问题批次已变化，请刷新后再开始。', 409);
     const active = listTasks().find(task => task.projectOptimization && task.status !== 'failed' && task.status !== 'completed');
     if (active) return { task: active, created: false };
-    if (!getGeoModelSettings().modelConfigured) throw new GeoError('请先在设置中配置分析模型。');
+    if (!getGeoModelSettings().modelConfigured) throw GeoError.coded('model_not_configured', 400);
     const plan = freezeProjectOptimization(batch, seed, mode, input.batchId);
     const task = makeTask(`为 ${seed.project.name} 的当前 ${plan.questionCount} 个问题制定整体改进方案`);
     task.title = `${seed.project.name} · ${mode === 'focus' ? '重点优化' : '深度优化'}`;
@@ -411,7 +431,7 @@ export function retryProjectOptimizationTask(id: string): GeoTask {
     if (!task.projectOptimization) throw new GeoError('这不是项目整体优化任务。');
     if (task.status !== 'failed' && !(task.status === 'proposal_ready' && task.projectOptimization.phase === 'blocked'))
       throw new GeoError('只有失败或未通过审核的项目方案可以重试；已归档方案请重新开始。', 409);
-    if (!getGeoModelSettings().modelConfigured) throw new GeoError('请先在设置中配置分析模型。');
+    if (!getGeoModelSettings().modelConfigured) throw GeoError.coded('model_not_configured', 400);
     if (listTasks().some(other => other.id !== id && other.projectOptimization && other.status !== 'failed' && other.status !== 'completed'))
       throw new GeoError('已有项目优化任务待完成或审阅，请先查看该任务。', 409);
     claimTask(id, 'investigate');
@@ -666,13 +686,14 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
         if (started.completion) await started.completion;
         const job = getQuestionGeneration();
         if (job?.id !== started.job.id || job.status !== 'completed') {
-          throw new GeoError(job?.error || job?.message || '问题准备仍在后台进行。', 409);
+          throw GeoError.coded('invalid_request', 409, { reason: 'question_prep_running' }, job?.error || job?.message);
         }
       }
     } catch (error) {
       if (error instanceof GeoError) throw error;
-      throw new GeoError(error instanceof Error ? error.message : '无法开始准备问题。',
-        typeof (error as { status?: number })?.status === 'number' ? (error as { status: number }).status : 400);
+      if (error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string') throw error;
+      const status = typeof (error as { status?: number })?.status === 'number' ? (error as { status: number }).status : 400;
+      throw GeoError.coded('invalid_request', status, { reason: 'question_prep_failed' }, error instanceof Error ? error.message : undefined);
     }
     return getGeoState();
   }
@@ -719,7 +740,7 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
     const plan = currentQuestionPlan(body);
     if (action === 'audit_question') {
       const runtime = projectRuntime();
-      if (runtime.generatingQuestions || ['queued', 'running'].includes(getQuestionGeneration()?.status ?? '')) throw new GeoError('正在拟题或复评，请等本次完成。', 409);
+      if (runtime.generatingQuestions || ['queued', 'running'].includes(getQuestionGeneration()?.status ?? '')) throw GeoError.coded('invalid_request', 409, { reason: 'question_busy' });
       const candidateId = textInput(body.candidateId, 180, '候选问题');
       runtime.generatingQuestions = true;
       try {
@@ -728,7 +749,8 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
         saveQuestionPlan(updated, plan, candidateId);
       } catch (error) {
         if (error instanceof GeoError) throw error;
-        throw new GeoError(error instanceof Error ? error.message : 'AI 复评未完成，原判断已保留。');
+        if (error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string') throw error;
+        throw GeoError.coded('invalid_request', 400, { reason: 'question_audit_failed' }, error instanceof Error ? error.message : undefined);
       } finally { runtime.generatingQuestions = false; }
     } else if (action === 'save_question' || action === 'review_question') {
       try {
@@ -738,22 +760,23 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
         if (updated !== plan) saveQuestionPlan(updated, plan);
       } catch (error) {
         if (error instanceof GeoError) throw error;
-        throw new GeoError(error instanceof Error ? error.message : '无法保存问题。');
+        if (error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string') throw error;
+        throw GeoError.coded('invalid_request', 400, { reason: 'question_save_failed' }, error instanceof Error ? error.message : undefined);
       }
     } else if (action === 'select_question') {
       const candidate = plan.candidates.find(item => item.id === body.candidateId);
-      if (!candidate) throw new GeoError('没有找到这道候选题。', 404);
-      if (typeof body.selected !== 'boolean') throw new GeoError('请选择是否纳入题单。');
-      if (body.selected && candidate.supersededByCandidateId) throw new GeoError('这道问题已有新版本，请选择最新版本。');
-      if (body.selected && candidate.review.status === 'pending') throw new GeoError('请先完成人工审阅，再纳入题单。');
-      if (body.selected && candidate.review.decision === 'exclude') throw new GeoError('这道题未通过审核，不能纳入题单。');
-      if (body.selected && !candidate.selected && plan.candidates.filter(item => item.selected).length >= 8) throw new GeoError('每批最多 8 题，请先移出其他问题；候选内容会保留。');
+      if (!candidate) throw GeoError.coded('invalid_request', 404, { reason: 'question_not_found' });
+      if (typeof body.selected !== 'boolean') throw GeoError.coded('invalid_request', 400, { reason: 'question_select_flag' });
+      if (body.selected && candidate.supersededByCandidateId) throw GeoError.coded('invalid_request', 400, { reason: 'question_superseded' });
+      if (body.selected && candidate.review.status === 'pending') throw GeoError.coded('invalid_request', 400, { reason: 'question_review_pending' });
+      if (body.selected && candidate.review.decision === 'exclude') throw GeoError.coded('invalid_request', 400, { reason: 'question_excluded' });
+      if (body.selected && !candidate.selected && plan.candidates.filter(item => item.selected).length >= 8) throw GeoError.coded('invalid_request', 400, { reason: 'question_limit_reached' });
       saveQuestionPlan({ ...plan, status: 'draft', candidates: plan.candidates.map(item => item.id === candidate.id ? { ...item, selected: body.selected as boolean } : item) }, plan);
     } else {
-      if (!plan.candidates.some(item => item.selected)) throw new GeoError('请至少选择一道问题。');
-      if (plan.candidates.filter(item => item.selected).length > 8) throw new GeoError('每批最多 8 题，请精简选择后再确认。');
-      if (plan.candidates.some(item => item.selected && (item.review.status === 'pending' || item.supersededByCandidateId))) throw new GeoError('题单中有待审阅或已被新版替代的问题。');
-      if (plan.candidates.some(item => item.selected && item.review.decision === 'exclude')) throw new GeoError('题单中有未通过审核的问题。');
+      if (!plan.candidates.some(item => item.selected)) throw GeoError.coded('invalid_request', 400, { reason: 'question_none_selected' });
+      if (plan.candidates.filter(item => item.selected).length > 8) throw GeoError.coded('invalid_request', 400, { reason: 'question_too_many_selected' });
+      if (plan.candidates.some(item => item.selected && (item.review.status === 'pending' || item.supersededByCandidateId))) throw GeoError.coded('invalid_request', 400, { reason: 'question_batch_pending' });
+      if (plan.candidates.some(item => item.selected && item.review.decision === 'exclude')) throw GeoError.coded('invalid_request', 400, { reason: 'question_batch_excluded' });
       const { saveResearchBatchFromPlan } = await import('./research-batch-plan');
       database().transaction(() => {
         currentQuestionPlan({ planId: plan.id, revision: plan.revision });
@@ -805,7 +828,7 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
     case 'prepare_project_change': {
       if (!task.projectOptimization) throw new GeoError('这不是项目优化任务。');
       if (task.implementation || task.proposal?.status === 'accepted') throw new GeoError('当前改动已确认，请继续实施与跟测。', 409);
-      if (!getGeoModelSettings().modelConfigured) throw new GeoError('请先配置分析模型。');
+      if (!getGeoModelSettings().modelConfigured) throw GeoError.coded('model_not_configured', 400);
       try { selectProjectDelivery(task.projectOptimization, getSeed()); }
       catch (error) { throw new GeoError(error instanceof Error ? error.message : '优先行动尚未就绪。'); }
       claimTask(id, 'investigate');
@@ -838,7 +861,7 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
       requireStatus(task, ['queued', 'failed', 'proposal_ready']);
       if (task.implementation) throw new GeoError('已实施任务保留原方案，请新建下一条改进任务。');
       if (task.proposal?.status === 'accepted') throw new GeoError('这条方案已经确认，请保留原方案或新建任务。');
-      if (!getGeoModelSettings().modelConfigured) throw new GeoError('请先在设置中配置分析模型。');
+      if (!getGeoModelSettings().modelConfigured) throw GeoError.coded('model_not_configured', 400);
       const rounds = body.maxQualityRounds ?? 2;
       if (!Number.isInteger(rounds) || Number(rounds) < 1 || Number(rounds) > 3) throw new GeoError('审核轮次上限应为 1 到 3。');
       let workflow: GeoWorkflow;

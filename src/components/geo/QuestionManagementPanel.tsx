@@ -133,10 +133,10 @@ const blank = (): Draft => ({
   expectedResult: '',
   assetIds: [],
 });
-const decisions: Record<QuestionDecision, string> = {
-  include: '现在值得搜',
-  explore: '值得保留，待补充',
-  exclude: '暂不考虑',
+const decisions: Record<QuestionDecision, { en: string; zh: string }> = {
+  include: { en: 'Track now', zh: '现在值得搜' },
+  explore: { en: 'Keep & explore', zh: '值得保留，待补充' },
+  exclude: { en: 'Skip for now', zh: '暂不考虑' },
 };
 
 export default function QuestionManagementPanel({
@@ -151,6 +151,7 @@ export default function QuestionManagementPanel({
 }: Props) {
   const { uiLanguage, t } = useUiLanguage();
   const isEn = uiLanguage === 'en';
+  const langKey = isEn ? 'en' : 'zh';
   const [scope, setScope] = useState<'observed' | 'backlog'>('observed');
   const [search, setSearch] = useState('');
   const [language, setLanguage] = useState<'zh' | 'en'>(() =>
@@ -391,16 +392,26 @@ export default function QuestionManagementPanel({
           planId: plan.id,
           revision: plan.revision,
         });
-        if (!ok) setError('操作未保存，请重试。');
+        if (!ok) {
+          setError(
+            isEn
+              ? 'Change was not saved. Please try again.'
+              : '操作未保存，请重试。',
+          );
+        }
         return ok;
       } catch (failure) {
         setError(
-          failure instanceof Error ? failure.message : '操作未保存，请重试。',
+          failure instanceof Error
+            ? failure.message
+            : isEn
+              ? 'Change was not saved. Please try again.'
+              : '操作未保存，请重试。',
         );
         return false;
       }
     },
-    [onAction, plan.id, plan.revision],
+    [isEn, onAction, plan.id, plan.revision],
   );
   const reviewCandidate = useCallback((item: QuestionCandidate) => {
     setReviewId(item.id);
@@ -451,11 +462,20 @@ export default function QuestionManagementPanel({
       queryEn: item.zh ? item.en : '',
       category: isBrandQuestion(item) ? 'brand' : 'problem',
       intent:
-        item.valueReason.slice(0, 600).trim() || '原问题的使用情境待核查。',
+        item.valueReason.slice(0, 600).trim() ||
+        (isEn
+          ? 'Usage context for the original question is pending review.'
+          : '原问题的使用情境待核查。'),
       rationale:
-        item.evidenceBasis.slice(0, 800).trim() || '原问题的争取价值待审阅。',
+        item.evidenceBasis.slice(0, 800).trim() ||
+        (isEn
+          ? 'Business value of the original question is pending review.'
+          : '原问题的争取价值待审阅。'),
       expectedResult:
-        item.answerability.slice(0, 600).trim() || '当前承接情况待核查。',
+        item.answerability.slice(0, 600).trim() ||
+        (isEn
+          ? 'Current content coverage is pending review.'
+          : '当前承接情况待核查。'),
       assetIds: [],
     });
     if (
@@ -500,7 +520,11 @@ export default function QuestionManagementPanel({
     setPendingResearchAudit(null);
     if (!candidate) {
       setAuditingId(null);
-      setError('未能在刷新后的题单中找到同文候选，未启动 AI 复评。');
+      setError(
+        isEn
+          ? 'Could not locate the matching candidate after refresh. AI review did not start.'
+          : '未能在刷新后的题单中找到同文候选，未启动 AI 复评。',
+      );
       return;
     }
     reviewCandidate(candidate);
@@ -512,7 +536,7 @@ export default function QuestionManagementPanel({
       )
         setAuditingId(null);
     });
-  }, [pendingResearchAudit, plan, action, reviewCandidate]);
+  }, [pendingResearchAudit, plan, action, reviewCandidate, isEn]);
   const editCandidate = (item: QuestionCandidate) => {
     setError('');
     setDraft({
@@ -553,12 +577,21 @@ export default function QuestionManagementPanel({
     if (!draft) return;
     const ok = await action('save_question', {
       ...draft,
-      intent: draft.intent.trim() || '用户提出的候选问题，具体使用情境待审阅。',
+      intent:
+        draft.intent.trim() ||
+        (isEn
+          ? 'User-submitted candidate question; usage context pending review.'
+          : '用户提出的候选问题，具体使用情境待审阅。'),
       rationale:
-        draft.rationale.trim() || '用户提出的候选方向，争取价值待审阅。',
+        draft.rationale.trim() ||
+        (isEn
+          ? 'User-submitted topic; priority pending review.'
+          : '用户提出的候选方向，争取价值待审阅。'),
       expectedResult:
         draft.expectedResult.trim() ||
-        '寻找与原问题相关的帮助，当前承接情况待核查。',
+        (isEn
+          ? 'Looking for relevant help; current content coverage pending check.'
+          : '寻找与原问题相关的帮助，当前承接情况待核查。'),
     });
     if (ok) {
       setDraft(null);
@@ -673,9 +706,13 @@ export default function QuestionManagementPanel({
         {scope === 'backlog' && candidates.length > 0 && (
           <div className="qm-batch-bar">
             <span>
-              {pending.length} 个待审阅 · 已选 {selected.length} / 8
-              {selected.length > 8 && ' · 请调整至最多 8 题'}
-              {plan.status === 'ready' && ' · 已确认本批'}
+              {isEn
+                ? `${pending.length} pending review · ${selected.length} / 8 selected`
+                : `${pending.length} 个待审阅 · 已选 ${selected.length} / 8`}
+              {selected.length > 8 &&
+                (isEn ? ' · trim to at most 8' : ' · 请调整至最多 8 题')}
+              {plan.status === 'ready' &&
+                (isEn ? ' · confirmed' : ' · 已确认本批')}
             </span>
             <button
               disabled={
@@ -692,7 +729,13 @@ export default function QuestionManagementPanel({
               onClick={() => void action('confirm_questions', {})}
             >
               {plan.status === 'ready' ? <Check size={14} /> : null}
-              {plan.status === 'ready' ? '已确认' : '确认本批'}
+              {plan.status === 'ready'
+                ? isEn
+                  ? 'Confirmed'
+                  : '已确认'
+                : isEn
+                  ? 'Confirm batch'
+                  : '确认本批'}
             </button>
           </div>
         )}
@@ -701,20 +744,24 @@ export default function QuestionManagementPanel({
             <thead>
               <tr>
                 {scope === 'backlog' && candidates.length > 0 && (
-                  <th aria-label="选择本批问题" />
+                  <th
+                    aria-label={
+                      isEn ? 'Select question for batch' : '选择本批问题'
+                    }
+                  />
                 )}
                 <th>
                   <div className="qm-column-heading">
-                    <span>问题</span>
+                    <span>{isEn ? 'Question' : '问题'}</span>
                     {scope === 'observed' && (
                       <GeoSelect<ResearchFilter['kind']>
-                        label="问题类型"
+                        label={isEn ? 'Question type' : '问题类型'}
                         value={kind}
                         onChange={(kind) => controls({ kind })}
                         options={[
-                          { value: 'all', label: '全部问题' },
-                          { value: 'brand', label: '品牌基础' },
-                          { value: 'discovery', label: '需求发现' },
+                          { value: 'all', label: isEn ? 'All questions' : '全部问题' },
+                          { value: 'brand', label: isEn ? 'Brand' : '品牌基础' },
+                          { value: 'discovery', label: isEn ? 'Discovery' : '需求发现' },
                         ]}
                       />
                     )}
@@ -724,11 +771,11 @@ export default function QuestionManagementPanel({
                   <th className="qm-platform-column">
                     <div className="qm-column-heading qm-platform-heading">
                       <GeoSelect<ResearchFilter['engine']>
-                        label="查看结果的平台"
+                        label={isEn ? 'Platform' : '查看结果的平台'}
                         value={resultEngine}
                         onChange={(resultEngine) => controls({ resultEngine })}
                         options={[
-                          { value: 'all', label: '全部平台' },
+                          { value: 'all', label: isEn ? 'All platforms' : '全部平台' },
                           ...availableEngines.map((engine) => ({
                             value: engine,
                             label: RESEARCH_ENGINE_NAMES[engine],
@@ -736,25 +783,25 @@ export default function QuestionManagementPanel({
                         ]}
                       />
                       <GeoSelect<ResearchFilter['result']>
-                        label="结果状态"
+                        label={isEn ? 'Result status' : '结果状态'}
                         value={resultStatus}
                         onChange={(resultStatus) => controls({ resultStatus })}
                         options={[
-                          { value: 'all', label: '全部状态' },
-                          { value: 'found', label: '已找到' },
-                          { value: 'not_observed', label: '本次未见' },
-                          { value: 'unmeasured', label: '未搜索' },
+                          { value: 'all', label: isEn ? 'All results' : '全部状态' },
+                          { value: 'found', label: isEn ? 'Found' : '已找到' },
+                          { value: 'not_observed', label: isEn ? 'Not seen' : '本次未见' },
+                          { value: 'unmeasured', label: isEn ? 'Not run' : '未搜索' },
                         ]}
                       />
                       <span className="qm-platform-count-heading">
-                        找到 / 已搜
+                        {isEn ? 'Found / Run' : '找到 / 已搜'}
                       </span>
                     </div>
                   </th>
                 ) : (
-                  <th>状态</th>
+                  <th>{isEn ? 'Status' : '状态'}</th>
                 )}
-                <th>操作</th>
+                <th>{isEn ? 'Actions' : '操作'}</th>
               </tr>
             </thead>
             <tbody>
@@ -765,7 +812,11 @@ export default function QuestionManagementPanel({
                       {candidate && (
                         <input
                           type="checkbox"
-                          aria-label={`纳入本批：${candidate.query}`}
+                          aria-label={
+                            isEn
+                              ? `Include in batch: ${candidate.query}`
+                              : `纳入本批：${candidate.query}`
+                          }
                           checked={candidate.selected}
                           disabled={
                             busy ||
@@ -806,7 +857,9 @@ export default function QuestionManagementPanel({
                     </button>
                     {research && !research[language]?.trim() && (
                       <small className="qm-note">
-                        尚缺{language === 'zh' ? '中文' : '英文'}问法
+                        {isEn
+                          ? `Missing ${language === 'zh' ? 'Chinese' : 'English'} phrasing`
+                          : `尚缺${language === 'zh' ? '中文' : '英文'}问法`}
                       </small>
                     )}
                     {scope === 'observed' && research?.valueReason && (
@@ -815,7 +868,9 @@ export default function QuestionManagementPanel({
                       </p>
                     )}
                     {scope !== 'observed' && candidate && !hasQuestionAssessment(candidate) && (
-                      <small className="qm-note">待评估</small>
+                      <small className="qm-note">
+                        {isEn ? 'Pending review' : '待评估'}
+                      </small>
                     )}
                   </td>
                   {scope === 'observed' && research ? (
@@ -847,10 +902,16 @@ export default function QuestionManagementPanel({
                                     ? 'found'
                                     : 'absent';
                                 const statusText = !latest
-                                  ? '未搜索'
+                                  ? isEn
+                                    ? 'Not run'
+                                    : '未搜索'
                                   : latest.status === 'found'
-                                    ? '已找到'
-                                    : '本次未见';
+                                    ? isEn
+                                      ? 'Found'
+                                      : '已找到'
+                                    : isEn
+                                      ? 'Not seen'
+                                      : '本次未见';
                                 return (
                                   <button
                                     key={engine}
@@ -893,8 +954,16 @@ export default function QuestionManagementPanel({
                             </div>
                             <button
                               className={`qm-platform-total ${found ? 'has-found' : ''}`}
-                              aria-label={`${found} 个平台找到，${searched} 个平台已搜索，${results.length - searched} 个平台未搜索；查看结果`}
-                              title={`找到 ${found} · 已搜 ${searched} · 未搜 ${results.length - searched}`}
+                              aria-label={
+                                isEn
+                                  ? `Found on ${found}, run on ${searched}, not run on ${results.length - searched}; open results`
+                                  : `${found} 个平台找到，${searched} 个平台已搜索，${results.length - searched} 个平台未搜索；查看结果`
+                              }
+                              title={
+                                isEn
+                                  ? `Found ${found} · Run ${searched} · Not run ${results.length - searched}`
+                                  : `找到 ${found} · 已搜 ${searched} · 未搜 ${results.length - searched}`
+                              }
                               onClick={() =>
                                 onResult(research, language, resultEngine)
                               }
@@ -917,9 +986,13 @@ export default function QuestionManagementPanel({
                       >
                         {candidate
                           ? candidate.review.status === 'pending'
-                            ? '待人工审阅'
-                            : decisions[candidate.review.decision]
-                          : '待补充'}
+                            ? isEn
+                              ? 'Needs review'
+                              : '待人工审阅'
+                            : decisions[candidate.review.decision][langKey]
+                          : isEn
+                            ? 'Draft'
+                            : '待补充'}
                       </span>
                     </td>
                   )}
@@ -931,7 +1004,7 @@ export default function QuestionManagementPanel({
                             onResult(research, language, resultEngine)
                           }
                         >
-                          查看结果
+                          {isEn ? 'View results' : '查看结果'}
                         </button>
                       )}
                       {candidate ? (
@@ -940,7 +1013,7 @@ export default function QuestionManagementPanel({
                             disabled={busy || !!auditingId}
                             onClick={() => editCandidate(candidate)}
                           >
-                            {scope === 'observed' ? '编辑' : '编辑'}
+                            {isEn ? 'Edit' : '编辑'}
                           </button>
                           {scope !== 'observed' && (
                             <>
@@ -953,7 +1026,9 @@ export default function QuestionManagementPanel({
                                 title={
                                   data.settings.modelConfigured
                                     ? undefined
-                                    : '请先配置分析模型'
+                                    : isEn
+                                      ? 'Connect an AI model in Settings first'
+                                      : '请先配置分析模型'
                                 }
                                 onClick={() =>
                                   void (research
@@ -963,22 +1038,30 @@ export default function QuestionManagementPanel({
                               >
                                 {auditingId === candidate.id ||
                                 auditingId === `research:${research?.id}`
-                                  ? 'AI 复评中…'
-                                  : 'AI 复评'}
+                                  ? isEn
+                                    ? 'AI reviewing…'
+                                    : 'AI 复评中…'
+                                  : isEn
+                                    ? 'AI review'
+                                    : 'AI 复评'}
                               </button>
                               <button
                                 disabled={busy || !!auditingId}
                                 onClick={() => reviewCandidate(candidate)}
                               >
                                 {hasQuestionAssessment(candidate)
-                                  ? '审核结果'
-                                  : '审阅'}
+                                  ? isEn
+                                    ? 'Review notes'
+                                    : '审核结果'
+                                  : isEn
+                                    ? 'Review'
+                                    : '审阅'}
                               </button>
                               {research && (
                                 <button
                                   onClick={() => onResult(research, language)}
                                 >
-                                  原始依据
+                                  {isEn ? 'Evidence' : '原始依据'}
                                 </button>
                               )}
                             </>
@@ -996,13 +1079,19 @@ export default function QuestionManagementPanel({
                               title={
                                 data.settings.modelConfigured
                                   ? undefined
-                                  : '请先配置分析模型'
+                                  : isEn
+                                    ? 'Connect an AI model in Settings first'
+                                    : '请先配置分析模型'
                               }
                               onClick={() => void auditResearch(research)}
                             >
                               {auditingId === `research:${research.id}`
-                                ? 'AI 复评中…'
-                                : 'AI 复评'}
+                                ? isEn
+                                  ? 'AI reviewing…'
+                                  : 'AI 复评中…'
+                                : isEn
+                                  ? 'AI review'
+                                  : 'AI 复评'}
                             </button>
                           )}
                           {scope !== 'observed' && (
@@ -1011,14 +1100,14 @@ export default function QuestionManagementPanel({
                                 onResult(research!, language, resultEngine)
                               }
                             >
-                              查看详情
+                              {isEn ? 'Details' : '查看详情'}
                             </button>
                           )}
                           <button
                             disabled={busy || !!auditingId}
                             onClick={() => editResearch(research!)}
                           >
-                            调整下一批
+                            {isEn ? 'Edit for next batch' : '调整下一批'}
                           </button>
                         </>
                       )}
@@ -1030,7 +1119,9 @@ export default function QuestionManagementPanel({
           </table>
           {!visibleRows.length && (
             <p className="qm-empty">
-              没有符合当前筛选的问题。
+              {isEn
+                ? 'No questions match the current filters.'
+                : '没有符合当前筛选的问题。'}
               <button
                 onClick={() =>
                   controls({
@@ -1041,7 +1132,7 @@ export default function QuestionManagementPanel({
                   })
                 }
               >
-                清除筛选
+                {isEn ? 'Clear filters' : '清除筛选'}
               </button>
             </p>
           )}
@@ -1050,7 +1141,15 @@ export default function QuestionManagementPanel({
       <dialog
         ref={modal}
         className="qm-dialog"
-        aria-label={draft ? '编辑问题' : '问题审阅'}
+        aria-label={
+          draft
+            ? isEn
+              ? 'Edit question'
+              : '编辑问题'
+            : isEn
+              ? 'Review question'
+              : '问题审阅'
+        }
         onCancel={(event) => {
           event.preventDefault();
           close();
@@ -1060,15 +1159,21 @@ export default function QuestionManagementPanel({
           <h2>
             {draft
               ? draft.candidateId || draft.sourceQuestionId
-                ? '调整下一批问题'
-                : '添加问题'
-              : '问题审阅'}
+                ? isEn
+                  ? 'Edit question for next batch'
+                  : '调整下一批问题'
+                : isEn
+                  ? 'Add question'
+                  : '添加问题'
+              : isEn
+                ? 'Review question'
+                : '问题审阅'}
           </h2>
           <button
             type="button"
             disabled={busy || !!auditingId}
             onClick={close}
-            aria-label="关闭问题编辑"
+            aria-label={isEn ? 'Close question dialog' : '关闭问题编辑'}
           >
             <X size={18} />
           </button>
@@ -1081,7 +1186,7 @@ export default function QuestionManagementPanel({
             }}
           >
             <label>
-              中文问法
+              {isEn ? 'Question' : '中文问法'}
               <textarea
                 autoFocus
                 required
@@ -1095,7 +1200,8 @@ export default function QuestionManagementPanel({
               />
             </label>
             <label>
-              英文问法 <span className="qm-note">选填</span>
+              {isEn ? 'English phrasing' : '英文问法'}{' '}
+              <span className="qm-note">{isEn ? 'Optional' : '选填'}</span>
               <textarea
                 maxLength={300}
                 rows={2}
@@ -1103,13 +1209,21 @@ export default function QuestionManagementPanel({
                 onChange={(event) =>
                   setDraft({ ...draft, queryEn: event.target.value })
                 }
-                placeholder="同一需求的自然英文问法"
+                placeholder={
+                  isEn
+                    ? 'Natural English phrasing of the same question'
+                    : '同一需求的自然英文问法'
+                }
               />
             </label>
             <details>
-              <summary>使用情境与已有依据</summary>
+              <summary>
+                {isEn ? 'Context & supporting sources' : '使用情境与已有依据'}
+              </summary>
               <label>
-                谁会在什么情况下问？
+                {isEn
+                  ? 'Who asks this and when?'
+                  : '谁会在什么情况下问？'}
                 <textarea
                   maxLength={600}
                   value={draft.intent}
@@ -1119,7 +1233,7 @@ export default function QuestionManagementPanel({
                 />
               </label>
               <label>
-                为什么值得争取？
+                {isEn ? 'Why is it worth winning?' : '为什么值得争取？'}
                 <textarea
                   maxLength={800}
                   value={draft.rationale}
@@ -1129,7 +1243,9 @@ export default function QuestionManagementPanel({
                 />
               </label>
               <label>
-                希望找到什么帮助？
+                {isEn
+                  ? 'What help is the buyer looking for?'
+                  : '希望找到什么帮助？'}
                 <textarea
                   maxLength={600}
                   value={draft.expectedResult}
@@ -1139,7 +1255,7 @@ export default function QuestionManagementPanel({
                 />
               </label>
               <fieldset>
-                <legend>关联已有内容</legend>
+                <legend>{isEn ? 'Linked project pages' : '关联已有内容'}</legend>
                 {data.assets.map((asset) => (
                   <label className="qm-check" key={asset.id}>
                     <input
@@ -1164,15 +1280,23 @@ export default function QuestionManagementPanel({
               </fieldset>
             </details>
             <p className="qm-note">
-              保存后进入待审阅；已搜索的问题和结果保留原样。
+              {isEn
+                ? 'Saved questions enter pending review; existing measured questions and answers remain unchanged.'
+                : '保存后进入待审阅；已搜索的问题和结果保留原样。'}
             </p>
             {error && <p role="alert">{error}</p>}
             <footer>
               <button type="button" onClick={close} disabled={busy}>
-                取消
+                {isEn ? 'Cancel' : '取消'}
               </button>
               <button className="qm-primary" disabled={busy}>
-                {busy ? '正在保存…' : '保存为待审阅'}
+                {busy
+                  ? isEn
+                    ? 'Saving…'
+                    : '正在保存…'
+                  : isEn
+                    ? 'Save for review'
+                    : '保存为待审阅'}
               </button>
             </footer>
           </form>
@@ -1190,8 +1314,14 @@ export default function QuestionManagementPanel({
               }}
             >
               <h3>{review.query}</h3>
-              <p className="qm-note" lang={review.queryEn ? 'en' : 'zh'}>
-                {review.queryEn || '尚未设置中英配对'}
+              <p
+                className="qm-note"
+                lang={review.queryEn ? 'en' : isEn ? 'en' : 'zh'}
+              >
+                {review.queryEn ||
+                  (isEn
+                    ? 'No bilingual pair set yet'
+                    : '尚未设置中英配对')}
               </p>
               <button
                 type="button"
@@ -1200,57 +1330,75 @@ export default function QuestionManagementPanel({
                   busy || !!auditingId || !data.settings.modelConfigured
                 }
                 title={
-                  data.settings.modelConfigured ? undefined : '请先配置分析模型'
+                  data.settings.modelConfigured
+                    ? undefined
+                    : isEn
+                      ? 'Connect an AI model in Settings first'
+                      : '请先配置分析模型'
                 }
                 onClick={() => void auditCandidate(review)}
               >
-                {auditingId === review.id ? 'AI 复评中…' : 'AI 复评'}
+                {auditingId === review.id
+                  ? isEn
+                    ? 'AI reviewing…'
+                    : 'AI 复评中…'
+                  : isEn
+                    ? 'AI review'
+                    : 'AI 复评'}
               </button>
               <QuestionAssessmentDetails
                 candidate={review}
                 assets={data.assets}
               />
               <dl>
-                <dt>使用情境</dt>
+                <dt>{isEn ? 'Context' : '使用情境'}</dt>
                 <dd>{review.intent}</dd>
-                <dt>争取价值</dt>
+                <dt>{isEn ? 'Why it matters' : '争取价值'}</dt>
                 <dd>{review.rationale}</dd>
-                <dt>期待帮助</dt>
+                <dt>{isEn ? 'Expected help' : '期待帮助'}</dt>
                 <dd>{review.expectedResult}</dd>
               </dl>
               <details>
-                <summary>已有内容与待核查项</summary>
+                <summary>
+                  {isEn
+                    ? 'Supporting sources & open checks'
+                    : '已有内容与待核查项'}
+                </summary>
                 {review.evidence.map((item) => (
                   <blockquote key={item.assetId}>
                     <strong>
                       {data.assets.find((asset) => asset.id === item.assetId)
-                        ?.title || '关联材料'}
+                        ?.title || (isEn ? 'Related source' : '关联材料')}
                     </strong>
                     <p>{item.quote}</p>
                   </blockquote>
                 ))}
                 {!review.evidence.length && (
-                  <p>尚未关联材料证据；可保留为探索问题。</p>
+                  <p>
+                    {isEn
+                      ? 'No linked source excerpts yet; you can keep this as an exploratory question.'
+                      : '尚未关联材料证据；可保留为探索问题。'}
+                  </p>
                 )}
                 {review.review.concerns.map((item, index) => (
                   <p key={index}>{item}</p>
                 ))}
               </details>
               <label>
-                我的判断
+                {isEn ? 'Decision' : '我的判断'}
                 <GeoSelect<QuestionDecision>
-                  label="我的判断"
+                  label={isEn ? 'Decision' : '我的判断'}
                   value={decision}
                   onChange={setDecision}
                   options={Object.entries(decisions).map(([key, label]) => ({
                     value: key as QuestionDecision,
-                    label,
+                    label: label[langKey],
                   }))}
                   portalTarget={modal}
                 />
               </label>
               <label>
-                判断依据
+                {isEn ? 'Reason' : '判断依据'}
                 <textarea
                   required
                   minLength={5}
@@ -1258,16 +1406,26 @@ export default function QuestionManagementPanel({
                   rows={3}
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
-                  placeholder="说明为什么值得搜，或为什么先保留、暂不考虑。"
+                  placeholder={
+                    isEn
+                      ? 'Explain why to track, explore, or skip this question.'
+                      : '说明为什么值得搜，或为什么先保留、暂不考虑。'
+                  }
                 />
               </label>
               {error && <p role="alert">{error}</p>}
               <footer>
                 <button type="button" onClick={close} disabled={busy}>
-                  取消
+                  {isEn ? 'Cancel' : '取消'}
                 </button>
                 <button className="qm-primary" disabled={busy}>
-                  {busy ? '正在保存…' : '保存人工审阅'}
+                  {busy
+                    ? isEn
+                      ? 'Saving…'
+                      : '正在保存…'
+                    : isEn
+                      ? 'Save review'
+                      : '保存人工审阅'}
                 </button>
               </footer>
             </form>

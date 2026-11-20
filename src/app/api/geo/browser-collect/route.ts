@@ -4,38 +4,42 @@ import {
   startBrowserCollectJob,
   stopBrowserCollectJob,
 } from '@/lib/geo/browser-collect-runner';
+import { requireBrowserCollectionRequest } from '@/lib/geo/browser-collection';
 import {
-  BrowserCollectionError,
-  requireBrowserCollectionRequest,
-} from '@/lib/geo/browser-collection';
-import { GeoProjectError } from '@/lib/geo/projects';
+  localizeBrowserCollectSnapshot,
+  resolveRequestUiLanguage,
+  serverErrorResponse,
+} from '@/lib/geo/i18n-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export function GET(request: NextRequest) {
+  const lang = resolveRequestUiLanguage(request);
   try {
     requireBrowserCollectionRequest(request, false);
     const project = request.nextUrl.searchParams.get('project') || undefined;
     return NextResponse.json(
-      { job: getBrowserCollectStatus(project) },
+      { job: localizeBrowserCollectSnapshot(getBrowserCollectStatus(project), lang) },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (error) {
-    return errorResponse(error);
+    return serverErrorResponse(error, lang);
   }
 }
 
 export async function POST(request: NextRequest) {
+  let lang = resolveRequestUiLanguage(request);
   try {
     requireBrowserCollectionRequest(request, true);
     const body = (await request.json()) as Record<string, unknown>;
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return NextResponse.json({ error: '请求格式无效。' }, { status: 400 });
+      return serverErrorResponse({ code: 'invalid_request', status: 400 }, lang);
     }
+    lang = resolveRequestUiLanguage(request, body);
     const action = body.action;
     if (action === 'stop') {
-      return NextResponse.json({ job: stopBrowserCollectJob() });
+      return NextResponse.json({ job: localizeBrowserCollectSnapshot(stopBrowserCollectJob(), lang) });
     }
     if (action === 'start') {
       const requestUrl = new URL(request.url);
@@ -68,21 +72,10 @@ export async function POST(request: NextRequest) {
         optimizationRunId,
         spaceId,
       });
-      return NextResponse.json({ job });
+      return NextResponse.json({ job: localizeBrowserCollectSnapshot(job, lang) });
     }
-    return NextResponse.json({ error: '不支持的浏览器采集操作。' }, { status: 400 });
+    return serverErrorResponse({ code: 'invalid_request', status: 400 }, lang);
   } catch (error) {
-    return errorResponse(error);
+    return serverErrorResponse(error, lang);
   }
-}
-
-function errorResponse(error: unknown) {
-  const message = error instanceof Error ? error.message : '浏览器采集请求失败。';
-  const status =
-    error instanceof BrowserCollectionError || error instanceof GeoProjectError
-      ? error.status
-      : error instanceof SyntaxError
-        ? 400
-        : 500;
-  return NextResponse.json({ error: message }, { status });
 }

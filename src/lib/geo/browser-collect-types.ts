@@ -23,7 +23,12 @@ export interface BrowserCollectJobSnapshot {
   currentQuery: string | null;
   waitSeconds: number | null;
   message: string;
+  messageCode?: string;
+  messageParams?: Record<string, string | number>;
   error: string | null;
+  errorCode?: string | null;
+  errorParams?: Record<string, string | number>;
+  errorDetail?: string | null;
   startedAt: string | null;
   updatedAt: string | null;
   busyOtherProjectId?: string | null;

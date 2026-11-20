@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import type { GeoAsset } from '@/lib/geo/types';
 import {
-  QUESTION_CATEGORY_LABELS,
   type GeoQuestionPlan,
   type QuestionCandidate,
   type QuestionCategory,
@@ -27,6 +26,7 @@ import BackgroundPreparationStatus, {
 import QuestionAssessmentDetails, {
   hasQuestionAssessment,
 } from './QuestionAssessmentDetails';
+import { useUiLanguage } from './UiLanguageContext';
 import './question-plan.css';
 
 type Props = {
@@ -45,13 +45,36 @@ type Props = {
   onAuditCandidate?: (candidateId: string) => Promise<void>;
 };
 
-const decisionLabels = {
-  include: '推荐',
-  explore: '可进一步了解',
-  exclude: '暂不推荐',
+const CATEGORY_ORDER: QuestionCategory[] = [
+  'brand',
+  'positioning',
+  'problem',
+  'content',
+  'comparison',
+  'boundary',
+];
+
+const categoryLabels: Record<QuestionCategory, { en: string; zh: string }> = {
+  brand: { en: 'Brand recognition', zh: '品牌识别' },
+  positioning: { en: 'Positioning fit', zh: '定位匹配' },
+  problem: { en: 'Problem discovery', zh: '需求找方案' },
+  content: { en: 'Existing content', zh: '已有内容发现' },
+  comparison: { en: 'Comparison', zh: '比较选择' },
+  boundary: { en: 'Usage & limits', zh: '操作与边界' },
 };
 
-const generationSteps = ['选题方向', '生成问题', '独立审核', '保存'];
+const decisionLabels = {
+  include: { en: 'Recommended', zh: '推荐' },
+  explore: { en: 'Explore', zh: '可进一步了解' },
+  exclude: { en: 'Not recommended', zh: '暂不推荐' },
+};
+
+const generationSteps = [
+  { en: 'Topic themes', zh: '选题方向' },
+  { en: 'Draft questions', zh: '生成问题' },
+  { en: 'Independent review', zh: '独立审核' },
+  { en: 'Save', zh: '保存' },
+];
 
 export default function QuestionPlanPanel({
   plan,
@@ -68,6 +91,9 @@ export default function QuestionPlanPanel({
   onConfigureModel,
   onAuditCandidate,
 }: Props) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
+  const langKey = isEn ? 'en' : 'zh';
   const preparedPositioning = generationJob?.positioning || plan.positioning;
   const [positioning, setPositioning] = useState(preparedPositioning);
   const [editingPositioning, setEditingPositioning] = useState(
@@ -131,9 +157,7 @@ export default function QuestionPlanPanel({
   const excluded = matching.filter(
     (candidate) => candidate.review.decision === 'exclude',
   );
-  const representatives = (
-    Object.keys(QUESTION_CATEGORY_LABELS) as QuestionCategory[]
-  ).flatMap((key) => {
+  const representatives = CATEGORY_ORDER.flatMap((key) => {
     const candidate = recommended.find((item) => item.category === key);
     return candidate ? [candidate] : [];
   });
@@ -167,7 +191,11 @@ export default function QuestionPlanPanel({
       setEditingPositioning(false);
     } catch (failure) {
       setGenerationError(
-        failure instanceof Error ? failure.message : '生成未完成，请重试。',
+        failure instanceof Error
+          ? failure.message
+          : isEn
+            ? 'Generation did not finish. Please try again.'
+            : '生成未完成，请重试。',
       );
     } finally {
       generatingRef.current = false;
@@ -199,7 +227,7 @@ export default function QuestionPlanPanel({
     return (
       <div className="qp-positioning-body">
         <div className="qp-positioning-heading">
-          <h2>产品定位</h2>
+          <h2>{isEn ? 'Product positioning' : '产品定位'}</h2>
           {!editingPositioning && (
             <button
               type="button"
@@ -207,14 +235,14 @@ export default function QuestionPlanPanel({
               disabled={working}
               onClick={() => setEditingPositioning(true)}
             >
-              修改
+              {isEn ? 'Edit' : '修改'}
             </button>
           )}
         </div>
         {editingPositioning ? (
           <>
             <label className="qp-sr-only" htmlFor="qp-positioning">
-              产品定位
+              {isEn ? 'Product positioning' : '产品定位'}
             </label>
             <textarea
               id="qp-positioning"
@@ -222,7 +250,11 @@ export default function QuestionPlanPanel({
               maxLength={1000}
               rows={4}
               disabled={working}
-              placeholder="你的产品为谁提供什么帮助？"
+              placeholder={
+                isEn
+                  ? 'Who is your product for and what problem does it solve?'
+                  : '你的产品为谁提供什么帮助？'
+              }
               onChange={(event) => setPositioning(event.target.value)}
             />
             <div className="qp-positioning-edit-actions">
@@ -232,7 +264,7 @@ export default function QuestionPlanPanel({
                 disabled={working || !positioning.trim()}
                 onClick={() => setEditingPositioning(false)}
               >
-                完成修改
+                {isEn ? 'Done' : '完成修改'}
               </button>
               {preparedPositioning.trim() && (
                 <button
@@ -244,7 +276,7 @@ export default function QuestionPlanPanel({
                     setEditingPositioning(false);
                   }}
                 >
-                  取消修改
+                  {isEn ? 'Cancel' : '取消修改'}
                 </button>
               )}
             </div>
@@ -254,13 +286,17 @@ export default function QuestionPlanPanel({
         )}
         {hasCandidates && positioningChanged && (
           <div className="qp-positioning-change" role="status">
-            <span>定位已修改，请重新生成问题后再确认。</span>
+            <span>
+              {isEn
+                ? 'Positioning changed. Regenerate questions before confirming.'
+                : '定位已修改，请重新生成问题后再确认。'}
+            </span>
             <button
               type="button"
               disabled={working}
               onClick={() => setPositioning(preparedPositioning)}
             >
-              恢复原定位
+              {isEn ? 'Restore original' : '恢复原定位'}
             </button>
           </div>
         )}
@@ -275,7 +311,7 @@ export default function QuestionPlanPanel({
           (!generationPending || generationJobActive) &&
           (hasCandidates && generationJob.status === 'completed' ? (
             <details className="og-background-preparation-history">
-              <summary>查看生成过程</summary>
+              <summary>{isEn ? 'View generation progress' : '查看生成过程'}</summary>
               <BackgroundPreparationStatus job={generationJob} />
             </details>
           ) : (
@@ -283,10 +319,13 @@ export default function QuestionPlanPanel({
           ))}
         {generationPending && generationJobActive ? null : generationPending ? (
           <div className="qp-generating" role="status" aria-live="polite">
-            <ol className="qp-generation-steps" aria-label="生成进度">
+            <ol
+              className="qp-generation-steps"
+              aria-label={isEn ? 'Generation progress' : '生成进度'}
+            >
               {generationSteps.map((step, index) => (
                 <li
-                  key={step}
+                  key={step.en}
                   className={
                     index < generationStep
                       ? 'is-done'
@@ -305,18 +344,27 @@ export default function QuestionPlanPanel({
                       index + 1
                     )}
                   </span>
-                  <span>{step}</span>
+                  <span>{step[langKey]}</span>
                   <span className="qp-sr-only">
                     {index < generationStep
-                      ? '已完成'
+                      ? isEn
+                        ? 'Completed'
+                        : '已完成'
                       : index === generationStep
-                        ? '进行中'
-                        : '等待中'}
+                        ? isEn
+                          ? 'In progress'
+                          : '进行中'
+                        : isEn
+                          ? 'Pending'
+                          : '等待中'}
                   </span>
                 </li>
               ))}
             </ol>
-            <p>{generationProgress?.message || '正在准备产品材料…'}</p>
+            <p>
+              {generationProgress?.message ||
+                (isEn ? 'Preparing project materials…' : '正在准备产品材料…')}
+            </p>
             <QuestionGenerationRequestStatus
               request={generationProgress?.request}
               active={generationPending}
@@ -326,12 +374,14 @@ export default function QuestionPlanPanel({
           <>
             {!hasCandidates && (
               <p className="qp-generation-purpose">
-                了解潜在用户可能向 AI 提出哪些与你产品相关的问题。
+                {isEn
+                  ? 'See what buyer questions potential users ask AI about your space.'
+                  : '了解潜在用户可能向 AI 提出哪些与你产品相关的问题。'}
               </p>
             )}
             {generationError && (
               <div className="qp-generation-error" role="alert">
-                <strong>生成未完成</strong>
+                <strong>{isEn ? 'Generation did not finish' : '生成未完成'}</strong>
                 <p>{generationError}</p>
               </div>
             )}
@@ -347,14 +397,24 @@ export default function QuestionPlanPanel({
                 ['failed', 'interrupted', 'superseded'].includes(
                   generationJob?.status ?? '',
                 )
-                  ? '重试生成用户提问'
+                  ? isEn
+                    ? 'Retry buyer questions'
+                    : '重试生成用户提问'
                   : hasCandidates
-                    ? '重新生成用户提问'
-                    : '生成用户提问'}
+                    ? isEn
+                      ? 'Regenerate buyer questions'
+                      : '重新生成用户提问'
+                    : isEn
+                      ? 'Generate buyer questions'
+                      : '生成用户提问'}
               </button>
             ) : (
               <div className="qp-model-setup">
-                <p>先在设置中配置分析模型，即可生成用户提问。</p>
+                <p>
+                  {isEn
+                    ? 'Connect an AI model in Settings to generate buyer questions.'
+                    : '先在设置中配置分析模型，即可生成用户提问。'}
+                </p>
                 {onConfigureModel && (
                   <button
                     type="button"
@@ -362,7 +422,8 @@ export default function QuestionPlanPanel({
                     disabled={working}
                     onClick={onConfigureModel}
                   >
-                    去设置模型 <ArrowUpRight size={16} />
+                    {isEn ? 'Open Settings' : '去设置模型'}{' '}
+                    <ArrowUpRight size={16} />
                   </button>
                 )}
               </div>
@@ -394,7 +455,11 @@ export default function QuestionPlanPanel({
           <label className="qp-candidate-title">
             <input
               type="checkbox"
-              aria-label={`选择问题：${candidate.query}`}
+              aria-label={
+                isEn
+                  ? `Select question: ${candidate.query}`
+                  : `选择问题：${candidate.query}`
+              }
               checked={candidate.selected && !isExcluded}
               disabled={
                 working ||
@@ -408,11 +473,11 @@ export default function QuestionPlanPanel({
             <h3>{candidate.query}</h3>
           </label>
           <div className="qp-question-meta">
-            <span>{QUESTION_CATEGORY_LABELS[candidate.category]}</span>
+            <span>{categoryLabels[candidate.category][langKey]}</span>
             <span
               className={`qp-decision qp-decision-${candidate.review.decision}`}
             >
-              {decisionLabels[candidate.review.decision]}
+              {decisionLabels[candidate.review.decision][langKey]}
             </span>
             <button
               type="button"
@@ -428,16 +493,24 @@ export default function QuestionPlanPanel({
               }
             >
               {expanded[candidate.id]
-                ? '收起依据'
+                ? isEn
+                  ? 'Hide rationale'
+                  : '收起依据'
                 : isExcluded
-                  ? '为什么暂不推荐'
-                  : '为什么选它'}
+                  ? isEn
+                    ? 'Why excluded'
+                    : '为什么暂不推荐'
+                  : isEn
+                    ? 'Why this question'
+                    : '为什么选它'}
               <ChevronDown size={14} />
             </button>
           </div>
           {candidate.review.concerns.length > 0 && !isExcluded && (
             <p className="qp-question-caveat">
-              待核实：{candidate.review.concerns[0]}
+              {isEn
+                ? `To verify: ${candidate.review.concerns[0]}`
+                : `待核实：${candidate.review.concerns[0]}`}
             </p>
           )}
         </div>
@@ -447,22 +520,38 @@ export default function QuestionPlanPanel({
             <div className="qp-review-meta">
               <span>
                 {candidate.origin === 'existing'
-                  ? '已有问题'
+                  ? isEn
+                    ? 'Existing question'
+                    : '已有问题'
                   : candidate.origin === 'model'
-                    ? 'AI 生成'
-                    : '整理补充'}
+                    ? isEn
+                      ? 'AI-generated'
+                      : 'AI 生成'
+                    : isEn
+                      ? 'Added manually'
+                      : '整理补充'}
               </span>
               <span>
                 {hasQuestionAssessment(candidate)
-                  ? '已检查需求价值与承接情况'
-                  : '需求价值与承接情况尚待核实'}
+                  ? isEn
+                    ? 'Demand value & coverage checked'
+                    : '已检查需求价值与承接情况'
+                  : isEn
+                    ? 'Demand value & coverage pending review'
+                    : '需求价值与承接情况尚待核实'}
               </span>
               {onAuditCandidate && (
                 <button
                   type="button"
                   className="qp-detail-toggle"
                   disabled={working || !!auditingId || !modelConfigured}
-                  title={modelConfigured ? undefined : '请先配置分析模型'}
+                  title={
+                    modelConfigured
+                      ? undefined
+                      : isEn
+                        ? 'Connect an AI model in Settings first'
+                        : '请先配置分析模型'
+                  }
                   onClick={async () => {
                     setAuditError('');
                     setAuditingId(candidate.id);
@@ -472,7 +561,9 @@ export default function QuestionPlanPanel({
                       setAuditError(
                         failure instanceof Error
                           ? failure.message
-                          : '审核未完成，请重试。',
+                          : isEn
+                            ? 'Review did not finish. Please try again.'
+                            : '审核未完成，请重试。',
                       );
                     } finally {
                       setAuditingId(null);
@@ -481,8 +572,11 @@ export default function QuestionPlanPanel({
                 >
                   {auditingId === candidate.id ? (
                     <>
-                      <Loader2 size={14} className="spin" /> 正在审核…
+                      <Loader2 size={14} className="spin" />{' '}
+                      {isEn ? 'Reviewing…' : '正在审核…'}
                     </>
+                  ) : isEn ? (
+                    'Re-review'
                   ) : (
                     '重新审核'
                   )}
@@ -492,25 +586,35 @@ export default function QuestionPlanPanel({
             <QuestionAssessmentDetails candidate={candidate} assets={assets} />
             <dl>
               <div>
-                <dt>用户想了解什么</dt>
+                <dt>{isEn ? 'What the buyer wants to know' : '用户想了解什么'}</dt>
                 <dd>{candidate.intent}</dd>
               </div>
               <div>
-                <dt>与我们的关系</dt>
+                <dt>{isEn ? 'Why it matters to you' : '与我们的关系'}</dt>
                 <dd>{candidate.rationale}</dd>
               </div>
               <div>
-                <dt>希望观察到什么</dt>
+                <dt>{isEn ? 'What to look for' : '希望观察到什么'}</dt>
                 <dd>{candidate.expectedResult}</dd>
               </div>
               <div>
-                <dt>搜索目标</dt>
-                <dd>{candidate.target === 'article' ? '已有文章' : '项目'}</dd>
+                <dt>{isEn ? 'Target' : '搜索目标'}</dt>
+                <dd>
+                  {candidate.target === 'article'
+                    ? isEn
+                      ? 'Existing article'
+                      : '已有文章'
+                    : isEn
+                      ? 'Project'
+                      : '项目'}
+                </dd>
               </div>
             </dl>
             {associated.length > 0 && (
               <div className="qp-supporting-assets">
-                <span className="qp-detail-label">相关材料</span>
+                <span className="qp-detail-label">
+                  {isEn ? 'Related sources' : '相关材料'}
+                </span>
                 {associated.map((asset) => (
                   <div className="qp-asset-link" key={asset.id}>
                     <button
@@ -526,7 +630,11 @@ export default function QuestionPlanPanel({
                         href={asset.publicUrl}
                         target="_blank"
                         rel="noreferrer"
-                        aria-label={`打开网页：${asset.title}`}
+                        aria-label={
+                          isEn
+                            ? `Open page: ${asset.title}`
+                            : `打开网页：${asset.title}`
+                        }
                       >
                         <ArrowUpRight size={15} />
                       </a>
@@ -537,7 +645,9 @@ export default function QuestionPlanPanel({
             )}
             {candidate.evidence.length > 0 && (
               <div className="qp-quotes">
-                <span className="qp-detail-label">材料中的原文</span>
+                <span className="qp-detail-label">
+                  {isEn ? 'Source excerpts' : '材料中的原文'}
+                </span>
                 {candidate.evidence.map((evidence, index) => (
                   <figure key={`${evidence.assetId}-${index}`}>
                     <blockquote>{evidence.quote}</blockquote>
@@ -550,7 +660,9 @@ export default function QuestionPlanPanel({
             )}
             {candidate.review.concerns.length > 0 && (
               <div className="qp-concerns">
-                <span className="qp-detail-label">待核实</span>
+                <span className="qp-detail-label">
+                  {isEn ? 'To verify' : '待核实'}
+                </span>
                 <ul>
                   {candidate.review.concerns.map((concern, index) => (
                     <li key={index}>{concern}</li>
@@ -572,7 +684,7 @@ export default function QuestionPlanPanel({
       <div className="qp-panel qp-start" aria-busy={working}>
         <section
           className="qp-positioning qp-positioning-primary"
-          aria-label="产品定位"
+          aria-label={isEn ? 'Product positioning' : '产品定位'}
         >
           {renderPositioning()}
         </section>
@@ -584,19 +696,26 @@ export default function QuestionPlanPanel({
   return (
     <div className="qp-panel" aria-busy={working}>
       {generationJob && <BackgroundPreparationStatus job={generationJob} />}
-      <section className="qp-questions" aria-label="用户可能这样问">
+      <section
+        className="qp-questions"
+        aria-label={isEn ? 'How buyers may ask AI' : '用户可能这样问'}
+      >
         <div className="qp-list-heading">
           <div>
-            <h2>用户可能这样问</h2>
+            <h2>{isEn ? 'How buyers may ask AI' : '用户可能这样问'}</h2>
             <p className="qp-help">
               {selected.length
-                ? '推荐问题已勾选，可按需调整，最多 8 个。'
-                : '选择与你产品相关的问题，最多 8 个。'}
+                ? isEn
+                  ? 'Recommended questions are pre-selected. Adjust up to 8 questions.'
+                  : '推荐问题已勾选，可按需调整，最多 8 个。'
+                : isEn
+                  ? 'Select up to 8 questions relevant to your product.'
+                  : '选择与你产品相关的问题，最多 8 个。'}
             </p>
           </div>
           <div className="qp-filter">
             <GeoSelect<QuestionCategory | 'all'>
-              label="按问题类别筛选"
+              label={isEn ? 'Filter by category' : '按问题类别筛选'}
               disabled={working}
               value={category}
               onChange={(value) => {
@@ -604,13 +723,11 @@ export default function QuestionPlanPanel({
                 setShowAll(false);
               }}
               options={[
-                { value: 'all', label: '全部类别' },
-                ...(
-                  Object.entries(QUESTION_CATEGORY_LABELS) as [
-                    QuestionCategory,
-                    string,
-                  ][]
-                ).map(([value, label]) => ({ value, label })),
+                { value: 'all', label: isEn ? 'All categories' : '全部类别' },
+                ...CATEGORY_ORDER.map((value) => ({
+                  value,
+                  label: categoryLabels[value][langKey],
+                })),
               ]}
             />
           </div>
@@ -625,8 +742,12 @@ export default function QuestionPlanPanel({
           {!recommended.length && (
             <p className="qp-empty">
               {category === 'all'
-                ? '暂时没有推荐的问题，可查看下方其他问题及判断依据。'
-                : '此类别暂无推荐的问题，可切换类别或查看下方其他问题。'}
+                ? isEn
+                  ? 'No recommended questions yet. Inspect other candidates below.'
+                  : '暂时没有推荐的问题，可查看下方其他问题及判断依据。'
+                : isEn
+                  ? 'No recommended questions in this category. Switch categories or inspect others below.'
+                  : '此类别暂无推荐的问题，可切换类别或查看下方其他问题。'}
             </p>
           )}
         </div>
@@ -639,8 +760,12 @@ export default function QuestionPlanPanel({
             onClick={() => setShowAll(!showAll)}
           >
             {showAll
-              ? '收起更多问题'
-              : `查看其余 ${moreRecommendedCount} 个推荐问题`}
+              ? isEn
+                ? 'Show fewer'
+                : '收起更多问题'
+              : isEn
+                ? `Show ${moreRecommendedCount} more recommended`
+                : `查看其余 ${moreRecommendedCount} 个推荐问题`}
             <ChevronDown size={14} />
           </button>
         )}
@@ -655,7 +780,8 @@ export default function QuestionPlanPanel({
               onClick={() => setShowExplore(!showExplore)}
             >
               <span>
-                其他可选问题 <small>{exploratory.length}</small>
+                {isEn ? 'Other optional questions' : '其他可选问题'}{' '}
+                <small>{exploratory.length}</small>
               </span>
               <ChevronDown size={15} />
             </button>
@@ -677,7 +803,8 @@ export default function QuestionPlanPanel({
               onClick={() => setShowExcluded(!showExcluded)}
             >
               <span>
-                暂不推荐的问题 <small>{excluded.length}</small>
+                {isEn ? 'Excluded questions' : '暂不推荐的问题'}{' '}
+                <small>{excluded.length}</small>
               </span>
               <ChevronDown size={15} />
             </button>
@@ -694,7 +821,7 @@ export default function QuestionPlanPanel({
       )}
       <details className="qp-positioning qp-positioning-secondary">
         <summary>
-          产品定位 <ChevronDown size={15} />
+          {isEn ? 'Product positioning' : '产品定位'} <ChevronDown size={15} />
         </summary>
         {renderPositioning()}
         {!generationPending && !generationError && renderGeneration()}
@@ -707,14 +834,24 @@ export default function QuestionPlanPanel({
             <Check size={15} />
           ) : null}
           {generationPending
-            ? `正在${generationSteps[generationStep]}…`
+            ? isEn
+              ? `${generationSteps[generationStep].en}…`
+              : `正在${generationSteps[generationStep].zh}…`
             : busy
-              ? '正在保存…'
+              ? isEn
+                ? 'Saving…'
+                : '正在保存…'
               : plan.status === 'ready'
-                ? `已确认 ${selected.length} 个问题`
+                ? isEn
+                  ? `${selected.length} confirmed`
+                  : `已确认 ${selected.length} 个问题`
                 : selected.length > 8
-                  ? `已选 ${selected.length} 个，请减少到 8 个以内`
-                  : `已选 ${selected.length} 个问题`}
+                  ? isEn
+                    ? `${selected.length} selected — trim to at most 8`
+                    : `已选 ${selected.length} 个，请减少到 8 个以内`
+                  : isEn
+                    ? `${selected.length} selected`
+                    : `已选 ${selected.length} 个问题`}
         </p>
         <div className="qp-footer-actions">
           <button
@@ -724,7 +861,7 @@ export default function QuestionPlanPanel({
             onClick={downloadPlan}
           >
             <Download size={14} />
-            导出问题
+            {isEn ? 'Export questions' : '导出问题'}
           </button>
           {plan.status !== 'ready' && (
             <button
@@ -739,8 +876,12 @@ export default function QuestionPlanPanel({
               onClick={() => void onConfirm()}
             >
               {selected.length
-                ? `确认这 ${selected.length} 个问题`
-                : '确认选择'}
+                ? isEn
+                  ? `Confirm ${selected.length} questions`
+                  : `确认这 ${selected.length} 个问题`
+                : isEn
+                  ? 'Confirm selection'
+                  : '确认选择'}
             </button>
           )}
           {plan.status === 'ready' && onContinue && (
@@ -750,7 +891,7 @@ export default function QuestionPlanPanel({
               disabled={working || positioningChanged}
               onClick={onContinue}
             >
-              选择搜索方式
+              {isEn ? 'Continue to Action Plan' : '选择搜索方式'}
             </button>
           )}
         </div>

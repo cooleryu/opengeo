@@ -109,10 +109,9 @@ export function QuestionGenerationRequestStatus({
       {request.outputCharacters > 0 && (
         <span>
           {t('prep.charsReceived', {
-            count:
-              uiLanguage === 'en'
-                ? request.outputCharacters.toLocaleString('en-US')
-                : request.outputCharacters.toLocaleString(),
+            count: request.outputCharacters.toLocaleString(
+              uiLanguage === 'en' ? 'en-US' : 'zh-CN',
+            ),
           })}
         </span>
       )}
@@ -121,19 +120,14 @@ export function QuestionGenerationRequestStatus({
 }
 
 function checkpointKind(key: string, uiLanguage: 'en' | 'zh') {
-  if (uiLanguage === 'en') {
-    if (key === 'directions') return 'Intents';
-    if (key.startsWith('draft-')) return 'Drafted';
-    if (key.startsWith('review-')) return 'Reviewed';
-    if (key.startsWith('set-review')) return 'Coverage';
-    if (key === 'refinement-draft') return 'Drafted';
-    if (key === 'refinement-review') return 'Reviewed';
-    return 'Checkpoint';
-  }
-  if (key === 'directions') return '选题方向';
-  if (key.startsWith('draft-')) return '候选问题 · 待审核';
-  if (key.startsWith('review-')) return '审核结果';
-  return '阶段成果';
+  const isEn = uiLanguage === 'en';
+  if (key === 'directions') return isEn ? 'Intents' : '选题方向';
+  if (key.startsWith('draft-')) return isEn ? 'Drafted' : '候选问题 · 待审核';
+  if (key.startsWith('review-')) return isEn ? 'Reviewed' : '审核结果';
+  if (key.startsWith('set-review')) return isEn ? 'Coverage' : '阶段成果';
+  if (key === 'refinement-draft') return isEn ? 'Drafted' : '阶段成果';
+  if (key === 'refinement-review') return isEn ? 'Reviewed' : '阶段成果';
+  return isEn ? 'Checkpoint' : '阶段成果';
 }
 
 function checkpointTitle(
@@ -167,16 +161,17 @@ function elapsedLabel(startedAt: string, endedAt: number, uiLanguage: 'en' | 'zh
   const started = Date.parse(startedAt);
   if (!Number.isFinite(started) || !Number.isFinite(endedAt)) return null;
   const seconds = Math.max(0, Math.floor((endedAt - started) / 1000));
-  if (uiLanguage === 'en') {
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-    return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-  }
-  if (seconds < 60) return `${seconds} 秒`;
+  const isEn = uiLanguage === 'en';
+  if (seconds < 60) return isEn ? `${seconds}s` : `${seconds} 秒`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} 分 ${seconds % 60} 秒`;
-  return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`;
+  if (minutes < 60) {
+    return isEn
+      ? `${minutes}m ${seconds % 60}s`
+      : `${minutes} 分 ${seconds % 60} 秒`;
+  }
+  return isEn
+    ? `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+    : `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分`;
 }
 
 export default function BackgroundPreparationStatus({

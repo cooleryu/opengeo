@@ -129,7 +129,10 @@ test('test deadline aborts the model request and does not retry or return upstre
     }),
   );
   assert.equal(response.status, 504);
-  assert.match(await response.text(), /可能已计费/);
+  const timeoutBody = await response.text();
+  assert.match(timeoutBody, /connection_test_failed/);
+  assert.match(timeoutBody, /may still have been billed|可能已计费/);
+  assert.ok(!timeoutBody.includes(syntheticKey));
   assert.equal(aborted, true);
   assert.equal(calls, 1);
 });

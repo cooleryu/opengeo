@@ -11,6 +11,9 @@
 .og-onboarding * {
   box-sizing: border-box;
 }
+.og-onboarding-model-gate {
+  margin-bottom: 20px;
+}
 .og-onboarding-topbar {
   height: 68px;
   display: flex;

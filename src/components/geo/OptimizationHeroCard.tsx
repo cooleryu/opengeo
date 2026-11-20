@@ -164,6 +164,7 @@ export default function OptimizationHeroCard({
   const [submitting, setSubmitting] = useState(false);
   const [startingRetest, setStartingRetest] = useState(false);
   const [error, setError] = useState('');
+  const [errorCode, setErrorCode] = useState('');
   const statusCallbackRef = useRef(onStatusChange);
   statusCallbackRef.current = onStatusChange;
 
@@ -233,6 +234,7 @@ export default function OptimizationHeroCard({
     if (submitting || !projectId) return;
     setSubmitting(true);
     setError('');
+    setErrorCode('');
     setStreamingSteps([]);
     setStreamingStatus(action === 'retry' ? 'drafting' : 'planning');
 
@@ -253,7 +255,11 @@ export default function OptimizationHeroCard({
       });
 
       if (!res.ok || !res.body) {
-        const fallback = (await res.json().catch(() => ({}))) as { error?: string };
+        const fallback = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+        };
+        if (typeof fallback.code === 'string') setErrorCode(fallback.code);
         throw new Error(fallback.error || (isEn ? 'Failed to start generation. Please try again.' : '启动生成失败，请稍后重试。'));
       }
 
@@ -596,7 +602,19 @@ export default function OptimizationHeroCard({
           )}
         </div>
 
-        {error && <p className="ohc-error">{error}</p>}
+        {error && (
+  <p className="ohc-error" role="alert">
+    {error}
+    {errorCode === 'model_not_configured' && (
+      <>
+        {' '}
+        <a href={`/?view=settings&project=${encodeURIComponent(projectId)}#model`}>
+          {isEn ? 'Open Settings' : '打开设置'}
+        </a>
+      </>
+    )}
+  </p>
+)}
       </section>
     );
   }
@@ -891,7 +909,19 @@ export default function OptimizationHeroCard({
               )}
             </button>
           </div>
-          {error && <p className="ohc-error">{error}</p>}
+          {error && (
+  <p className="ohc-error" role="alert">
+    {error}
+    {errorCode === 'model_not_configured' && (
+      <>
+        {' '}
+        <a href={`/?view=settings&project=${encodeURIComponent(projectId)}#model`}>
+          {isEn ? 'Open Settings' : '打开设置'}
+        </a>
+      </>
+    )}
+  </p>
+)}
         </section>
       );
     }
@@ -999,7 +1029,19 @@ export default function OptimizationHeroCard({
             )}
           </div>
         </div>
-        {error && <p className="ohc-error">{error}</p>}
+        {error && (
+  <p className="ohc-error" role="alert">
+    {error}
+    {errorCode === 'model_not_configured' && (
+      <>
+        {' '}
+        <a href={`/?view=settings&project=${encodeURIComponent(projectId)}#model`}>
+          {isEn ? 'Open Settings' : '打开设置'}
+        </a>
+      </>
+    )}
+  </p>
+)}
       </section>
     );
   }
@@ -1062,7 +1104,19 @@ export default function OptimizationHeroCard({
           </button>
         )}
       </div>
-      {error && <p className="ohc-error">{error}</p>}
+      {error && (
+  <p className="ohc-error" role="alert">
+    {error}
+    {errorCode === 'model_not_configured' && (
+      <>
+        {' '}
+        <a href={`/?view=settings&project=${encodeURIComponent(projectId)}#model`}>
+          {isEn ? 'Open Settings' : '打开设置'}
+        </a>
+      </>
+    )}
+  </p>
+)}
     </section>
   );
 }

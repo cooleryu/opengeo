@@ -6,20 +6,15 @@ import {
   ArrowRight,
   BrainCircuit,
   Check,
-  ChevronDown,
   FileText,
   Loader2,
   RefreshCw,
   Search,
 } from 'lucide-react';
-import type {
-  GeoConnectionSettings,
-  GeoSettingsSection,
-} from '@/lib/geo/connection-settings-types';
+import type { GeoConnectionSettings } from '@/lib/geo/connection-settings-types';
 import type { ResearchBatch, ResearchEngine } from '@/lib/geo/research-types';
 import type { TrafficSnapshot } from '@/lib/geo/traffic-types';
-import GeoSelect from './GeoSelect';
-import ChatGPTConnection from './ChatGPTConnection';
+import ModelSettingsCard from './ModelSettingsCard';
 import { useUiLanguage } from './UiLanguageContext';
 import './connection-settings.css';
 
@@ -37,35 +32,14 @@ type ProjectContextPayload = {
   markdown: string;
   synthesizedMarkdown?: string;
 };
-type ModelDraft = {
-  provider: 'gemini' | 'deepseek' | 'openai' | 'custom';
-  model: string;
-  baseURL: string;
-  apiKey: string;
-};
 type Feedback = { error?: string; message?: string };
-const modelDraft = (model: GeoConnectionSettings['model']): ModelDraft => ({
-  provider: model.provider,
-  model: model.model,
-  baseURL: model.baseURL,
-  apiKey: '',
-});
-const presets = {
-  gemini: {
-    model: 'gemini-3.8-flash',
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-  },
-  deepseek: { model: 'deepseek-flash', baseURL: 'https://api.deepseek.com' },
-  openai: { model: '', baseURL: 'https://api.openai.com/v1' },
-};
 const platforms: {
   id: ResearchEngine;
   name: string;
-  kindZh: string;
-  kindEn: string;
+  kind: { en: string; zh: string };
 }[] = [
-  { id: 'chatgpt', name: 'ChatGPT', kindZh: '网页回答', kindEn: 'Web answers' },
-  { id: 'google', name: 'Google', kindZh: '网页搜索', kindEn: 'Web search' },
+  { id: 'chatgpt', name: 'ChatGPT', kind: { en: 'Web answers', zh: '网页回答' } },
+  { id: 'google', name: 'Google', kind: { en: 'Web search', zh: '网页搜索' } },
 ];
 
 export default function ConnectionSettingsPanel({
@@ -78,20 +52,7 @@ export default function ConnectionSettingsPanel({
   const { uiLanguage } = useUiLanguage();
   const isEn = uiLanguage === 'en';
   const [settings, setSettings] = useState<GeoConnectionSettings | null>(null);
-  const [model, setModel] = useState<ModelDraft>({
-    provider: 'custom',
-    model: '',
-    baseURL: '',
-    apiKey: '',
-  });
-  const [modelDirty, setModelDirty] = useState(false);
-  const [busy, setBusy] = useState('');
   const [loadError, setLoadError] = useState('');
-  const [feedback, setFeedback] = useState<
-    Partial<Record<GeoSettingsSection, Feedback>>
-  >({});
-  const [testConfirmation, setTestConfirmation] =
-    useState<GeoSettingsSection | null>(null);
   const [contextData, setContextData] = useState<ProjectContextPayload | null>(null);
   const [contextDraft, setContextDraft] = useState('');
   const [contextDirty, setContextDirty] = useState(false);
@@ -104,18 +65,44 @@ export default function ConnectionSettingsPanel({
     fetch('/api/geo/settings', { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         const body = await response.json();
-        if (!response.ok) throw new Error(body.error || '读取设置失败。');
+        if (!response.ok) {
+          throw new Error(
+            body.error ||
+              (isEn ? 'Failed to load settings.' : '读取设置失败。'),
+          );
+        }
         return body as GeoConnectionSettings;
       })
       .then((next) => {
         setSettings(next);
-        setModel(modelDraft(next.model));
       })
       .catch((error) => {
-        if (!controller.signal.aborted) setLoadError(error.message);
+        if (!controller.signal.aborted) {
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : isEn
+                ? 'Failed to load settings.'
+                : '读取设置失败。',
+          );
+        }
       });
     return () => controller.abort();
-  }, []);
+  }, [isEn]);
+
+  useEffect(() => {
+    if (!settings) return;
+    const scrollToHash = () => {
+      if (window.location.hash === '#model') {
+        document
+          .getElementById('model')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    };
+    scrollToHash();
+    window.addEventListener('hashchange', scrollToHash);
+    return () => window.removeEventListener('hashchange', scrollToHash);
+  }, [settings]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -128,7 +115,14 @@ export default function ConnectionSettingsPanel({
     )
       .then(async (response) => {
         const body = await response.json();
-        if (!response.ok) throw new Error(body.error || '读取项目事实档案失败。');
+        if (!response.ok) {
+          throw new Error(
+            body.error ||
+              (isEn
+                ? 'Failed to load project fact sheet.'
+                : '读取项目事实档案失败。'),
+          );
+        }
         return body as ProjectContextPayload;
       })
       .then((payload) => {
@@ -156,7 +150,7 @@ export default function ConnectionSettingsPanel({
       });
 
     return () => controller.abort();
-  }, [projectId]);
+  }, [projectId, isEn]);
 
   const saveProjectContext = async () => {
     if (!contextDraft.trim() || contextBusy) return;
@@ -169,7 +163,14 @@ export default function ConnectionSettingsPanel({
         body: JSON.stringify({ project: projectId, markdown: contextDraft }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error || '保存项目事实档案失败。');
+      if (!response.ok) {
+        throw new Error(
+          body.error ||
+            (isEn
+              ? 'Failed to save project fact sheet.'
+              : '保存项目事实档案失败。'),
+        );
+      }
       setContextData((prev) => ({
         projectId,
         path: body.path,
@@ -182,7 +183,7 @@ export default function ConnectionSettingsPanel({
       setContextFeedback({
         message: isEn
           ? 'Saved to project-context.md. Future planning, writing, and review runs will use it.'
-          : '已保存到 project-context.md，后续的问题规划、改稿与审核将自动读取这份档案。',
+          : '已保存到 project-context.md，后续的问题规划、撰写草稿与审核将自动读取这份档案。',
       });
     } catch (error) {
       setContextFeedback({
@@ -197,107 +198,6 @@ export default function ConnectionSettingsPanel({
       setContextBusy(false);
     }
   };
-
-  const report = (section: GeoSettingsSection, result: Feedback) =>
-    setFeedback((previous) => ({ ...previous, [section]: result }));
-
-  async function save(
-    section: GeoSettingsSection,
-    values: Record<string, string>,
-  ) {
-    setBusy(`save:${section}`);
-    report(section, {});
-    try {
-      const response = await fetch('/api/geo/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ section, values }),
-      });
-      const next = await response.json();
-      if (!response.ok) throw new Error(next.error || '保存失败，请重试。');
-      setSettings(next);
-      setModel(modelDraft(next.model));
-      setModelDirty(false);
-      setTestConfirmation(null);
-      report(section, {
-        message: '已保存，新发起的 AI 操作使用此配置。',
-      });
-      onSaved();
-    } catch (error) {
-      report(section, {
-        error: error instanceof Error ? error.message : '保存失败。',
-      });
-    } finally {
-      setBusy('');
-    }
-  }
-
-  async function testConnection(section: GeoSettingsSection) {
-    setBusy(`test:${section}`);
-    setTestConfirmation(null);
-    report(section, {});
-    try {
-      const response = await fetch('/api/geo/settings/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ section, acknowledgeCost: true }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.ok)
-        throw new Error(result.error || result.message || '测试未通过。');
-      report(section, { message: result.message });
-    } catch (error) {
-      report(section, {
-        error: error instanceof Error ? error.message : '测试失败。',
-      });
-    } finally {
-      setBusy('');
-    }
-  }
-
-  function result(section: GeoSettingsSection) {
-    const state = feedback[section];
-    return state?.error || state?.message ? (
-      <p
-        className={`cs-feedback ${state.error ? 'cs-error' : ''}`}
-        role={state.error ? 'alert' : 'status'}
-      >
-        {!state.error && <Check size={14} />}
-        {state.error || state.message}
-      </p>
-    ) : null;
-  }
-
-  function confirmation(section: GeoSettingsSection) {
-    return testConfirmation === section ? (
-      <div
-        className="cs-confirm"
-        role="group"
-        aria-label={isEn ? 'Confirm connection test' : '确认测试连接'}
-      >
-        <span>
-          {isEn
-            ? 'Send one test request using the saved configuration (may incur API usage cost).'
-            : '使用已保存配置发送一次测试请求，可能产生对应接口费用。'}
-        </span>
-        <button
-          type="button"
-          className="cs-button"
-          onClick={() => testConnection(section)}
-          disabled={!!busy}
-        >
-          {isEn ? 'Confirm test' : '确认测试'}
-        </button>
-        <button
-          type="button"
-          className="cs-link"
-          onClick={() => setTestConfirmation(null)}
-        >
-          {isEn ? 'Cancel' : '取消'}
-        </button>
-      </div>
-    ) : null;
-  }
 
   if (loadError)
     return (
@@ -314,10 +214,6 @@ export default function ConnectionSettingsPanel({
     );
   const observations =
     research?.questions.flatMap((question) => question.observations) ?? [];
-  const changedDestination =
-    model.provider !== settings.model.provider ||
-    model.baseURL.replace(/\/$/, '') !==
-      settings.model.baseURL.replace(/\/$/, '');
 
   return (
     <div className="cs-page">
@@ -343,150 +239,13 @@ export default function ConnectionSettingsPanel({
           </div>
         </header>
         <div className="cs-model-grid">
-          <section className="cs-model-card" aria-labelledby="cs-model-title">
-            <header className="cs-section-heading">
-              <div>
-                <h3 id="cs-model-title">API 模型</h3>
-                <p>用于问题生成、分析、改稿与独立审核。</p>
-              </div>
-              <span
-                className={`cs-status ${settings.model.configured ? 'cs-configured' : ''}`}
-              >
-                {settings.model.configured ? '已配置' : '未配置'}
-              </span>
-            </header>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void save('model', model);
-              }}
-            >
-              <div className="cs-fields">
-                <label>
-                  服务商
-                  <GeoSelect<ModelDraft['provider']>
-                    label="模型服务商"
-                    value={model.provider}
-                    disabled={!!busy}
-                    onChange={(provider) => {
-                      setModel((previous) => ({
-                        ...previous,
-                        provider,
-                        ...(provider === 'custom' ? {} : presets[provider]),
-                        apiKey: '',
-                      }));
-                      setModelDirty(true);
-                      setTestConfirmation(null);
-                      report('model', {});
-                    }}
-                    options={[
-                      { value: 'gemini', label: 'Google Gemini' },
-                      { value: 'deepseek', label: 'DeepSeek' },
-                      { value: 'openai', label: 'OpenAI / GPT' },
-                      { value: 'custom', label: '其他兼容接口' },
-                    ]}
-                  />
-                </label>
-                <label>
-                  模型
-                  <input
-                    value={model.model}
-                    required
-                    autoComplete="off"
-                    placeholder="填写模型名称"
-                    onChange={(event) => {
-                      setModel({ ...model, model: event.target.value });
-                      setModelDirty(true);
-                      report('model', {});
-                    }}
-                  />
-                </label>
-                <label>
-                  API Key
-                  <input
-                    type="password"
-                    value={model.apiKey}
-                    autoComplete="new-password"
-                    spellCheck={false}
-                    required={
-                      !settings.model.keyConfigured || changedDestination
-                    }
-                    placeholder={
-                      settings.model.keyConfigured && !changedDestination
-                        ? '已设置，留空保留'
-                        : '填写 API Key'
-                    }
-                    onChange={(event) => {
-                      setModel({ ...model, apiKey: event.target.value });
-                      setModelDirty(true);
-                      report('model', {});
-                    }}
-                  />
-                </label>
-              </div>
-              <details
-                className="cs-advanced"
-                open={model.provider === 'custom' || undefined}
-              >
-                <summary>接口地址</summary>
-                <label>
-                  API 地址
-                  <input
-                    type="url"
-                    required
-                    value={model.baseURL}
-                    autoComplete="off"
-                    onChange={(event) => {
-                      setModel({ ...model, baseURL: event.target.value });
-                      setModelDirty(true);
-                      report('model', {});
-                    }}
-                  />
-                </label>
-              </details>
-              {changedDestination && settings.model.keyConfigured && (
-                <p className="cs-hint">
-                  更换服务商或地址时，请填写对应的新 API Key。
-                </p>
-              )}
-              <div className="cs-actions">
-                <button
-                  className="cs-button cs-primary"
-                  type="submit"
-                  disabled={!!busy || !modelDirty}
-                >
-                  {busy === 'save:model' && (
-                    <Loader2 size={14} className="spin" />
-                  )}
-                  保存
-                </button>
-                <button
-                  className="cs-button"
-                  type="button"
-                  disabled={!!busy || !settings.model.configured || modelDirty}
-                  onClick={() => setTestConfirmation('model')}
-                >
-                  {busy === 'test:model' && (
-                    <Loader2 size={14} className="spin" />
-                  )}
-                  测试连接
-                </button>
-                {modelDirty && <span className="cs-hint">有未保存的修改</span>}
-              </div>
-              {confirmation('model')}
-              {result('model')}
-            </form>
-          </section>
-          <details className="cs-web-records">
-            <summary>
-              暂存：ChatGPT 账号套餐登录分析（默认使用上方 API 模型）
-              <ChevronDown size={14} className="cs-disclosure-chevron" />
-            </summary>
-            <ChatGPTConnection
-              projectId={projectId}
-              onSaved={onSaved}
-            />
-          </details>
+          <ModelSettingsCard
+            initialSettings={settings}
+            onSaved={(next) => {
+              setSettings(next);
+              onSaved();
+            }}
+          />
         </div>
       </section>
 
@@ -517,8 +276,8 @@ export default function ConnectionSettingsPanel({
                     <strong>{platform.name}</strong>
                     <span>
                       {isEn
-                        ? `${platform.kindEn} · Local browser capture`
-                        : `${platform.kindZh} · 浏览器真实采集`}
+                        ? `${platform.kind.en} · Local browser capture`
+                        : `${platform.kind.zh} · 浏览器真实采集`}
                     </span>
                   </div>
                   {count ? (

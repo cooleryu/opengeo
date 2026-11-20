@@ -64,7 +64,7 @@ test('environment fallback, blank-key preservation and shared settings never exp
   const saved = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
   assert.equal(saved.model.apiKey, undefined, 'environment credentials are not unnecessarily copied');
   assert.deepEqual(withGeoProject('sample-project-two', getGeoConnectionSettings), getGeoConnectionSettings());
-  const response = await GET();
+  const response = await GET(new NextRequest('http://127.0.0.1:4327/api/geo/settings'));
   assert.equal(response.headers.get('cache-control'), 'no-store');
   const serialized = await response.text();
   assert.equal(serialized.includes('synthetic-'), false);

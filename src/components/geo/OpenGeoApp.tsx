@@ -88,24 +88,25 @@ const pages: Page[] = [
   'settings',
 ];
 type Dialog = 'questions' | null;
-const assetTypeLabel = (type: string) =>
+const assetTypeLabel = (type: string, isEn: boolean) =>
   (
     ({
-      article: '文章',
-      guide: '实用指南',
-      research: '研究',
-      homepage: '项目首页',
-      social_article: '社媒长文',
-      social_post: '社媒发布',
-    }) as Record<string, string>
-  )[type] ?? type;
-const assetStatusLabel = (status: string) =>
+      article: { en: 'Article', zh: '文章' },
+      guide: { en: 'Guide', zh: '实用指南' },
+      research: { en: 'Research', zh: '研究' },
+      homepage: { en: 'Homepage', zh: '项目首页' },
+      social_article: { en: 'Social article', zh: '社媒长文' },
+      social_post: { en: 'Social post', zh: '社媒发布' },
+    }) as Record<string, { en: string; zh: string }>
+  )[type]?.[isEn ? 'en' : 'zh'] ?? type;
+const assetStatusLabel = (status: string, isEn: boolean) =>
   (
-    ({ published: '已发布', draft: '草稿', archived: '已归档' }) as Record<
-      string,
-      string
-    >
-  )[status] ?? status;
+    ({
+      published: { en: 'Published', zh: '已发布' },
+      draft: { en: 'Draft', zh: '草稿' },
+      archived: { en: 'Archived', zh: '已归档' },
+    }) as Record<string, { en: string; zh: string }>
+  )[status]?.[isEn ? 'en' : 'zh'] ?? status;
 const shortPath = (path: string) => path.split('/').slice(-2).join('/');
 
 function Modal({
@@ -121,6 +122,8 @@ function Modal({
   onClose: () => void;
   wide?: boolean;
 }) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -150,7 +153,7 @@ function Modal({
           <button
             className="og-icon-button"
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={isEn ? 'Close' : '关闭'}
           >
             <X size={20} />
           </button>
@@ -222,6 +225,9 @@ function MarkdownBody({
 
 function OpenGeoAppInner() {
   const { t, uiLanguage, setUiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
+  const isEnRef = useRef(isEn);
+  isEnRef.current = isEn;
   const [projectId, setProjectId] = useState('');
   const projectRef = useRef(projectId);
   const refreshVersion = useRef(0);
@@ -235,7 +241,8 @@ function OpenGeoAppInner() {
     [page, setPage] = useState<Page>('overview'),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(''),
-    [toast, setToast] = useState('');
+    [toast, setToast] = useState(''),
+    [toastCode, setToastCode] = useState('');
   const [robotsNotice, setRobotsNotice] = useState<{
     checked: boolean;
     origin: string | null;
@@ -298,6 +305,7 @@ function OpenGeoAppInner() {
   const refresh = useCallback(
     async (options?: { signal?: AbortSignal; onSuccess?: () => void }) => {
       const requestedProject = projectRef.current;
+      const lang = isEnRef.current ? 'en' : 'zh';
       if (options?.signal?.aborted) return;
       refreshRequest.current?.abort();
       const controller = new AbortController();
@@ -316,11 +324,22 @@ function OpenGeoAppInner() {
           `/api/geo?project=${encodeURIComponent(requestedProject)}`,
           { cache: 'no-store', signal: controller.signal },
         );
-        if (!res.ok) throw new Error('暂时无法读取项目，请重试。');
+        if (!res.ok) {
+          throw new Error(
+            lang === 'en'
+              ? 'Could not load project right now. Please try again.'
+              : '暂时无法读取项目，请重试。',
+          );
+        }
         const next: GeoState = await res.json();
         if (!isCurrent()) return;
-        if (requestedProject && next.project.id !== requestedProject)
-          throw new Error('项目内容与当前地址不一致，请重新加载。');
+        if (requestedProject && next.project.id !== requestedProject) {
+          throw new Error(
+            lang === 'en'
+              ? 'Loaded project does not match the current URL. Please reload.'
+              : '项目内容与当前地址不一致，请重新加载。',
+          );
+        }
         // Let the server resolve its configured default before caching an identity.
         if (!requestedProject) {
           const url = new URL(window.location.href);
@@ -333,7 +352,15 @@ function OpenGeoAppInner() {
         setError('');
         options?.onSuccess?.();
       } catch (e) {
-        if (isCurrent()) setError(e instanceof Error ? e.message : '读取失败');
+        if (isCurrent()) {
+          setError(
+            e instanceof Error
+              ? e.message
+              : lang === 'en'
+                ? 'Failed to load'
+                : '读取失败',
+          );
+        }
       } finally {
         options?.signal?.removeEventListener('abort', cancel);
         if (refreshRequest.current === controller)
@@ -554,10 +581,16 @@ function OpenGeoAppInner() {
   }, [data?.tasks, page, projectId, refresh]);
   useEffect(() => {
     if (toast) {
-      const id = setTimeout(() => setToast(''), 4500);
+      const id = setTimeout(
+        () => {
+          setToast('');
+          setToastCode('');
+        },
+        toastCode === 'model_not_configured' ? 10000 : 4500,
+      );
       return () => clearTimeout(id);
     }
-  }, [toast]);
+  }, [toast, toastCode]);
   useEffect(() => {
     if (!['queued', 'running'].includes(data?.questionGeneration?.status ?? '')) return;
     const timer = setInterval(() => void refresh(), 2000);
@@ -566,7 +599,7 @@ function OpenGeoAppInner() {
   const questionRequest = useRef<{ key: string; id: string } | null>(null);
   const task = data?.tasks.find((t) => t.id === selectedTask);
   const groups = getTaskWorkspaceGroups(data?.tasks ?? []);
-  const navigate = (nextPage: Page, taskId = '', batchId?: string) => {
+  const navigate = (nextPage: Page, taskId = '', batchId?: string, hash = '') => {
     const url = new URL(window.location.href);
     clearResearchDetailParams(url);
     if (
@@ -589,12 +622,20 @@ function OpenGeoAppInner() {
     if (batchId) url.searchParams.set('batch', batchId);
     if (taskId) url.searchParams.set('task', taskId);
     else url.searchParams.delete('task');
+    url.hash = hash;
     if (url.href !== window.location.href) {
       window.history.pushState(null, '', url);
     }
     setPage(nextPage);
     setSelectedTask(taskId);
     if (nextPage === page) window.dispatchEvent(new PopStateEvent('popstate'));
+    if (hash) window.dispatchEvent(new HashChangeEvent('hashchange'));
+  };
+  const openModelSettings = () => {
+    setToast('');
+    setToastCode('');
+    setDialog(null);
+    navigate('settings', '', undefined, '#model');
   };
   const switchProject = (id: string) => {
     if (busy) return;
@@ -617,12 +658,18 @@ function OpenGeoAppInner() {
   const act = async (
     action: string,
     payload: Record<string, unknown> = {},
-    message = '已保存',
+    message?: string,
   ) => {
     const actionProject = projectRef.current;
+    const defaultSavedMsg = isEn ? 'Saved' : '已保存';
     actionError.current = '';
     setBusy(action);
-    if (action === 'generate_questions') setQuestionGenerationProgress({ stage: 'preparing', message: '正在准备产品资料。' });
+    if (action === 'generate_questions') {
+      setQuestionGenerationProgress({
+        stage: 'preparing',
+        message: isEn ? 'Preparing project context…' : '正在准备产品资料。',
+      });
+    }
     try {
       const res = await fetch('/api/geo', {
         method: 'POST',
@@ -639,13 +686,27 @@ function OpenGeoAppInner() {
             if (projectRef.current === actionProject) setQuestionGenerationProgress(progress);
           })
         : await res.json();
-      if (!res.ok) throw new Error(result.error ?? '操作未完成，请重试。');
+      if (!res.ok) {
+        const err = new Error(
+          result.error ??
+            (isEn ? 'Action did not complete. Please try again.' : '操作未完成，请重试。'),
+        ) as Error & { code?: string };
+        if (typeof result.code === 'string') err.code = result.code;
+        throw err;
+      }
       if (projectRef.current !== actionProject) return null;
       setData(result);
-      setToast(message);
+      setToastCode('');
+      setToast(message ?? defaultSavedMsg);
       return result as GeoState;
     } catch (e) {
-      actionError.current = e instanceof Error ? e.message : '操作失败';
+      actionError.current =
+        e instanceof Error ? e.message : isEn ? 'Action failed' : '操作失败';
+      const code =
+        e && typeof e === 'object' && typeof (e as { code?: unknown }).code === 'string'
+          ? (e as { code: string }).code
+          : '';
+      setToastCode(code);
       setToast(actionError.current);
       return null;
     } finally {
@@ -693,20 +754,34 @@ function OpenGeoAppInner() {
   }, [page]);
   const openEvidence = async (path: string) => {
     const evidenceProject = projectRef.current;
-    setEvidence({ path, content: '正在读取依据…', format: 'text' });
+    setEvidence({
+      path,
+      content: isEn ? 'Loading evidence…' : '正在读取依据…',
+      format: 'text',
+    });
     try {
       const res = await fetch(
         `/api/geo/evidence?project=${encodeURIComponent(evidenceProject)}&path=${encodeURIComponent(path)}`,
       );
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error ?? '无法读取这份材料');
+      if (!res.ok) {
+        throw new Error(
+          result.error ??
+            (isEn ? 'Unable to load this file.' : '无法读取这份材料'),
+        );
+      }
       if (projectRef.current === evidenceProject) setEvidence(result);
     } catch (e) {
       if (projectRef.current !== evidenceProject) return;
       setEvidence({
         path,
         format: 'text',
-        content: e instanceof Error ? e.message : '读取失败',
+        content:
+          e instanceof Error
+            ? e.message
+            : isEn
+              ? 'Failed to load'
+              : '读取失败',
       });
     }
   };
@@ -874,7 +949,7 @@ function OpenGeoAppInner() {
         <a
           className="og-logo"
           href={`/?view=overview&project=${encodeURIComponent(projectId)}`}
-          aria-label="OpenGEO 首页"
+          aria-label={isEn ? 'OpenGEO Home' : 'OpenGEO 首页'}
         >
           <OpenGeoBrandMark size={22} />OpenGEO
         </a>
@@ -893,7 +968,9 @@ function OpenGeoAppInner() {
             </span>
             <span className="og-project-label">
               <small>{t('nav.currentProject')}</small>
-              <strong>{data?.project.name ?? '正在读取…'}</strong>
+              <strong>
+                {data?.project.name ?? (isEn ? 'Loading…' : '正在读取…')}
+              </strong>
             </span>
             <ChevronDown size={15} />
           </button>
@@ -902,7 +979,7 @@ function OpenGeoAppInner() {
               id="og-project-menu"
               className="og-project-menu"
               role="menu"
-              aria-label="切换项目"
+              aria-label={isEn ? 'Switch project' : '切换项目'}
               onKeyDown={(event) => {
                 if (
                   !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)
@@ -947,7 +1024,7 @@ function OpenGeoAppInner() {
             </div>
           )}
         </div>
-        <nav aria-label="主导航">
+        <nav aria-label={isEn ? 'Main navigation' : '主导航'}>
           {navGroups.map((group) => (
             <div
               key={group.id}
@@ -1000,7 +1077,7 @@ function OpenGeoAppInner() {
                 void refresh();
               }}
             >
-              重新加载
+              {isEn ? 'Reload' : '重新加载'}
             </button>
           </div>
         )}
@@ -1160,10 +1237,17 @@ function OpenGeoAppInner() {
                       const result = await act(
                         'save_claim_review',
                         { review },
-                        '已保存人工核查与依据',
+                        isEn
+                          ? 'Saved manual review and evidence'
+                          : '已保存人工核查与依据',
                       );
-                      if (!result)
-                        throw new Error('核查未保存，请查看提示后重试。');
+                      if (!result) {
+                        throw new Error(
+                          isEn
+                            ? 'Review was not saved. Check the message and try again.'
+                            : '核查未保存，请查看提示后重试。',
+                        );
+                      }
                     }}
                   />
                 )}
@@ -1230,7 +1314,9 @@ function OpenGeoAppInner() {
                                     planId: data.questionPlan.id,
                                     revision: data.questionPlan.revision,
                                   },
-                                  '已确认本批核心问题，可直接开始采集',
+                                  isEn
+                                    ? 'Buyer questions confirmed and ready for collection'
+                                    : '已确认本批核心问题，可直接开始采集',
                                 )
                               }
                             >
@@ -1266,7 +1352,9 @@ function OpenGeoAppInner() {
                                     data.questionPlan.positioning ||
                                     data.project.description,
                                 },
-                                '已生成并审核推荐问题',
+                                isEn
+                                  ? 'Generated and reviewed recommended questions'
+                                  : '已生成并审核推荐问题',
                               )
                             }
                           >
@@ -1362,18 +1450,31 @@ function OpenGeoAppInner() {
                       action,
                       fields,
                       action === 'save_question'
-                        ? '已保存新问题'
+                        ? isEn
+                          ? 'Saved new question'
+                          : '已保存新问题'
                         : action === 'review_question'
-                          ? '问题状态已更新'
+                          ? isEn
+                            ? 'Question status updated'
+                            : '问题状态已更新'
                           : action === 'audit_question'
-                            ? 'AI 复评已保存'
-                          : action === 'confirm_questions'
-                            ? '当前监测问题已确认'
-                            : '监测问题选择已保存',
+                            ? isEn
+                              ? 'AI review saved'
+                              : 'AI 复评已保存'
+                            : action === 'confirm_questions'
+                              ? isEn
+                                ? 'Buyer questions confirmed'
+                                : '当前监测问题已确认'
+                              : isEn
+                                ? 'Question selection saved'
+                                : '监测问题选择已保存',
                     );
                     if (!result) {
                       const message =
-                        actionError.current || '操作未保存，请重试。';
+                        actionError.current ||
+                        (isEn
+                          ? 'Change was not saved. Please try again.'
+                          : '操作未保存，请重试。');
                       await refresh();
                       throw new Error(message);
                     }
@@ -1385,7 +1486,10 @@ function OpenGeoAppInner() {
                 />
               )}
               {page === 'question-plan' && dialog === 'questions' && (
-                <Modal title="用户会怎么问" onClose={() => setDialog(null)}>
+                <Modal
+                  title={isEn ? 'How buyers ask AI' : '用户会怎么问'}
+                  onClose={() => setDialog(null)}
+                >
                   <div className="og-question-editor">
                     <QuestionPlanPanel
                       plan={data.questionPlan}
@@ -1395,13 +1499,27 @@ function OpenGeoAppInner() {
                       generationProgress={questionGenerationProgress}
                       generationJob={data.questionGeneration}
                       onAsset={setAsset}
-                      onConfigureModel={() => navigate('settings')}
+                      onConfigureModel={() => openModelSettings()}
                       onAuditCandidate={async (candidateId) => {
-                        const result = await act('audit_question', {
-                          candidateId, planId: data.questionPlan.id,
-                          revision: data.questionPlan.revision,
-                        }, '已重新评估这个问题');
-                        if (!result) throw new Error(actionError.current || '评估未完成，请重试。');
+                        const result = await act(
+                          'audit_question',
+                          {
+                            candidateId,
+                            planId: data.questionPlan.id,
+                            revision: data.questionPlan.revision,
+                          },
+                          isEn
+                            ? 'Re-evaluated this question'
+                            : '已重新评估这个问题',
+                        );
+                        if (!result) {
+                          throw new Error(
+                            actionError.current ||
+                              (isEn
+                                ? 'Evaluation did not finish. Please try again.'
+                                : '评估未完成，请重试。'),
+                          );
+                        }
                       }}
                       onGenerate={async (positioning) => {
                         const key = `${projectId}:${data.questionPlan.id}:${data.questionPlan.revision}:${positioning}`;
@@ -1416,9 +1534,18 @@ function OpenGeoAppInner() {
                             revision: data.questionPlan.revision,
                             requestId: questionRequest.current.id,
                           },
-                          '正在后台准备问题',
+                          isEn
+                            ? 'Preparing buyer questions in the background'
+                            : '正在后台准备问题',
                         );
-                        if (!result) throw new Error(actionError.current || '生成未完成，请重试。');
+                        if (!result) {
+                          throw new Error(
+                            actionError.current ||
+                              (isEn
+                                ? 'Question generation did not finish. Please try again.'
+                                : '生成未完成，请重试。'),
+                          );
+                        }
                         questionRequest.current = null;
                       }}
                       onToggle={async (candidateId, selected) => {
@@ -1430,7 +1557,7 @@ function OpenGeoAppInner() {
                             planId: data.questionPlan.id,
                             revision: data.questionPlan.revision,
                           },
-                          '已保存所选问题',
+                          isEn ? 'Question selection saved' : '已保存所选问题',
                         );
                       }}
                       onConfirm={async () => {
@@ -1440,7 +1567,9 @@ function OpenGeoAppInner() {
                             planId: data.questionPlan.id,
                             revision: data.questionPlan.revision,
                           },
-                          '已确认要监测的问题',
+                          isEn
+                            ? 'Confirmed buyer questions to track'
+                            : '已确认要监测的问题',
                         );
                       }}
                       onContinue={() => navigate('tasks')}
@@ -1477,8 +1606,23 @@ function OpenGeoAppInner() {
       {toast && (
         <div className="og-toast" role="status">
           <Check size={17} />
-          {toast}
-          <button onClick={() => setToast('')} aria-label="关闭提示">
+          <span>{toast}</span>
+          {toastCode === 'model_not_configured' && (
+            <button
+              type="button"
+              className="og-toast-action"
+              onClick={openModelSettings}
+            >
+              {isEn ? 'Open Settings' : '打开设置'}
+            </button>
+          )}
+          <button
+            onClick={() => {
+              setToast('');
+              setToastCode('');
+            }}
+            aria-label={isEn ? 'Dismiss notification' : '关闭提示'}
+          >
             <X size={14} />
           </button>
         </div>
@@ -1486,14 +1630,30 @@ function OpenGeoAppInner() {
       {asset && (
         <Modal
           title={asset.title}
-          description={`${assetTypeLabel(asset.type)} · ${asset.language === 'zh-CN' ? '中文' : asset.language === 'en' ? '英文' : asset.language} · ${assetStatusLabel(asset.status)}`}
+          description={`${assetTypeLabel(asset.type, isEn)} · ${
+            asset.language === 'zh-CN'
+              ? isEn
+                ? 'Chinese'
+                : '中文'
+              : asset.language === 'en'
+                ? isEn
+                  ? 'English'
+                  : '英文'
+                : asset.language
+          } · ${assetStatusLabel(asset.status, isEn)}`}
           onClose={() => setAsset(null)}
           wide
         >
           <div className="og-document-toolbar">
             <span>
               <FileText size={14} />{' '}
-              {asset.markdownIsExcerpt ? '已保存摘录' : '已保存正文'}
+              {asset.markdownIsExcerpt
+                ? isEn
+                  ? 'Saved excerpt'
+                  : '已保存摘录'
+                : isEn
+                  ? 'Saved content'
+                  : '已保存正文'}
             </span>
             {asset.publicUrl && (
               <a
@@ -1502,14 +1662,15 @@ function OpenGeoAppInner() {
                 target="_blank"
                 rel="noreferrer"
               >
-                查看线上页面 <ArrowUpRight size={14} />
+                {isEn ? 'Open live page' : '查看线上页面'}{' '}
+                <ArrowUpRight size={14} />
               </a>
             )}
           </div>
           <div className="og-document-body">
             <MarkdownBody content={asset.markdown} />
             <div className="og-document-source">
-              <strong>来源与依据</strong>
+              <strong>{isEn ? 'Sources & evidence' : '来源与依据'}</strong>
               {evidenceLinks([asset.sourcePath, ...asset.evidencePaths])}
             </div>
           </div>
@@ -1517,7 +1678,7 @@ function OpenGeoAppInner() {
       )}
       {evidence && (
         <Modal
-          title="查看依据"
+          title={isEn ? 'View evidence' : '查看依据'}
           description={shortPath(evidence.path)}
           onClose={() => setEvidence(null)}
           wide
@@ -1533,7 +1694,9 @@ function OpenGeoAppInner() {
               <pre className="og-evidence-pre">{evidence.content}</pre>
             )}
             <p className="og-small-note">
-              本地审计材料 · 原始搜索中的第三方文字仅供核对
+              {isEn
+                ? 'Local audit evidence · Third-party text from raw search captures is shown for verification only'
+                : '本地审计材料 · 原始搜索中的第三方文字仅供核对'}
             </p>
           </div>
         </Modal>

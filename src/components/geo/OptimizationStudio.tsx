@@ -165,6 +165,7 @@ export default function OptimizationStudio({
   const [markingPublishedDocId, setMarkingPublishedDocId] = useState<string | null>(null);
   const [publishedUrlInput, setPublishedUrlInput] = useState('');
   const [error, setError] = useState('');
+  const [errorCode, setErrorCode] = useState('');
   const [notice, setNotice] = useState('');
 
   // Launchpad External Pack + Outreach Review Modal state
@@ -466,6 +467,7 @@ export default function OptimizationStudio({
     streamAbortRef.current = abortController;
     setSubmitting(true);
     setError('');
+    setErrorCode('');
     setNotice('');
     setStreamingSteps([]);
     setStreamingStatus(action === 'retry' ? 'drafting' : 'planning');
@@ -490,7 +492,11 @@ export default function OptimizationStudio({
       });
 
       if (!res.ok || !res.body) {
-        const fallback = (await res.json().catch(() => ({}))) as { error?: string };
+        const fallback = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+        };
+        if (typeof fallback.code === 'string') setErrorCode(fallback.code);
         throw new Error(
           fallback.error || (isEn ? 'Failed to draft new plan.' : '启动内容生成失败，请稍后重试。'),
         );
@@ -1112,7 +1118,21 @@ export default function OptimizationStudio({
       {error && (
         <div className="ost-alert" role="alert">
           <span>{error}</span>
-          <button type="button" onClick={() => setError('')}>
+          {errorCode === 'model_not_configured' && (
+            <a
+              className="ost-alert-link"
+              href={`/?view=settings&project=${encodeURIComponent(projectId)}#model`}
+            >
+              {isEn ? 'Open Settings' : '打开设置'}
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setError('');
+              setErrorCode('');
+            }}
+          >
             {isEn ? 'Dismiss' : '知道了'}
           </button>
         </div>

@@ -2,6 +2,13 @@ import type OpenAI from 'openai';
 import { z } from 'zod';
 import type { GenerateObjectInput } from '@/lib/models/types';
 import { getGeoModelConnection, loadGeoModel } from './connection-settings';
+import type { GeoLanguage } from './i18n';
+import {
+  buildServerErrorPayload,
+  resolveRequestUiLanguage,
+  translateServerCode,
+  type ServerErrorParams,
+} from './i18n-server';
 
 type TestSection = 'model';
 type StructuredModel = { generateObject<T>(input: GenerateObjectInput): Promise<unknown> };
@@ -12,12 +19,17 @@ export type ConnectionTestRuntime = {
 };
 
 export class ConnectionTestError extends Error {
-  constructor(message: string, public status = 400) { super(message); }
+  constructor(
+    public code: string,
+    public status = 400,
+    public params?: ServerErrorParams,
+    public detail?: string,
+  ) {
+    super(translateServerCode('zh', code, params));
+  }
 }
 
-const labels: Record<TestSection, string> = {
-  model: '模型结构化回答',
-};
+const allowedSections = new Set<string>(['model']);
 const modelResult = z.object({ ok: z.literal(true) }).strict();
 
 /** Configure only this test instance; SDK retries and redirects must not add requests. */
@@ -25,7 +37,7 @@ export function singleRequestModel(model: StructuredModel, fetcher: typeof fetch
   signal: AbortSignal, timeoutMs: number): StructuredModel {
   const instance = model as StructuredModel & { openAIClient?: OpenAI };
   if (!instance.openAIClient?.withOptions) {
-    throw new ConnectionTestError('当前模型连接不支持单次测试，请先保存 OpenGEO 模型连接。', 409);
+    throw new ConnectionTestError('connection_test_failed', 409, { reason: 'unsupported', provider: 'model' });
   }
   instance.openAIClient = instance.openAIClient.withOptions({
     maxRetries: 0,
@@ -42,7 +54,7 @@ export function singleRequestModel(model: StructuredModel, fetcher: typeof fetch
 const defaultRuntime: ConnectionTestRuntime = {
   loadModel: async (signal, timeoutMs) => {
     const connection = getGeoModelConnection();
-    if (!connection.configured) throw new ConnectionTestError('请先保存完整的模型连接，再测试。', 409);
+    if (!connection.configured) throw new ConnectionTestError('model_not_configured', 409);
     return singleRequestModel(await loadGeoModel(), fetch, signal, timeoutMs);
   },
   fetch: (...args) => fetch(...args),
@@ -50,37 +62,43 @@ const defaultRuntime: ConnectionTestRuntime = {
 };
 
 function testSection(input: unknown): TestSection {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ConnectionTestError('测试请求格式无效。');
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ConnectionTestError('invalid_request');
   const body = input as Record<string, unknown>;
   if (Object.keys(body).some(key => key !== 'section' && key !== 'acknowledgeCost')) {
-    throw new ConnectionTestError('测试只使用已保存的连接，请勿传入临时配置。');
+    throw new ConnectionTestError('connection_test_failed', 400, { reason: 'temp_config', provider: 'model' });
   }
-  if (body.acknowledgeCost !== true) throw new ConnectionTestError('请先确认本次测试可能产生费用。');
-  if (typeof body.section !== 'string' || !Object.hasOwn(labels, body.section)) throw new ConnectionTestError('请选择有效的连接进行测试。');
+  if (body.acknowledgeCost !== true) throw new ConnectionTestError('connection_test_failed', 400, { reason: 'cost_unconfirmed', provider: 'model' });
+  if (typeof body.section !== 'string' || !allowedSections.has(body.section)) throw new ConnectionTestError('invalid_settings', 400, { field: 'section' });
   return body.section as TestSection;
 }
 
-function safeFailure(error: unknown, label: string, aborted: boolean): ConnectionTestError {
+function safeFailure(error: unknown, provider: string, aborted: boolean): ConnectionTestError {
   if (error instanceof ConnectionTestError) return error;
   const failure = error && typeof error === 'object' ? error as { status?: unknown; name?: unknown } : {};
   if (aborted || failure.name === 'AbortError' || failure.name === 'TimeoutError' || failure.name === 'APIConnectionTimeoutError') {
-    return new ConnectionTestError(`${label}测试超时；请求可能已计费，未自动重试。`, 504);
+    return new ConnectionTestError('connection_test_failed', 504, { reason: 'timeout', provider });
   }
   const status = typeof failure.status === 'number' && Number.isInteger(failure.status) && failure.status >= 400 && failure.status <= 599
-    ? `（HTTP ${failure.status}）` : '';
-  return new ConnectionTestError(`${label}请求失败${status}；请核对连接、模型权限及余额，未自动重试。`, 502);
+    ? failure.status : undefined;
+  if (status !== undefined) {
+    return new ConnectionTestError('connection_test_failed', 502, { reason: 'http', status, provider });
+  }
+  return new ConnectionTestError('connection_test_failed', 502, { provider });
 }
 
 /** One explicit small request, with no observation, run, or settings writes. */
-export async function testGeoConnection(input: unknown, runtime: ConnectionTestRuntime = defaultRuntime) {
+export async function testGeoConnection(
+  input: unknown,
+  runtime: ConnectionTestRuntime = defaultRuntime,
+  lang: GeoLanguage = 'zh',
+) {
   const section = testSection(input);
-  const label = labels[section];
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       controller.abort();
-      reject(new ConnectionTestError(`${label}测试超时；请求可能已计费，未自动重试。`, 504));
+      reject(new ConnectionTestError('connection_test_failed', 504, { reason: 'timeout', provider: section }));
     }, runtime.timeoutMs);
   });
   try {
@@ -92,27 +110,33 @@ export async function testGeoConnection(input: unknown, runtime: ConnectionTestR
         messages: [{ role: 'user', content: 'Return exactly this JSON object: {"ok":true}.' }],
         options: { temperature: 0, maxTokens: 64 },
       });
-      if (!modelResult.safeParse(result).success) throw new ConnectionTestError('模型返回未通过结构化结果校验，未自动重试。', 502);
-      return '模型连接与结构化回答测试通过。';
+      if (!modelResult.safeParse(result).success) throw new ConnectionTestError('model_output_invalid', 502);
+      return translateServerCode(lang, 'settings.test.ok');
     })()]);
     return { ok: true, message, testedAt: new Date().toISOString() };
   } catch (error) {
-    throw safeFailure(error, label, controller.signal.aborted);
+    throw safeFailure(error, section, controller.signal.aborted);
   } finally { clearTimeout(timer); }
 }
 
 export async function handleConnectionTestRequest(request: Request, runtime?: ConnectionTestRuntime): Promise<Response> {
+  const lang = resolveRequestUiLanguage(request);
   try {
     const url = new URL(request.url);
     const authority = request.headers.get('host') || url.host;
     const origin = request.headers.get('origin');
-    if (origin && origin !== `${url.protocol}//${authority}`) throw new ConnectionTestError('只接受当前应用页面发起的操作。', 403);
+    if (origin && origin !== `${url.protocol}//${authority}`) throw new ConnectionTestError('forbidden_origin', 403);
     let body: unknown;
     try { body = await request.json(); }
-    catch { throw new ConnectionTestError('测试请求格式无效。'); }
-    return Response.json(await testGeoConnection(body, runtime), { headers: { 'Cache-Control': 'no-store' } });
+    catch { throw new ConnectionTestError('invalid_request', 400); }
+    return Response.json(await testGeoConnection(body, runtime, lang), { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
-    const failure = error instanceof ConnectionTestError ? error : new ConnectionTestError('连接测试失败，请检查已保存的配置。', 500);
-    return Response.json({ error: failure.message }, { status: failure.status, headers: { 'Cache-Control': 'no-store' } });
+    const { status, body } = buildServerErrorPayload(
+      error instanceof ConnectionTestError
+        ? error
+        : new ConnectionTestError('connection_test_failed', 500, { provider: 'model' }),
+      lang,
+    );
+    return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
   }
 }

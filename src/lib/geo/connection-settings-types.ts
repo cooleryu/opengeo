@@ -11,6 +11,7 @@ export type GeoConnectionSettings = {
     keyConfigured: boolean;
     source: GeoSettingsSource;
   };
+  modelConfigured?: boolean;
 };
 
 export type GeoSettingsUpdate = {

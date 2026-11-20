@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { resolveProjectUiLanguage } from '@/lib/geo/i18n';
+import type { GeoConnectionSettings } from '@/lib/geo/connection-settings-types';
 import type { GeoProject } from '@/lib/geo/types';
 import type { QuestionGenerationJob } from '@/lib/geo/question-types';
 import {
@@ -25,6 +26,7 @@ import {
 } from '@/lib/geo/project-onboarding-types';
 import BackgroundPreparationStatus from './BackgroundPreparationStatus';
 import DevI18nLeakHighlighter from './DevI18nLeakHighlighter';
+import ModelSettingsCard from './ModelSettingsCard';
 import OpenGeoBrandMark from './OpenGeoBrandMark';
 import { UiLanguageProvider, useUiLanguage } from './UiLanguageContext';
 import './project-onboarding.css';
@@ -52,14 +54,18 @@ function CapabilityText({ text }: { text: string }) {
 
 function ProjectOnboardingPageInner() {
   const { uiLanguage, setUiLanguage, t } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
   const [projectId, setProjectId] = useState('');
   const [result, setResult] = useState<ProjectResponse | null>(null);
   const [matchedExisting, setMatchedExisting] = useState(false);
   const [hasProjects, setHasProjects] = useState(false);
+  const [settingsData, setSettingsData] =
+    useState<GeoConnectionSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [errorCode, setErrorCode] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -82,38 +88,66 @@ function ProjectOnboardingPageInner() {
   const revising = busy || Boolean(pendingRevision && working);
   const revisionFailed =
     record?.status === 'failed' && Boolean(record.revision);
+  const modelConfigured = settingsData
+    ? Boolean(settingsData.modelConfigured ?? settingsData.model.configured)
+    : null;
 
   useEffect(() => {
     let active = true;
     const params = new URLSearchParams(window.location.search);
     const id = params.get('project') || '';
-    if (!id) {
+    if (!id && !params.get('ui')) {
       setUiLanguage('en');
     }
     if (params.get('next') === 'questions' && params.get('revision')) {
       setPendingRevision(params.get('revision')!);
       setConfirmOpen(true);
     }
-    void fetch('/api/geo/projects', { cache: 'no-store' })
-      .then(async (response) => {
-        const payload = await response.json();
-        if (!response.ok)
-          throw new Error(payload.error || '暂时无法读取项目。');
+    void Promise.all([
+      fetch('/api/geo/projects', { cache: 'no-store' }).then(
+        async (response) => {
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(
+              payload.error ||
+                (isEn
+                  ? 'Could not load projects right now.'
+                  : '暂时无法读取项目。'),
+            );
+          }
+          return payload as { hasProjects: boolean };
+        },
+      ),
+      fetch('/api/geo/settings', { cache: 'no-store' })
+        .then(async (response) => {
+          if (!response.ok) return null;
+          return (await response.json()) as GeoConnectionSettings;
+        })
+        .catch(() => null),
+    ])
+      .then(([projectsPayload, loadedSettings]) => {
         if (!active) return;
-        setHasProjects(payload.hasProjects);
+        setHasProjects(projectsPayload.hasProjects);
+        if (loadedSettings) setSettingsData(loadedSettings);
         setProjectId(id);
         if (!id) setLoading(false);
       })
       .catch((err) => {
         if (active) {
-          setError(err.message);
+          setError(
+            err instanceof Error
+              ? err.message
+              : isEn
+                ? 'Could not load projects right now.'
+                : '暂时无法读取项目。',
+          );
           setLoading(false);
         }
       });
     return () => {
       active = false;
     };
-  }, [setUiLanguage]);
+  }, [isEn, setUiLanguage]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -125,10 +159,14 @@ function ProjectOnboardingPageInner() {
           `/api/geo/projects?project=${encodeURIComponent(projectId)}`,
           { cache: 'no-store', signal: controller.signal },
         );
-        const payload: ProjectResponse & { error?: string } =
+        const payload: ProjectResponse & { error?: string; code?: string } =
           await response.json();
-        if (!response.ok)
-          throw new Error(payload.error || '暂时无法读取进度。');
+        if (!response.ok) {
+          throw new Error(
+            payload.error ||
+              (isEn ? 'Could not load progress right now.' : '暂时无法读取进度。'),
+          );
+        }
         if (controller.signal.aborted) return;
         setResult(payload);
         const lockedLang = resolveProjectUiLanguage({
@@ -142,6 +180,7 @@ function ProjectOnboardingPageInner() {
           setUiLanguage(lockedLang);
         }
         setError('');
+        setErrorCode('');
         setLoading(false);
         const continuation = new URLSearchParams(window.location.search);
         const requestedRevision = continuation.get('revision');
@@ -156,7 +195,9 @@ function ProjectOnboardingPageInner() {
           // a refreshed page behind an unsaved continuation request.
           setPendingRevision('');
           setRevisionError(
-            '未找到上次修改的保存记录。请重新补充，或直接继续。',
+            isEn
+              ? 'Could not find the saved record from your last update. Please add your note again or continue.'
+              : '未找到上次修改的保存记录。请重新补充，或直接继续。',
           );
           window.history.replaceState(
             null,
@@ -176,7 +217,13 @@ function ProjectOnboardingPageInner() {
         }
       } catch (err) {
         if (!controller.signal.aborted) {
-          setError(err instanceof Error ? err.message : '暂时无法读取进度。');
+          setError(
+            err instanceof Error
+              ? err.message
+              : isEn
+                ? 'Could not load progress right now.'
+                : '暂时无法读取进度。',
+          );
           setLoading(false);
         }
       }
@@ -186,7 +233,7 @@ function ProjectOnboardingPageInner() {
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [projectId, refreshKey, setUiLanguage]);
+  }, [projectId, refreshKey, isEn, setUiLanguage]);
 
   useEffect(() => {
     const restorePage = (event: PageTransitionEvent) => {
@@ -286,9 +333,10 @@ function ProjectOnboardingPageInner() {
   };
 
   const create = async (retry = false) => {
-    if (busy) return;
+    if (busy || (!retry && modelConfigured === false)) return;
     setBusy(true);
     setError('');
+    setErrorCode('');
     setMatchedExisting(false);
     const detectedKind = inferProjectEntryKind(url);
     const key = JSON.stringify({
@@ -318,13 +366,15 @@ function ProjectOnboardingPageInner() {
         ),
       });
       const payload = await response.json();
-      if (!response.ok)
+      if (!response.ok) {
+        if (typeof payload.code === 'string') setErrorCode(payload.code);
         throw new Error(
           payload.error ||
             (uiLanguage === 'en'
               ? 'Could not create project. Please try again.'
               : '项目暂时未能创建，请重试。'),
         );
+      }
       setMatchedExisting(!retry && response.status === 200);
       setResult(payload);
       const lockedLang = resolveProjectUiLanguage({
@@ -406,6 +456,21 @@ function ProjectOnboardingPageInner() {
               <h1>{t('onboarding.heading')}</h1>
               <p>{t('onboarding.subheading')}</p>
             </div>
+            {modelConfigured === false && (
+              <div className="og-onboarding-model-gate">
+                <ModelSettingsCard
+                  onboardingGate
+                  initialSettings={settingsData}
+                  onSaved={(next) => {
+                    setSettingsData(next);
+                    if (errorCode === 'model_not_configured') {
+                      setError('');
+                      setErrorCode('');
+                    }
+                  }}
+                />
+              </div>
+            )}
             <form
               className="og-onboarding-form"
               onSubmit={(event) => {
@@ -500,14 +565,25 @@ function ProjectOnboardingPageInner() {
                 >
                   <CircleAlert size={16} />
                   {error}
+                  {errorCode === 'model_not_configured' && hasProjects && (
+                    <Link href="/?view=settings#model">
+                      {isEn ? 'Open Settings' : '打开设置'}
+                    </Link>
+                  )}
                 </p>
               )}
               <div className="og-onboarding-form-footer">
-                <p>{t('onboarding.footerHint')}</p>
+                <p>
+                  {modelConfigured === false
+                    ? isEn
+                      ? 'Save an AI model above before analyzing your project.'
+                      : '请先在上方保存 AI 模型配置，再开始分析项目。'
+                    : t('onboarding.footerHint')}
+                </p>
                 <button
                   className="og-onboarding-primary"
                   type="submit"
-                  disabled={busy}
+                  disabled={busy || modelConfigured !== true}
                 >
                   {busy ? (
                     <>
@@ -669,8 +745,12 @@ function ProjectOnboardingPageInner() {
                   >
                     {busy ? t('onboarding.retryingBtn') : t('onboarding.retryBtn')}
                   </button>
-                  <a href={projectLink('settings')}>
-                    {t('onboarding.checkSettingsLink')}
+                  <a href={`${projectLink('settings')}#model`}>
+                    {record.errorCode === 'model_not_configured'
+                      ? isEn
+                        ? 'Open Settings'
+                        : '打开设置'
+                      : t('onboarding.checkSettingsLink')}
                     <ArrowRight size={15} />
                   </a>
                   <a className="og-onboarding-start-over" href="/new">

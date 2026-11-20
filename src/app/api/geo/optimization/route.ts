@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveRequestUiLanguage, serverErrorResponse } from '@/lib/geo/i18n-server';
+import { getGeoModelSettings } from '@/lib/geo/planner';
 import {
   applyOptimizationDeliverables,
   applyPageFindingBatch,
@@ -111,6 +113,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'start' || action === 'retry') {
+      if (action === 'start' && !getGeoModelSettings().modelConfigured) {
+        return serverErrorResponse(
+          { code: 'model_not_configured', status: 400 },
+          resolveRequestUiLanguage(request, body),
+        );
+      }
       const onlyNewContent = body.onlyNewContent === true;
       const angleBrief =
         typeof body.angleBrief === 'string' && body.angleBrief.trim()

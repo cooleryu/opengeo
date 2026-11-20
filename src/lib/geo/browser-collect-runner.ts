@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { BrowserCollectJobSnapshot } from './browser-collect-types';
 import { BrowserCollectionError } from './browser-collection';
+import { translateServerCode, type ServerErrorParams } from './i18n-server';
 import { finalizeOptimizationBrowserRetest } from './optimization';
 import { resolveGeoProject } from './projects';
 
@@ -52,8 +53,26 @@ function resolveDriver(spaceId: number | null, egoBin: string | null): 'ego' | '
   return egoBin ? 'ego' : 'chrome';
 }
 
-function browserDisplayName(driver: 'ego' | 'chrome'): string {
-  return driver === 'ego' ? 'Ego Lite 浏览器' : '本机 Chrome 浏览器';
+function applyStatusCode(
+  snap: BrowserCollectJobSnapshot,
+  code: string,
+  params?: ServerErrorParams,
+): void {
+  snap.messageCode = code;
+  snap.messageParams = params;
+  snap.message = translateServerCode('zh', code, params);
+}
+
+function applyErrorCode(
+  snap: BrowserCollectJobSnapshot,
+  code: string,
+  params?: ServerErrorParams,
+  detail?: string,
+): void {
+  snap.errorCode = code;
+  snap.errorParams = params;
+  snap.errorDetail = detail ?? null;
+  snap.error = translateServerCode('zh', code, params);
 }
 
 interface InternalRunnerState {
@@ -86,6 +105,8 @@ function idleSnapshot(projectId: string | null = null): BrowserCollectJobSnapsho
     waitSeconds: null,
     message: '',
     error: null,
+    errorCode: null,
+    errorDetail: null,
     startedAt: null,
     updatedAt: null,
   };
@@ -133,12 +154,13 @@ export function stopBrowserCollectJob(): BrowserCollectJobSnapshot {
     (state.snapshot.status === 'running' || state.snapshot.status === 'needs_handoff')
   ) {
     state.stoppedByUser = true;
-    const browserName = browserDisplayName(state.driver);
     state.snapshot = {
       ...state.snapshot,
       status: 'stopped',
       waitSeconds: null,
-      message: `已停止 ${browserName} 采集。已保存的回答保留在项目记录中。`,
+      messageCode: 'collect.stopped',
+      messageParams: undefined,
+      message: translateServerCode('zh', 'collect.stopped'),
       updatedAt: now,
     };
     try {
@@ -179,13 +201,17 @@ export function startBrowserCollectJob(
   ) {
     state.sawHandoff = false;
     state.lastErrorLine = '';
-    const browserName = browserDisplayName(state.driver);
     state.snapshot = {
       ...state.snapshot,
       status: 'running',
       waitSeconds: null,
       error: null,
-      message: `已恢复 ${browserName} 采集，正在继续当前问题…`,
+      errorCode: null,
+      errorParams: undefined,
+      errorDetail: null,
+      messageCode: 'collect.resumed',
+      messageParams: undefined,
+      message: translateServerCode('zh', 'collect.resumed'),
       updatedAt: new Date().toISOString(),
     };
     state.child.stdin.write('RESUME\n');
@@ -196,21 +222,18 @@ export function startBrowserCollectJob(
     state.child &&
     (state.snapshot.status === 'running' || state.snapshot.status === 'needs_handoff')
   ) {
-    throw new BrowserCollectionError(
-      '当前已有本机浏览器采集正在运行或等待验证，请先完成或点击停止。',
-      409,
-    );
+    throw BrowserCollectionError.coded('collect_already_running', 409);
   }
 
   const engine =
     input.engine === 'chatgpt' || input.engine === 'google' ? input.engine : 'all';
 
   if (input.optimizationRunId && !VALID_ID.test(input.optimizationRunId)) {
-    throw new BrowserCollectionError('优化任务编号无效。');
+    throw BrowserCollectionError.coded('invalid_request', 400);
   }
   const cleanQuestionIds = (input.questionIds ?? []).filter((id) => VALID_ID.test(id));
   if (input.questionIds && cleanQuestionIds.length !== input.questionIds.length) {
-    throw new BrowserCollectionError('问题编号格式无效。');
+    throw BrowserCollectionError.coded('invalid_request', 400);
   }
   const spaceId =
     typeof input.spaceId === 'number' && Number.isSafeInteger(input.spaceId) && input.spaceId > 0
@@ -219,12 +242,11 @@ export function startBrowserCollectJob(
 
   const scriptPath = path.resolve(process.cwd(), 'scripts', 'browser-collect.mjs');
   if (!fs.existsSync(scriptPath)) {
-    throw new BrowserCollectionError('未找到本地浏览器采集脚本 scripts/browser-collect.mjs。', 500);
+    throw BrowserCollectionError.coded('collect_script_missing', 500);
   }
 
   const egoBin = resolveEgoBrowserBin();
   const driver = resolveDriver(spaceId, egoBin);
-  const browserName = browserDisplayName(driver);
 
   const args: string[] = [
     scriptPath,
@@ -246,7 +268,7 @@ export function startBrowserCollectJob(
       !/^[0-9TZ:+.\-\s]{10,40}$/.test(trimmedSince) ||
       !Number.isFinite(Date.parse(trimmedSince))
     ) {
-      throw new BrowserCollectionError('起始时间格式无效。');
+      throw BrowserCollectionError.coded('invalid_request', 400);
     }
     validatedSince = trimmedSince;
   } else if (
@@ -286,8 +308,13 @@ export function startBrowserCollectJob(
     currentEngine: null,
     currentQuery: null,
     waitSeconds: null,
-    message: `正在启动 ${browserName}…`,
+    messageCode: 'collect.starting',
+    messageParams: undefined,
+    message: translateServerCode('zh', 'collect.starting'),
     error: null,
+    errorCode: null,
+    errorParams: undefined,
+    errorDetail: null,
     startedAt: now,
     updatedAt: now,
   };
@@ -316,11 +343,11 @@ export function startBrowserCollectJob(
     if (totalMatch) {
       snap.totalCount = Number(totalMatch[1]);
       if (snap.currentIndex === 0 && line.includes('[QUEUE_READY]')) {
-        snap.message = `正在打开 ${browserName}（共 ${snap.totalCount} 项）…`;
+        applyStatusCode(snap, 'collect.opening', { total: snap.totalCount });
       }
     }
     if (line.includes('[BROWSER_READY]')) {
-      snap.message = `已打开 ${browserName}，正在准备第 1 题（共 ${snap.totalCount} 项）…`;
+      applyStatusCode(snap, 'collect.preparing', { total: snap.totalCount });
       return;
     }
     const stepMatch = line.match(
@@ -336,21 +363,35 @@ export function startBrowserCollectJob(
       snap.currentEngine = stepMatch[4] as 'chatgpt' | 'google';
       snap.currentQuery = stepMatch[5];
       snap.waitSeconds = null;
-      snap.message = `正在 ${engineLabel} 提问（第 ${idx}/${snap.totalCount} 项）`;
+      applyStatusCode(snap, 'collect.asking', {
+        engine: engineLabel,
+        index: idx,
+        total: snap.totalCount,
+      });
       return;
     }
     if (line.includes('等待当前问题的 ChatGPT 回答完成')) {
-      snap.message = `正在等待 ChatGPT 生成回答（第 ${snap.currentIndex}/${snap.totalCount} 项）`;
+      applyStatusCode(snap, 'collect.waitingAnswer', {
+        index: snap.currentIndex,
+        total: snap.totalCount,
+      });
       return;
     }
     if (line.includes('回答已采集，正在自动分析并保存')) {
-      snap.message = `已获取网页回答，正在语义判卷入库（第 ${snap.currentIndex}/${snap.totalCount} 项）`;
+      applyStatusCode(snap, 'collect.saving', {
+        index: snap.currentIndex,
+        total: snap.totalCount,
+      });
       return;
     }
     const waitMatch = line.match(/\[防封停等待\]\s*间隔\s*(\d+)s/);
     if (waitMatch) {
       snap.waitSeconds = Number(waitMatch[1]);
-      snap.message = `防风控安全间隔倒计时 ${waitMatch[1]}s（已完成 ${snap.completedCount}/${snap.totalCount}）…`;
+      applyStatusCode(snap, 'collect.cooldown', {
+        seconds: snap.waitSeconds,
+        done: snap.completedCount,
+        total: snap.totalCount,
+      });
       return;
     }
     if (line.includes('"captureId":') || line.includes('[已入库待核实]')) {
@@ -361,7 +402,7 @@ export function startBrowserCollectJob(
       return;
     }
     if (line.includes('无需重复运行')) {
-      snap.message = line;
+      applyStatusCode(snap, 'collect.alreadyCollected');
     }
   };
 
@@ -374,8 +415,8 @@ export function startBrowserCollectJob(
       state.sawHandoff = true;
       snap.status = 'needs_handoff';
       snap.waitSeconds = null;
-      snap.message = `请在打开的 ${browserName} 窗口完成验证或登录，完成后点击继续。`;
-      snap.error = state.lastErrorLine || `需要在打开的 ${browserName} 窗口完成一次页面验证或登录。`;
+      applyStatusCode(snap, 'collect.needsHandoff');
+      applyErrorCode(snap, 'collect.needsHandoff', undefined, state.lastErrorLine || undefined);
       return;
     }
     const spaceMatch = line.match(/--space\s+(\d+)/);
@@ -405,13 +446,14 @@ export function startBrowserCollectJob(
 
   child.on('error', (err) => {
     if (state.child === child) state.child = null;
-    state.snapshot = {
+    const next: BrowserCollectJobSnapshot = {
       ...state.snapshot,
       status: 'failed',
       waitSeconds: null,
-      error: err.message || `无法启动 ${browserName} 采集进程。`,
       updatedAt: new Date().toISOString(),
     };
+    applyErrorCode(next, 'collect_spawn_failed', undefined, err.message || undefined);
+    state.snapshot = next;
   });
 
   child.on('exit', (code) => {
@@ -438,37 +480,48 @@ export function startBrowserCollectJob(
           // If no observations needed re-finalization or already handled by CLI, keep clean exit
         }
       }
-      state.snapshot = {
+      const next: BrowserCollectJobSnapshot = {
         ...state.snapshot,
         status: 'completed',
         completedCount: state.snapshot.totalCount || state.snapshot.completedCount,
         waitSeconds: null,
-        message: '本轮 ChatGPT 与 Google 真实回答采集已完成。',
         error: null,
+        errorCode: null,
+        errorParams: undefined,
+        errorDetail: null,
         updatedAt: exitAt,
       };
+      applyStatusCode(next, 'collect.completed');
+      state.snapshot = next;
       return;
     }
 
     if (state.sawHandoff) {
-      state.snapshot = {
+      const next: BrowserCollectJobSnapshot = {
         ...state.snapshot,
         status: 'needs_handoff',
         waitSeconds: null,
-        message: `请在打开的 ${browserName} 窗口完成一次页面验证或登录后，点击继续采集余下问题。`,
-        error: state.lastErrorLine || `需要在 ${browserName} 窗口完成页面验证或登录后继续。`,
         updatedAt: exitAt,
       };
+      applyStatusCode(next, 'collect.needsHandoff');
+      applyErrorCode(next, 'collect.needsHandoff', undefined, state.lastErrorLine || undefined);
+      state.snapshot = next;
       return;
     }
 
-    state.snapshot = {
+    const next: BrowserCollectJobSnapshot = {
       ...state.snapshot,
       status: 'failed',
       waitSeconds: null,
-      error: state.lastErrorLine || `${browserName} 采集未完成（退出码 ${code ?? 1}）。`,
       updatedAt: exitAt,
     };
+    applyErrorCode(
+      next,
+      'collect_failed',
+      { exitCode: code ?? 1 },
+      state.lastErrorLine || undefined,
+    );
+    state.snapshot = next;
   });
 
   return { ...state.snapshot };

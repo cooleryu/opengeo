@@ -1,29 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  buildServerErrorPayload,
+  resolveRequestUiLanguage,
+  serverErrorResponse,
+} from '@/lib/geo/i18n-server';
+import type { GeoLanguage } from '@/lib/geo/i18n';
 import { GeoError, getGeoState, handleGeoAction } from '@/lib/geo/store';
 import { startGeoScheduler } from '@/lib/geo/scheduler';
 import { GeoProjectError, withGeoProject } from '@/lib/geo/projects';
-import { questionGenerationErrorMessage } from '@/lib/geo/question-generation-job';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  try { return withGeoProject(request.nextUrl.searchParams.get('project'), () => {
-    startGeoScheduler();
-    return NextResponse.json(getGeoState(), { headers: { 'Cache-Control': 'no-store' } });
-  }); }
-  catch (error) { return failure(error); }
+  const lang = resolveRequestUiLanguage(request);
+  try {
+    return withGeoProject(request.nextUrl.searchParams.get('project'), () => {
+      startGeoScheduler();
+      return NextResponse.json(getGeoState(), { headers: { 'Cache-Control': 'no-store' } });
+    });
+  } catch (error) {
+    return failure(error, lang);
+  }
 }
+
 export async function POST(request: NextRequest) {
+  let lang = resolveRequestUiLanguage(request);
   try {
     const origin = request.headers.get('origin');
     // Next may normalize request.url to localhost even when the browser uses
     // 127.0.0.1. Compare the Origin to the actual request authority instead.
     const requestUrl = new URL(request.url);
     const authority = request.headers.get('host') || requestUrl.host;
-    if (origin && origin !== `${requestUrl.protocol}//${authority}`) throw new GeoError('只接受当前应用页面发起的操作。', 403);
-    const body = await request.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new GeoError('请求格式无效。');
+    if (origin && origin !== `${requestUrl.protocol}//${authority}`) {
+      throw GeoError.coded('forbidden_origin', 403);
+    }
+    const body = (await request.json()) as Record<string, unknown>;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw GeoError.coded('invalid_request', 400);
+    }
+    lang = resolveRequestUiLanguage(request, body);
     if (body.action === 'generate_questions' && request.headers.get('accept')?.includes('application/x-ndjson')) {
       // Keep the existing JSON contract for other callers. Progress is emitted by
       // real planner boundaries; a closed browser never triggers another run.
@@ -34,42 +50,56 @@ export async function POST(request: NextRequest) {
           const send = (event: unknown) => {
             if (!cancelled) controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
           };
-          void withGeoProject(body.projectId, async () => {
+          void withGeoProject(typeof body.projectId === 'string' ? body.projectId : null, async () => {
             try {
               const state = await handleGeoAction(body, {
                 onQuestionProgress: (progress) => send({ type: 'progress', progress }),
               });
               send({ type: 'result', state });
             } catch (error) {
-              send({ type: 'error', error: questionGenerationError(error) });
+              send({ type: 'error', ...buildServerErrorPayload(error, lang).body });
             } finally {
               if (!cancelled) controller.close();
             }
           }).catch((error) => {
             if (!cancelled) {
-              send({ type: 'error', error: questionGenerationError(error) });
+              send({ type: 'error', ...buildServerErrorPayload(error, lang).body });
               controller.close();
             }
           });
         },
         cancel() { cancelled = true; },
       });
-      return new Response(stream, { headers: {
-        'Content-Type': 'application/x-ndjson; charset=utf-8',
-        'Cache-Control': 'no-store, no-transform',
-        'X-Accel-Buffering': 'no',
-      } });
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'application/x-ndjson; charset=utf-8',
+          'Cache-Control': 'no-store, no-transform',
+          'X-Accel-Buffering': 'no',
+        },
+      });
     }
-    return await withGeoProject(body.projectId, async () => {
+    return await withGeoProject(typeof body.projectId === 'string' ? body.projectId : null, async () => {
       startGeoScheduler();
       return NextResponse.json(await handleGeoAction(body), { headers: { 'Cache-Control': 'no-store' } });
     });
-  } catch (error) { return failure(error); }
+  } catch (error) {
+    return failure(error, lang);
+  }
 }
-function questionGenerationError(error: unknown) {
-  return questionGenerationErrorMessage(error);
-}
-function failure(error: unknown) {
-  const message = error instanceof Error ? error.message : '操作失败，请重试。';
-  return NextResponse.json({ error: message }, { status: error instanceof GeoError || error instanceof GeoProjectError ? error.status : error instanceof SyntaxError ? 400 : 500 });
+
+function failure(error: unknown, lang: GeoLanguage) {
+  if (
+    error instanceof GeoProjectError ||
+    error instanceof SyntaxError ||
+    (error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string')
+  ) {
+    return serverErrorResponse(error, lang);
+  }
+  if (error instanceof GeoError) {
+    return NextResponse.json(
+      { error: error.message, code: 'invalid_request' },
+      { status: error.status, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
+  return serverErrorResponse(error, lang);
 }

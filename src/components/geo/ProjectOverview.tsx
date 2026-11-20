@@ -137,12 +137,13 @@ function humanizeAuditEvidence(
 ): string {
   const trimmed = text?.trim();
   if (!trimmed) {
-    if (isEn) {
-      return kind === 'mention'
+    return kind === 'mention'
+      ? isEn
         ? 'This answer has not been verified yet.'
-        : 'Source citation check is pending.';
-    }
-    return kind === 'mention' ? '这条回答尚未复核。' : '引用关系尚未核实。';
+        : '这条回答尚未复核。'
+      : isEn
+        ? 'Source citation check is pending.'
+        : '引用关系尚未核实。';
   }
   if (/(?:nativeCitations|citationSource|citationsComplete|observedSourceHints|\bevidence\.)/i.test(trimmed)) {
     if (kind === 'citation' && verdict === 'unknown') {
@@ -1190,7 +1191,7 @@ export default function ProjectOverview({
           ? `Appearing in ${mention.yes}/${mention.completed} answers (${pct(rate)}) — not yet the default choice`
           : `已在部分回答中露面（${mention.yes}/${mention.completed}，${pct(rate)}）— 距默认首选还有差距`,
         subline: isEn
-          ? `Official citations stand at ${citation.yes}/${citation.completed}.${engineHint} Close the top external list gaps below to raise presence.`
+          ? `Your site is cited in ${citation.yes}/${citation.completed} answers.${engineHint} Close the top external list gaps below to raise presence.`
           : `官网/仓库直接引用为 ${citation.yes}/${citation.completed}。${engineHint}继续补齐下方外部高频榜单可稳定拉升曝光。`,
       };
     }
@@ -1199,7 +1200,7 @@ export default function ProjectOverview({
         ? `Strong AI presence (${mention.yes}/${mention.completed}, ${pct(rate)})`
         : `已进入核心推荐位（${mention.yes}/${mention.completed}，${pct(rate)}）`,
       subline: isEn
-        ? `Official citations: ${citation.yes}/${citation.completed}.${engineHint}`
+        ? `Site cited: ${citation.yes}/${citation.completed}.${engineHint}`
         : `官网/仓库直接引用 ${citation.yes}/${citation.completed}。${engineHint}`,
     };
   })();
@@ -2025,7 +2026,7 @@ export default function ProjectOverview({
                 className="pov-inline-link"
                 onClick={() => void onPlan?.()}
               >
-                {isEn ? 'Open Action Plan' : '查看全部优化方案'} <ArrowRight size={13} />
+                {isEn ? 'Open Action Plan' : '查看行动计划'} <ArrowRight size={13} />
               </button>
             </div>
           </div>

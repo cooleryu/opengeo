@@ -12,9 +12,20 @@ import { appendResearchObservation, getResearchBatch, getResearchRun, ResearchSt
 import type { ResearchObservation } from './research-types';
 import { matchesProjectURL } from './search-protocol';
 import { getSeed } from './seed';
+import { translateServerCode, type ServerErrorParams } from './i18n-server';
 
 export class BrowserCollectionError extends Error {
-  constructor(message: string, public status = 400) { super(message); }
+  constructor(
+    message: string,
+    public status = 400,
+    public code?: string,
+    public params?: ServerErrorParams,
+  ) {
+    super(message);
+  }
+  static coded(code: string, status = 400, params?: ServerErrorParams): BrowserCollectionError {
+    return new BrowserCollectionError(translateServerCode('zh', code, params), status, code, params);
+  }
 }
 
 const identifier = z.string().regex(/^[a-zA-Z0-9_-]{1,120}$/);
@@ -85,7 +96,7 @@ type Capture = { version: 1; storedAt: string; input: CaptureInput };
 /** This endpoint may start the configured analysis model, so require local same-origin JSON. */
 export function requireBrowserCollectionRequest(request: Request, mutation = false): void {
   try { requireChatGPTLocalRequest(request, mutation); }
-  catch { throw new BrowserCollectionError('浏览器采集只接受本机 127.0.0.1 上的同源操作。', 403); }
+  catch { throw BrowserCollectionError.coded('forbidden_origin', 403); }
 }
 
 function locations(captureId: string) {

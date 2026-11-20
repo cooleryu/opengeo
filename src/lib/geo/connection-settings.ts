@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { GenerateObjectInput } from '@/lib/models/types';
 import type { GeoConnectionSettings, GeoModelProvider, GeoSettingsSource, GeoSettingsUpdate } from './connection-settings-types';
+import { translateServerCode, type ServerErrorParams } from './i18n-server';
 
 type ModelValues = { provider?: GeoModelProvider; baseURL?: string; model?: string; apiKey?: string };
 type SavedSettings = { version: 1; model?: ModelValues; search?: unknown };
@@ -13,7 +14,14 @@ export type GeoModelConnection = {
 export type GeoStructuredModel = { generateObject<T>(input: GenerateObjectInput): Promise<unknown> };
 
 export class GeoSettingsError extends Error {
-  constructor(message: string, public status = 400) { super(message); }
+  constructor(
+    public code: string,
+    public status = 400,
+    public params?: ServerErrorParams,
+    public detail?: string,
+  ) {
+    super(translateServerCode('zh', code, params));
+  }
 }
 
 const modelProviders = ['gemini', 'deepseek', 'openai', 'custom'] as const;
@@ -26,7 +34,7 @@ function validBaseURL(value: string): string {
     const url = new URL(value);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
     return url.toString().replace(/\/+$/, '');
-  } catch { throw new GeoSettingsError('API 地址必须是完整的 HTTP(S) 地址，且不能包含用户名、密码、查询参数或片段。'); }
+  } catch { throw new GeoSettingsError('invalid_settings', 400, { field: 'baseURL' }); }
 }
 function safeBaseURL(value: string): string {
   try { return validBaseURL(value); } catch { return ''; }
@@ -48,7 +56,7 @@ function readSavedSettings(): SavedSettings {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1 };
     // Never echo parser or filesystem errors: a malformed file can contain keys.
-    throw new GeoSettingsError('无法读取已保存的连接设置，请检查设置文件。', 500);
+    throw new GeoSettingsError('invalid_settings', 500, { field: 'file' });
   }
 }
 
@@ -90,27 +98,27 @@ function publicSettings(saved: SavedSettings): GeoConnectionSettings {
 export function getGeoConnectionSettings(): GeoConnectionSettings { return publicSettings(readSavedSettings()); }
 
 function validateUpdate(input: unknown): GeoSettingsUpdate {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new GeoSettingsError('设置格式无效。');
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new GeoSettingsError('invalid_request');
   const { section, values } = input as GeoSettingsUpdate;
-  if (section !== 'model' || !values || typeof values !== 'object' || Array.isArray(values)) throw new GeoSettingsError('请选择有效的设置项目。');
+  if (section !== 'model' || !values || typeof values !== 'object' || Array.isArray(values)) throw new GeoSettingsError('invalid_settings', 400, { field: 'section' });
   const allowed = ['provider', 'baseURL', 'model', 'apiKey'];
-  if (Object.keys(values).some(key => !allowed.includes(key))) throw new GeoSettingsError('设置包含不支持的字段。');
+  if (Object.keys(values).some(key => !allowed.includes(key))) throw new GeoSettingsError('invalid_settings', 400, { field: 'unknown' });
   const normalized: GeoSettingsUpdate['values'] = {};
   for (const [key, value] of Object.entries(values)) {
-    if (typeof value !== 'string') throw new GeoSettingsError('设置字段必须填写文字。');
+    if (typeof value !== 'string') throw new GeoSettingsError('invalid_settings', 400, { field: key });
     const trimmed = value.trim();
     if (key === 'apiKey') {
       if (!trimmed) continue; // An untouched key field never clears a key.
-      if (trimmed.length > 8192 || /\s/.test(trimmed)) throw new GeoSettingsError('API Key 格式无效。');
+      if (trimmed.length > 8192 || /\s/.test(trimmed)) throw new GeoSettingsError('invalid_settings', 400, { field: 'apiKey' });
       normalized.apiKey = trimmed;
     } else if (key === 'provider') {
-      if (!modelProviders.includes(trimmed as GeoModelProvider)) throw new GeoSettingsError('请选择有效的模型服务。');
+      if (!modelProviders.includes(trimmed as GeoModelProvider)) throw new GeoSettingsError('invalid_settings', 400, { field: 'provider' });
       normalized.provider = trimmed as GeoModelProvider;
     } else if (key === 'baseURL') {
-      if (trimmed.length > 2048) throw new GeoSettingsError('API 地址过长。');
+      if (trimmed.length > 2048) throw new GeoSettingsError('invalid_settings', 400, { field: 'baseURL' });
       normalized.baseURL = validBaseURL(trimmed);
     } else {
-      if (!trimmed || trimmed.length > 200 || /[\r\n\x00-\x1f]/.test(trimmed)) throw new GeoSettingsError('请填写有效的模型名称。');
+      if (!trimmed || trimmed.length > 200 || /[\r\n\x00-\x1f]/.test(trimmed)) throw new GeoSettingsError('invalid_settings', 400, { field: 'model' });
       normalized.model = trimmed;
     }
   }
@@ -127,7 +135,7 @@ export function saveGeoConnectionSettings(input: unknown): GeoConnectionSettings
   const nextBaseURL = values.baseURL ?? current.baseURL;
   const nextProvider = values.provider ?? current.provider;
   if (current.apiKey && !values.apiKey && (nextBaseURL !== current.baseURL || nextProvider !== current.provider)) {
-    throw new GeoSettingsError('切换模型服务或 API 地址时，请填写该服务的新 API Key；原设置尚未改变。');
+    throw new GeoSettingsError('invalid_settings', 400, { field: 'apiKey' });
   }
   saved.model = { ...saved.model, ...values };
   const file = dataPath('geo-settings.json');
@@ -137,7 +145,7 @@ export function saveGeoConnectionSettings(input: unknown): GeoConnectionSettings
     fs.writeFileSync(temporary, `${JSON.stringify(saved, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
     fs.renameSync(temporary, file);
   } catch {
-    throw new GeoSettingsError('连接设置保存失败，请重试。', 500);
+    throw new GeoSettingsError('invalid_settings', 500, { field: 'file' });
   } finally {
     try { fs.unlinkSync(temporary); } catch { /* The successful rename already removed it. */ }
   }
@@ -147,7 +155,7 @@ export function saveGeoConnectionSettings(input: unknown): GeoConnectionSettings
 /** Resolve every time a new operation starts; no restart or module cache reset. */
 export async function loadGeoModel(): Promise<GeoStructuredModel> {
   const connection = getGeoModelConnection();
-  if (!connection.configured) throw new GeoSettingsError('请先在设置中配置模型名称、API 地址和 API Key。');
+  if (!connection.configured) throw new GeoSettingsError('model_not_configured', 400);
   const { default: OpenAILLM } = await import('@/lib/models/providers/openai/openaiLLM');
   return new OpenAILLM({ apiKey: connection.apiKey, model: connection.model, baseURL: connection.baseURL });
 }

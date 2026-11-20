@@ -7,7 +7,9 @@ export async function readQuestionGenerationStream(
 ): Promise<GeoState> {
   if (!response.ok || !response.body) {
     const failure = await response.json().catch(() => ({}));
-    throw new Error(failure.error || '生成未开始，请重试。');
+    const err = new Error(failure.error || '生成未开始，请重试。') as Error & { code?: string };
+    if (typeof failure.code === 'string') err.code = failure.code;
+    throw err;
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -16,7 +18,11 @@ export async function readQuestionGenerationStream(
   const consume = (line: string) => {
     if (!line.trim()) return;
     const event = JSON.parse(line);
-    if (event.type === 'error') throw new Error(event.error || '生成未完成，请重试。');
+    if (event.type === 'error') {
+      const err = new Error(event.error || '生成未完成，请重试。') as Error & { code?: string };
+      if (typeof event.code === 'string') err.code = event.code;
+      throw err;
+    }
     if (event.type === 'progress') onProgress(event.progress);
     if (event.type === 'result') result = event.state;
   };
