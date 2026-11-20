@@ -1451,14 +1451,6 @@
   max-height: 76vh;
   overflow: auto;
 }
-.og-editor-note {
-  font-size: 12px;
-  color: #686c72;
-  padding-bottom: 18px;
-}
-.og-question-editor .qp-heading {
-  display: none;
-}
 @media (min-width: 1151px) {
   .og-app.og-redesigned .og-sidebar {
     width: 280px;

@@ -46,73 +46,16 @@
   color: #7b879a;
   font-size: 12px;
 }
-.og-background-preparation-content > .og-background-preparation-request {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  color: inherit;
-  font-size: 12px;
-}
-.og-background-preparation-request > span {
-  color: #74839a;
-  font-variant-numeric: tabular-nums;
-}
-.og-background-preparation-checkpoints {
-  margin-top: 15px;
-  border-top: 1px solid #dce6f6;
-  padding-top: 12px;
-}
-.og-background-preparation-checkpoints > summary,
-.og-background-preparation-checkpoint > summary,
-.og-background-preparation-history > summary,
-.og-background-preparation-more > summary {
+.og-background-preparation-history > summary {
   width: fit-content;
   cursor: pointer;
   font-size: 12px;
   line-height: 1.7;
 }
-.og-background-preparation-checkpoints > summary {
-  font-weight: 600;
-}
-.og-background-preparation-checkpoints > summary:focus-visible,
-.og-background-preparation-checkpoint > summary:focus-visible,
-.og-background-preparation-history > summary:focus-visible,
-.og-background-preparation-more > summary:focus-visible {
+.og-background-preparation-history > summary:focus-visible {
   outline: 3px solid #97b5ef;
   outline-offset: 3px;
   border-radius: 3px;
-}
-.og-background-preparation-checkpoint-list {
-  display: grid;
-  gap: 14px;
-  margin-top: 12px;
-}
-.og-background-preparation-checkpoint-heading {
-  font-size: 12px;
-}
-.og-background-preparation-checkpoint-heading > strong {
-  color: #46566d;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.og-background-preparation-checkpoint-heading > span {
-  margin-left: 10px;
-  color: #74839a;
-  font-size: 11px;
-}
-.og-background-preparation-checkpoint ul {
-  margin: 5px 0 0;
-  padding-left: 18px;
-  color: #64758f;
-  font-size: 12px;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-.og-background-preparation-checkpoint li + li {
-  margin-top: 4px;
-}
-.og-background-preparation-more {
-  margin-top: 5px;
 }
 .og-background-preparation-history {
   width: 100%;
@@ -120,50 +63,6 @@
 }
 .og-background-preparation-history[open] > summary {
   margin-bottom: 10px;
-}
-.og-background-preparation-stages {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 22px;
-  list-style: none;
-  padding: 0;
-  margin: 13px 0 0;
-}
-.og-background-preparation-stages > li {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #8a97a9;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.og-background-preparation-stages > li > span {
-  display: grid;
-  place-items: center;
-  width: 17px;
-  height: 17px;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  font-size: 10px;
-}
-.og-background-preparation-stages > .is-current {
-  color: inherit;
-  font-weight: 600;
-}
-.og-background-preparation-stages > .is-current > span {
-  color: white;
-  border-color: #3567b9;
-  background-color: #3567b9;
-}
-.og-background-preparation.is-stopped
-  .og-background-preparation-stages
-  > .is-current
-  > span {
-  background-color: #956d36;
-  border-color: #956d36;
-}
-.og-background-preparation-stages > .is-done {
-  color: #3b7b60;
 }
 .og-background-preparation.is-complete {
   background: #f4faf7;

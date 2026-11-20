@@ -43,10 +43,6 @@
   flex-wrap: wrap;
 }
 
-.ocv-shell .og-select {
-  width: auto;
-}
-
 .ocv-shell .og-select-button {
   width: auto;
   min-width: 118px;

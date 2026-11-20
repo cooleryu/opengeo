@@ -31,7 +31,6 @@ import {
   isResearchEngine,
   isConsumerResearchEngine,
 } from '@/lib/geo/research-engines';
-import './research-panel.css';
 import './research-workspace.css';
 import './question-detail.css';
 import ResearchChart from './ResearchChart';

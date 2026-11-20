@@ -1,5 +1,4 @@
-.ov-page,
-.ov-content-page {
+.ov-page {
   max-width: 1180px;
   min-width: 0;
 }
@@ -246,8 +245,7 @@
   border-top: 0;
 }
 .ov-record-details > summary,
-.ov-related > summary,
-.ov-content-questions > summary {
+.ov-related > summary {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -256,9 +254,7 @@
 }
 .ov-record-details[open] > summary svg,
 .ov-related[open] > summary svg,
-.ov-question-record[open] > summary > svg,
-.ov-content-questions[open] > summary svg,
-.ov-content-gaps[open] > summary svg {
+.ov-question-record[open] > summary > svg {
   transform: rotate(180deg);
 }
 .ov-record-details > div {
@@ -390,137 +386,7 @@
   border: 1px dashed var(--line);
   border-radius: 12px;
 }
-.ov-content-library {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-}
-.ov-content-card {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 15px;
-  align-items: start;
-  padding: 25px;
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  min-width: 0;
-}
-.ov-content-icon {
-  color: #7f88ad;
-  margin-top: 4px;
-}
-.og-app .ov-content-copy h2 {
-  font-size: 18px;
-  font-weight: 550;
-  line-height: 1.65;
-}
-.og-app .ov-content-copy h2 button {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 9px;
-  text-align: left;
-  padding: 0;
-  width: 100%;
-  overflow-wrap: anywhere;
-}
-.ov-content-copy h2 svg {
-  color: #6b72c5;
-  flex-shrink: 0;
-}
-.og-app .ov-content-copy h2 button:hover {
-  color: var(--blue);
-}
-.og-app .ov-content-copy > p {
-  font-size: 14px;
-  color: #677791;
-  line-height: 1.85;
-  margin-top: 10px;
-}
-.ov-content-meta {
-  display: flex;
-  gap: 7px 12px;
-  flex-wrap: wrap;
-  color: #8a94a8;
-  font-size: 12px;
-  margin-top: 14px;
-}
-.ov-content-actions {
-  display: flex;
-  gap: 9px 20px;
-  flex-wrap: wrap;
-  margin-top: 14px;
-}
-.og-app .ov-content-actions button,
-.og-app .ov-content-actions a {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0;
-  font-size: 13px;
-  color: #4b58cf;
-}
-.ov-content-questions {
-  padding-top: 16px;
-  margin-top: 16px;
-  border-top: 1px solid var(--line);
-}
-.ov-content-questions ul {
-  padding: 0;
-  margin: 14px 0;
-  list-style: none;
-  display: grid;
-  gap: 13px;
-}
-.og-app .ov-content-questions li p {
-  font-size: 13px;
-  color: #53637d;
-  line-height: 1.7;
-}
-.ov-content-questions small {
-  display: block;
-  font-size: 11px;
-  line-height: 1.7;
-  color: #8994aa;
-  margin-top: 4px;
-}
-.og-app .ov-content-questions > p {
-  font-size: 11px;
-  color: #8994aa;
-  line-height: 1.7;
-}
-.ov-content-gaps {
-  margin-top: 28px;
-  border-top: 1px solid var(--line);
-  padding-top: 20px;
-}
-.ov-content-gaps > summary {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: #63718e;
-  font-size: 14px;
-}
-.ov-content-gaps > div {
-  padding: 20px 0;
-  display: grid;
-  gap: 20px;
-}
-.og-app .ov-content-gaps h3 {
-  font-size: 15px;
-  font-weight: 550;
-}
-.og-app .ov-content-gaps p {
-  font-size: 13px;
-  color: #738099;
-  margin-top: 6px;
-  line-height: 1.8;
-}
 @media (max-width: 1100px) {
-  .ov-content-library {
-    grid-template-columns: 1fr;
-  }
   .ov-next-action {
     gap: 26px;
     padding: 27px;
@@ -567,17 +433,6 @@
   }
   .ov-question-record-body {
     padding: 15px;
-  }
-  .ov-content-card {
-    grid-template-columns: 23px minmax(0, 1fr);
-    gap: 12px;
-    padding: 21px 19px;
-  }
-  .ov-content-icon {
-    width: 21px;
-  }
-  .og-app .ov-content-copy h2 {
-    font-size: 17px;
   }
   .ov-provider-filter {
     width: 100%;

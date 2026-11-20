@@ -153,101 +153,6 @@
   flex-shrink: 0;
 }
 
-.pov-zero-hero {
-  padding: 16px 20px;
-  border-radius: 14px;
-  border: 1px solid #e4e4e7;
-  background: #ffffff;
-}
-
-.pov-zero-main {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.pov-zero-stat {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.pov-zero-stat strong {
-  font-size: 24px;
-  line-height: 1;
-  font-weight: 700;
-  color: #18181b;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-}
-
-.pov-zero-stat span {
-  font-size: 13.5px;
-  font-weight: 500;
-  color: #52525b;
-}
-
-.pov-zero-signals {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.pov-shell .pov-zero-collision {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
-  color: #9a3412;
-  font-size: 12px;
-  font-weight: 550;
-  cursor: pointer;
-}
-
-.pov-shell .pov-zero-collision:hover,
-.pov-shell .pov-zero-collision.is-active {
-  background: #ffedd5;
-  border-color: #fdba74;
-}
-
-.pov-zero-winners {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: #71717a;
-}
-
-.pov-zero-winner-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  border: 1px solid #e4e4e7;
-  background: #fafafa;
-  color: #27272a;
-  font-weight: 550;
-  text-decoration: none;
-}
-
-.pov-zero-winner-chip:hover {
-  border-color: #c7cdd6;
-  background: #f4f4f5;
-}
-
-.pov-zero-winner-chip em {
-  font-style: normal;
-  font-size: 11px;
-  color: #71717a;
-}
-
 .pov-q-winners {
   display: inline-flex;
   align-items: center;
@@ -312,39 +217,6 @@
 .pov-tab-brand-icon img {
   width: 15px !important;
   height: 15px !important;
-}
-
-/* One-Line Human Situation Banner */
-.pov-situation-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 10px 16px;
-  border-radius: 11px;
-  background: #f6f7f8;
-  border: 1px solid #ebecef;
-  flex-wrap: wrap;
-}
-
-.pov-shell .pov-situation-bar p {
-  margin: 0;
-  font-size: 13.5px;
-  color: #27272a;
-  font-weight: 500;
-}
-
-.pov-shell .pov-situation-jump {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12.5px;
-  font-weight: 550;
-  color: #15803d;
-}
-
-.pov-shell .pov-situation-jump:hover {
-  text-decoration: underline;
 }
 
 /* Row 1: 3-Card Bento Scoreboard */
@@ -843,17 +715,6 @@
   color: #18765c;
 }
 
-.pov-shell .pov-q-reason {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: #71717a;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
 /* Signature 5-Platform Rounded-Square Icon Tiles (mirrors QuestionManagementPanel) */
 .pov-tile-group {
   display: flex;
@@ -1037,182 +898,7 @@
   text-decoration: underline;
 }
 
-/* Row 4: Cited Sources Card */
-.pov-sources {
-  border: 1px solid #e4e4e7;
-  border-radius: 14px;
-  background: #ffffff;
-  overflow: visible;
-}
-
-.pov-source-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.pov-source-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 12px 20px;
-  border-bottom: 1px solid #f1f2f4;
-  transition: background 0.12s ease;
-}
-
-.pov-source-row:last-child {
-  border-bottom: 0;
-}
-
-.pov-source-row:hover {
-  background: #fcfcfd;
-}
-
-.pov-shell .pov-source-main {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  flex: 1;
-  text-align: left;
-}
-
-.pov-source-rank {
-  width: 22px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #a1a1aa;
-  text-align: center;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-
-.pov-source-body {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-  flex: 1;
-}
-
-.pov-source-heading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.pov-source-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 7px;
-  border-radius: 5px;
-  background: #f4f4f5;
-  color: #52525b;
-  font-size: 11px;
-  font-weight: 550;
-  flex-shrink: 0;
-}
-
-.pov-source-badge.is-owned {
-  background: #ecfdf5;
-  color: #15803d;
-}
-
-.pov-source-title {
-  font-size: 14px;
-  line-height: 1.4;
-  font-weight: 550;
-  color: #18181b;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color 0.12s ease;
-}
-
-.pov-shell .pov-source-main:hover .pov-source-title {
-  color: #18765c;
-}
-
-.pov-source-sub {
-  font-size: 12px;
-  line-height: 1.4;
-  color: #71717a;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pov-source-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
-
-.pov-source-engines {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.pov-source-engine {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 4px;
-  border-radius: 7px;
-  border: 1px solid #e7e8ea;
-  background: #ffffff;
-}
-
-.pov-source-engine svg,
-.pov-source-engine img {
-  width: 14px !important;
-  height: 14px !important;
-}
-
-.pov-source-ext {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #71717a;
-  padding: 5px;
-  border-radius: 6px;
-  flex-shrink: 0;
-  transition: color 0.12s ease, background 0.12s ease;
-}
-
-.pov-source-ext:hover {
-  color: #18181b;
-  background: #f4f4f5;
-}
-
 /* Empty state */
-.pov-empty-state {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 28px;
-  border-radius: 14px;
-  border: 1px solid #e4e4e7;
-  background: #fff;
-}
-
-.pov-shell .pov-empty-state h1 {
-  margin: 0 0 6px;
-  font-size: 21px;
-  font-weight: 650;
-}
-
-.pov-shell .pov-empty-state p {
-  margin: 0;
-  color: #52525b;
-  font-size: 14px;
-}
 
 .pov-empty-card {
   display: flex;
@@ -1831,15 +1517,6 @@ a.pov-gap-action-btn:hover {
   .pov-tile-group {
     width: 100%;
     justify-content: space-between;
-  }
-  .pov-source-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  .pov-source-right {
-    width: 100%;
-    justify-content: flex-end;
   }
   .pov-audit-detail {
     grid-template-columns: 1fr;
