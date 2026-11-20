@@ -723,8 +723,8 @@ export default function OptimizationStudio({
       if (payload.runs) setRuns(payload.runs);
       setNotice(
         isEn
-          ? `Pushed "${deliverable.title}" to GitHub and logged under Shipped Log.`
-          : `已将《${deliverable.title}》推送到 GitHub 默认分支，并自动归档进「已上线记录」。`,
+          ? `Pushed "${deliverable.title}" to GitHub and logged under Published.`
+          : `已将《${deliverable.title}》推送到 GitHub 默认分支，并自动归档进「已发布」。`,
       );
       if (readerState?.deliverable.id === deliverable.id) {
         setReaderState(null);
@@ -860,21 +860,21 @@ export default function OptimizationStudio({
       if (!res.ok) {
         throw new Error(
           payload.error ||
-            (isEn ? 'Could not open Ego Lite.' : '无法打开 Ego Lite 发布页。'),
+            (isEn ? 'Could not open the publish page.' : '无法打开发布页。'),
         );
       }
       setNotice(
         isEn
-          ? 'Copied full Markdown and opened Dev.to in Ego Lite—paste, publish, then click Mark Published.'
-          : '已复制外发 Markdown 并在 Ego Lite 打开写作页；粘贴发布后回来点「记为已发布」即可入账。',
+          ? 'Copied full Markdown and opened the publish page—paste, publish, then click Mark Published.'
+          : '已复制外发 Markdown 并打开写作页；粘贴发布后回来点「记为已发布」即可入账。',
       );
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
           : isEn
-            ? 'Could not open Ego Lite.'
-            : '打开 Ego Lite 失败。',
+            ? 'Could not open the publish page.'
+            : '打开发布页失败。',
       );
     } finally {
       setBusyDocId(null);
@@ -909,8 +909,8 @@ export default function OptimizationStudio({
       setPublishedUrlInput('');
       setNotice(
         isEn
-          ? `Archived "${deliverable.title}" (${cleanUrl}) to Shipped Log.`
-          : `已将《${deliverable.title}》及公开链接记入「已上线记录」。`,
+          ? `Archived "${deliverable.title}" (${cleanUrl}) to Published.`
+          : `已将《${deliverable.title}》及公开链接记入「已发布」。`,
       );
       if (readerState?.deliverable.id === deliverable.id) {
         setReaderState(null);
@@ -1049,13 +1049,9 @@ export default function OptimizationStudio({
             </span>
             <h1>{t('term.actionPlan')}</h1>
           </div>
-          <p className="oap-header-sub">
-            {pageAudit
-              ? isEn
-                ? `Grounded in ${pageAudit.shardStats.totalAnswers} live AI answers · Organized into ${hasRightLaunchCard ? '2 main tracks' : '1 focused track'}`
-                : `基于 ${pageAudit.shardStats.totalAnswers} 条真实 AI 回答核对 · 已整理为 ${hasRightLaunchCard ? '2 项主线动作' : '1 项主线动作'}`
-              : t('actionPlan.subtitle')}
-          </p>
+          {!pageAudit && (
+            <p className="oap-header-sub">{t('actionPlan.subtitle')}</p>
+          )}
         </div>
 
         <div className="oap-header-right">
@@ -1236,21 +1232,18 @@ export default function OptimizationStudio({
         {hasRightLaunchCard && (
           <section
             className="oap-lp-card"
-            aria-label={isEn ? 'Track 2 · External High-Authority Listings' : '主线 2 · 抢外部高权收录'}
+            aria-label={isEn ? 'External listings' : '外部高权收录'}
           >
             <div className="oap-lp-head">
-              <div className="oap-lp-head-top">
-                <span className="oap-lp-kicker is-blue">
-                  {isEn ? 'Track 2 · External Listings' : '主线 2 · 抢外部高权收录'}
-                </span>
-                {!outreachLoading && (
+              {!outreachLoading && (
+                <div className="oap-lp-head-top">
                   <span className="oap-lp-count">
                     {isEn
                       ? `${selectedExternalCount} / ${primaryExternalListings.length} selected`
                       : `已选 ${selectedExternalCount} / ${primaryExternalListings.length} 项`}
                   </span>
-                )}
-              </div>
+                </div>
+              )}
               <h2 className="oap-lp-title">
                 {outreachLoading && primaryExternalListings.length === 0
                   ? isEn
@@ -1471,8 +1464,8 @@ export default function OptimizationStudio({
                       ? 'Inspect and edit each entry before submitting PRs or opening directory forms.'
                       : '提交前可逐项核对或微调插入行与提交材料，一切由你确认后才发出。'
                     : isEn
-                      ? 'Edit freely, copy to clipboard, and open directly in Ego Lite.'
-                      : '可按需微调措辞，一键复制并在 Ego Lite 打开目标页面。'}
+                      ? 'Edit freely, copy to clipboard, and open the target page.'
+                      : '可按需微调措辞，一键复制并打开目标页面。'}
                 </p>
               </div>
               <button
@@ -1841,8 +1834,8 @@ export default function OptimizationStudio({
                                 : '外部目录收录'
                               : entry.sourceKind === 'page_audit'
                                 ? isEn
-                                  ? 'Page update'
-                                  : '页面改稿'
+                                  ? 'Suggested edit'
+                                  : '修改建议'
                                 : entry.sourceKind === 'repo_meta'
                                   ? t('actionPlan.repoMetaBadge')
                                   : entry.sourceKind === 'community_post'

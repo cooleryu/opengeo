@@ -146,7 +146,7 @@ export default function ObservedCompetitorView({
             onClick={onOpenActionPlan}
           >
             <Sparkles size={14} />
-            <span>{isEn ? 'Open Action Plan' : '去优化方案反超'}</span>
+            <span>{isEn ? 'Open Action Plan' : '打开行动计划'}</span>
           </button>
         </div>
       </header>
@@ -156,7 +156,7 @@ export default function ObservedCompetitorView({
         <div className="ocv-card ocv-own-card">
           <div className="ocv-card-head">
             <span className="ocv-kicker">{isEn ? 'Your baseline' : '我方当前表现'}</span>
-            <strong>{snapshot.projectName}</strong>
+            <strong data-i18n-skip="">{snapshot.projectName}</strong>
           </div>
           <div className="ocv-own-stats">
             <div>
@@ -174,7 +174,7 @@ export default function ObservedCompetitorView({
                 <small>/{snapshot.measuredAnswers}</small>
               </span>
               <span className="ocv-stat-label">
-                {isEn ? 'Answers with native citation' : '条带原生引用'}
+                {t('term.siteCited')}
               </span>
             </div>
           </div>
@@ -307,7 +307,7 @@ export default function ObservedCompetitorView({
               <p>
                 {isEn
                   ? 'Derived directly from real captured citations—no separate analysis run needed.'
-                  : '直接来自真实回答里的原生引用与来源，按覆盖题数排序。'}
+                  : '直接来自真实回答里的引用与来源，按覆盖题数排序。'}
               </p>
             </div>
             {snapshot.competitors.length > 6 && (
@@ -408,7 +408,7 @@ export default function ObservedCompetitorView({
           className="ocv-inline-btn"
           onClick={onOpenQuestions}
         >
-          {isEn ? 'Inspect in Questions & Runs' : '前往「问题监测」抽查'}
+          {isEn ? `Inspect in ${t('term.buyerQuestions')}` : `前往「${t('term.buyerQuestions')}」抽查`}
           <ArrowRight size={13} />
         </button>
       </footer>

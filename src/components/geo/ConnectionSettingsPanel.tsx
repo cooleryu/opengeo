@@ -6,6 +6,7 @@ import {
   ArrowRight,
   BrainCircuit,
   Check,
+  ChevronDown,
   FileText,
   Loader2,
   RefreshCw,
@@ -229,7 +230,7 @@ export default function ConnectionSettingsPanel({
           </span>
           <div>
             <h2 id="cs-analysis-title">
-              {isEn ? 'Analysis Agent' : '分析 Agent'}
+              {isEn ? 'AI model' : 'AI 模型'}
             </h2>
             <p>
               {isEn
@@ -299,103 +300,101 @@ export default function ConnectionSettingsPanel({
         </div>
       </section>
 
-      <section className="cs-group" aria-labelledby="cs-context-title">
-        <header className="cs-group-heading">
-          <span className="cs-group-icon cs-context-icon">
-            <FileText size={21} />
-          </span>
-          <div>
-            <h2 id="cs-context-title">
-              {isEn ? (
-                <>
-                  Project fact sheet (<code>project-context.md</code>)
-                </>
-              ) : (
-                <>
-                  项目事实档案（<code>project-context.md</code>）
-                </>
-              )}
-            </h2>
-            <p>
-              {isEn
-                ? 'Open Markdown facts shared across question planning, optimization drafts, and reviewer checks. Edit anytime.'
-                : '问题规划、方案撰写与把关审核共同读取的开放 Markdown 档案，随时可微调产品定位、受众与同名排除。'}
-            </p>
-          </div>
-        </header>
-
-        <div className="cs-model-card cs-context-card">
-          <div className="cs-context-meta">
-            <span className={`cs-status${contextData?.source === 'file' ? ' is-saved' : ''}`}>
-              {contextData?.source === 'file'
-                ? isEn
-                  ? 'Saved on disk'
-                  : '已保存为项目文件'
-                : isEn
-                  ? 'Auto-synthesized preview (not written yet)'
-                  : '自动合成预览（保存后落盘）'}
+      <details className="cs-group cs-advanced">
+        <summary className="cs-advanced-summary">
+          <span>{isEn ? 'Advanced' : '高级'}</span>
+          <ChevronDown size={15} className="cs-disclosure-chevron" />
+        </summary>
+        <section className="cs-advanced-body" aria-labelledby="cs-context-title">
+          <header className="cs-group-heading">
+            <span className="cs-group-icon cs-context-icon">
+              <FileText size={21} />
             </span>
-            {contextData?.synthesizedMarkdown && (
+            <div>
+              <h2 id="cs-context-title">
+                {isEn ? 'Project fact sheet' : '项目事实档案'}
+              </h2>
+              <p>
+                {isEn
+                  ? 'Shared Markdown facts used across buyer questions, drafts, and reviews. Edit anytime.'
+                  : '问题规划、草稿撰写与把关审核共同读取的开放 Markdown 档案，随时可微调产品定位、受众与同名排除。'}
+              </p>
+            </div>
+          </header>
+
+          <div className="cs-model-card cs-context-card">
+            <div className="cs-context-meta">
+              <span className={`cs-status${contextData?.source === 'file' ? ' is-saved' : ''}`}>
+                {contextData?.source === 'file'
+                  ? isEn
+                    ? 'Saved on disk'
+                    : '已保存为项目文件'
+                  : isEn
+                    ? 'Auto-synthesized preview (not written yet)'
+                    : '自动合成预览（保存后落盘）'}
+              </span>
+              {contextData?.synthesizedMarkdown && (
+                <button
+                  type="button"
+                  className="cs-link"
+                  onClick={() => {
+                    setContextDraft(contextData.synthesizedMarkdown ?? '');
+                    setContextDirty(true);
+                    setContextFeedback({});
+                  }}
+                >
+                  <RefreshCw size={12} />
+                  {isEn ? 'Refresh from latest project data' : '按最新采集重新生成草稿'}
+                </button>
+              )}
+            </div>
+
+            <textarea
+              className="cs-context-editor"
+              rows={11}
+              value={contextDraft}
+              aria-label={isEn ? 'Project fact sheet Markdown' : '项目事实档案 Markdown'}
+              placeholder={
+                isEn
+                  ? 'Loading project fact sheet…'
+                  : '正在读取项目事实档案…'
+              }
+              onChange={(event) => {
+                setContextDraft(event.target.value);
+                setContextDirty(true);
+                setContextFeedback({});
+              }}
+            />
+
+            <div className="cs-actions">
               <button
                 type="button"
-                className="cs-link"
-                onClick={() => {
-                  setContextDraft(contextData.synthesizedMarkdown ?? '');
-                  setContextDirty(true);
-                  setContextFeedback({});
-                }}
+                className="cs-button cs-primary"
+                disabled={contextBusy || !contextDraft.trim() || (!contextDirty && contextData?.source === 'file')}
+                onClick={() => void saveProjectContext()}
               >
-                <RefreshCw size={12} />
-                {isEn ? 'Refresh from latest project data' : '按最新采集重新生成草稿'}
+                {contextBusy && <Loader2 size={14} className="spin" />}
+                {isEn ? 'Save fact sheet' : '保存项目档案'}
               </button>
+              {contextDirty && (
+                <span className="cs-hint">
+                  {isEn ? 'Unsaved changes' : '有未保存的修改'}
+                </span>
+              )}
+            </div>
+            {contextFeedback.error && (
+              <p className="cs-feedback is-error" role="alert">
+                {contextFeedback.error}
+              </p>
+            )}
+            {contextFeedback.message && (
+              <p className="cs-feedback is-ok" role="status">
+                <Check size={14} /> {contextFeedback.message}
+              </p>
             )}
           </div>
-
-          <textarea
-            className="cs-context-editor"
-            rows={11}
-            value={contextDraft}
-            aria-label={isEn ? 'Project context Markdown' : '项目事实档案 Markdown'}
-            placeholder={
-              isEn
-                ? 'Loading project-context.md…'
-                : '正在读取项目事实档案…'
-            }
-            onChange={(event) => {
-              setContextDraft(event.target.value);
-              setContextDirty(true);
-              setContextFeedback({});
-            }}
-          />
-
-          <div className="cs-actions">
-            <button
-              type="button"
-              className="cs-button cs-primary"
-              disabled={contextBusy || !contextDraft.trim() || (!contextDirty && contextData?.source === 'file')}
-              onClick={() => void saveProjectContext()}
-            >
-              {contextBusy && <Loader2 size={14} className="spin" />}
-              {isEn ? 'Save project-context.md' : '保存项目档案'}
-            </button>
-            {contextDirty && (
-              <span className="cs-hint">
-                {isEn ? 'Unsaved changes' : '有未保存的修改'}
-              </span>
-            )}
-          </div>
-          {contextFeedback.error && (
-            <p className="cs-feedback is-error" role="alert">
-              {contextFeedback.error}
-            </p>
-          )}
-          {contextFeedback.message && (
-            <p className="cs-feedback is-ok" role="status">
-              <Check size={14} /> {contextFeedback.message}
-            </p>
-          )}
-        </div>
-      </section>
+        </section>
+      </details>
 
       <section id="traffic" className="cs-group" aria-labelledby="cs-traffic-title">
         <header className="cs-group-heading">

@@ -1030,6 +1030,91 @@ function OpenGeoAppInner() {
             </div>
           ))}
         </nav>
+        {data?.firstRun && (() => {
+          const fr = data.firstRun;
+          const projectId = data.project.id;
+          const items = [
+            {
+              id: 'model',
+              done: fr.modelReady,
+              label: isEn ? 'Connect an AI model' : '连接 AI 模型',
+              onClick: () => openModelSettings(),
+            },
+            {
+              id: 'product',
+              done: fr.productReady,
+              label: isEn ? 'Add your product' : '添加你的产品',
+              href: projectId ? `/new?project=${encodeURIComponent(projectId)}` : '/new',
+            },
+            {
+              id: 'questions',
+              done: fr.questionsReady,
+              label: isEn ? 'Confirm buyer questions' : '确认买家问题',
+              onClick: () => navigate('question-plan'),
+            },
+            {
+              id: 'answers',
+              done: fr.answersReady,
+              label: isEn ? 'Collect AI answers' : '采集 AI 回答',
+              onClick: () => navigate('overview'),
+            },
+            {
+              id: 'plan',
+              done: fr.actionPlanReady,
+              label: isEn ? 'Create your Action Plan' : '生成行动计划',
+              onClick: () => navigate('tasks'),
+            },
+          ];
+          const doneCount = items.filter((item) => item.done).length;
+          if (doneCount >= items.length) return null;
+          const nextIndex = items.findIndex((item) => !item.done);
+          return (
+            <section
+              className="og-first-run"
+              aria-label={isEn ? 'Get started checklist' : '开始使用清单'}
+            >
+              <div className="og-first-run-header">
+                <span>
+                  {isEn
+                    ? `Get started · ${doneCount}/5`
+                    : `开始使用 · ${doneCount}/5`}
+                </span>
+              </div>
+              <ol className="og-first-run-list">
+                {items.map((item, idx) => {
+                  const isNext = idx === nextIndex;
+                  const cls = `og-first-run-item${item.done ? ' is-done' : ''}${isNext ? ' is-next' : ''}`;
+                  const content = (
+                    <>
+                      <span className="og-first-run-mark" aria-hidden="true">
+                        {item.done ? <Check size={11} /> : idx + 1}
+                      </span>
+                      <span className="og-first-run-label">{item.label}</span>
+                    </>
+                  );
+                  return (
+                    <li key={item.id}>
+                      {item.href ? (
+                        <a href={item.href} className={cls} aria-current={isNext ? 'step' : undefined}>
+                          {content}
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          className={cls}
+                          aria-current={isNext ? 'step' : undefined}
+                          onClick={item.onClick}
+                        >
+                          {content}
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          );
+        })()}
         <div className="og-sidebar-bottom">
           <UiLanguageToggle className="og-sidebar-lang" />
           <a

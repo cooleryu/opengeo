@@ -98,11 +98,11 @@ For the first pass, run the questions the workbench already prepared (up to 8) o
 
 ## 3 · Break down the winners, review each draft, and retest with the original question
 
-Open **Optimization & Tracking** for a question where you are missing — a category recommendation that lists three competitors, or an answer that quotes someone else's comparison post. OpenGEO first probes the pages the AI actually cited for that question and reads their skeleton: the headings they use, what they answer in the first two sentences, which dimensions they compare. A summary of those reference winners sits at the top of the page, so you know what you are up against before you read a single draft.
+Open **Action Plan** for a question where you are missing — a category recommendation that lists three competitors, or an answer that quotes someone else's comparison post. OpenGEO first probes the pages the AI actually cited for that question and reads their skeleton: the headings they use, what they answer in the first two sentences, which dimensions they compare. A summary of those reference winners sits at the top of the page, so you know what you are up against before you read a single draft.
 
 It then writes one to three complementary drafts for that question — typically a README front page, a getting-started guide, and a public comparison or hands-on article — rather than restating the same point three ways. Each draft opens as **new draft against original text**, and each passes an independent review before it reaches you, so you are editing something publishable instead of a pile of suggestions.
 
-Nothing gets pushed out in bulk. If a draft fits, click **Adopt this draft**. If you want to wait, click **Not adopting for now** and come back later. Publishing itself stays with you: the workbench writes nothing to your remote repository until you explicitly adopt and confirm pushing, or copy an article out yourself.
+Nothing gets pushed out in bulk. If a draft fits, click **Confirm & Push to GitHub** (or **Mark Published** after publishing externally). If you want to wait, click **Skip** and come back later. Publishing itself stays with you: the workbench writes nothing to your remote repository until you explicitly confirm pushing, or copy an article out yourself.
 
 Once the content is live, ask the original question again — same platform, same entry point, same wording — and open both records on one timeline. You are comparing your own two answers, not guessing across sources.
 
@@ -111,16 +111,16 @@ flowchart TD
     A["Pick a question that misses you"] --> B["Read the cited winner pages and their structure"]
     B --> C["Get one to three complementary drafts"]
     C --> D["Compare the new draft with the original, side by side"]
-    D --> E["Adopt this draft, or not adopting for now"]
+    D --> E["Confirm & Push to GitHub, or Skip"]
     E --> F["You publish it yourself"]
     F --> G["Ask the original question again, same platform and entry point"]
     G --> H["Both records sit on one timeline"]
     H --> A
 ```
 
-![Optimization Studio screen showing the draft list, cited winner references, markdown article view, and adoption controls](images/improvement-tracking-en.png)
+![Action Plan screen showing the draft list, cited winner references, markdown article view, and publish controls](images/improvement-tracking-en.png)
 
-*Optimization & Tracking — read each draft in full, compare before/after changes on existing pages, switch to a Chinese companion translation when needed, and adopt one piece at a time.*
+*Action Plan — read each draft in full, compare before/after changes on existing pages, switch to a Chinese companion translation when needed, and publish one piece at a time.*
 
 ## Cost and local data
 

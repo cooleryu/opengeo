@@ -23,14 +23,17 @@ import { validateDiagnosis, validateProposal } from './diagnosis';
 import { GEO_ACCEPTANCE_CRITERIA_VERSION } from './quality';
 import { buildSearchProtocolKey } from './search-protocol';
 import { isConsumerResearchEngine } from './research-engines';
-import type { ResearchEngine } from './research-types';
+import type { ResearchBatch, ResearchEngine } from './research-types';
+import { isAiAnswerRow } from './overview-metrics';
+import { readLatestPageAudit } from './optimization/page-audit';
+import { getLatestOptimizationRun } from './optimization/repository';
 import { evaluateOutcome, buildStrategyMemory, selectStrategies } from './learning';
 import { buildInitialQuestionPlan, generateQuestionPlan, validateQuestionPlan } from './question-planner';
 import { reviewManualQuestion, saveManualQuestion } from './question-management';
 import type { GeoQuestionPlan, QuestionGenerationProgress } from './question-types';
 import { QuestionGenerationJobs } from './question-generation-job';
 import { getProjectOnboarding, getProjectOnboardingPlanningContext } from './project-onboarding-store';
-import type { AssetGovernanceInput, AssetGovernanceRecord, ClaimReviewRecord, GeoEvent, GeoMonitor, GeoRun, GeoState, GeoTask } from './types';
+import type { AssetGovernanceInput, AssetGovernanceRecord, ClaimReviewRecord, GeoEvent, GeoFirstRunState, GeoMonitor, GeoRun, GeoState, GeoTask } from './types';
 import type { GeoWorkflow, LegacyCollectionConfig, StrategyMemory, WorkflowQuestion } from './workflow-types';
 import { buildProjectOptimization, freezeProjectOptimization, preserveProjectOptimizationHistory, recoverUnreadProjectEvidence, setProjectOptimizationProgress, validateProjectOptimizationMode, type ProjectOptimizationDependencies } from './project-optimization';
 import { selectProjectDelivery } from './project-optimization-delivery';
@@ -371,6 +374,43 @@ function taskDisplayMetadata(projectId: string): Record<string, HistoryContext> 
   }
 }
 
+export function computeFirstRunState(input: {
+  modelConfigured: boolean;
+  projectDescription?: string;
+  onboardingStatus?: string | null;
+  questionCount: number;
+  latestResearch: ResearchBatch | null;
+  hasPageAudit: boolean;
+  latestRunStatus?: string | null;
+}): GeoFirstRunState {
+  const productReady =
+    input.onboardingStatus != null
+      ? input.onboardingStatus === 'ready'
+      : Boolean(input.projectDescription?.trim());
+  const questionsReady =
+    input.questionCount > 0 || (input.latestResearch?.questions.length ?? 0) > 0;
+  const answersReady = Boolean(
+    input.latestResearch?.questions.some((question) =>
+      question.observations.some((obs) =>
+        isAiAnswerRow({
+          engine: obs.engine,
+          observation: obs,
+        } as Parameters<typeof isAiAnswerRow>[0]),
+      ),
+    ),
+  );
+  const actionPlanReady =
+    input.hasPageAudit ||
+    Boolean(input.latestRunStatus && input.latestRunStatus !== 'failed');
+  return {
+    modelReady: input.modelConfigured,
+    productReady,
+    questionsReady,
+    answersReady,
+    actionPlanReady,
+  };
+}
+
 export function getGeoState(): GeoState {
   const model = getGeoModelSettings();
   const seed = getSeed();
@@ -379,8 +419,22 @@ export function getGeoState(): GeoState {
   for (const task of tasks) importTaskResearchRuns(task);
   const observations = [...seed.observations].sort((a, b) => new Date(b.measurementAt).getTime() - new Date(a.measurementAt).getTime());
   const questions = seed.questions;
+  const latestResearch = readRelationalOverview(seed.project.id);
+  const onboarding = getProjectOnboarding(seed.project.id);
+  const latestAudit = readLatestPageAudit(seed.project.id);
+  const latestRun = getLatestOptimizationRun(seed.project.id);
+  const firstRun = computeFirstRunState({
+    modelConfigured: model.modelConfigured,
+    projectDescription: seed.project.description,
+    onboardingStatus: onboarding?.status ?? null,
+    questionCount: questions.length,
+    latestResearch,
+    hasPageAudit: Boolean(latestAudit),
+    latestRunStatus: latestRun?.status ?? null,
+  });
   return {
-    latestResearch: readRelationalOverview(seed.project.id), governanceRecords: listGovernanceRecords(), claimReviews: listClaimReviews(),
+    firstRun,
+    latestResearch, governanceRecords: listGovernanceRecords(), claimReviews: listClaimReviews(),
     ...seed, projects: listGeoProjects(), questions, observations, tasks: tasks.map(task => ({ ...task, ...(history[task.id] ? { historyContext: history[task.id] } : {}), canContinueRevision: canContinueTaskRevision(task) })), questionPlan: getQuestionPlan(), questionGeneration: getQuestionGeneration(), visibility: buildVisibility(seed, questions, tasks), strategies: listStrategies(),
     settings: {
       liveSearchConfigured: false,

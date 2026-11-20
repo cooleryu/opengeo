@@ -477,7 +477,7 @@ export default function OptimizationHeroCard({
                 </li>
                 <li>
                   <b>3</b>
-                  <span>{isEn ? 'Re-audit same prompts' : '原题重测看变化'}</span>
+                  <span>{isEn ? 'Retest same prompts' : '原题重测看变化'}</span>
                 </li>
               </ol>
             )}
@@ -508,14 +508,14 @@ export default function OptimizationHeroCard({
           {isMulti ? (
             <div
               className="ohc-package-card"
-              aria-label={isEn ? `${deliverables.length} deliverables in package` : `本轮配套方案清单，共 ${deliverables.length} 份`}
+              aria-label={isEn ? `${deliverables.length} drafts in package` : `本轮配套方案清单，共 ${deliverables.length} 份`}
             >
               <div className="ohc-pkg-head">
                 <span className="ohc-pkg-kicker">
                   <FileStack size={13.5} />
                   <span>
                     {isEn
-                      ? `Deliverable package · ${deliverables.length} drafts`
+                      ? `Draft package · ${deliverables.length} drafts`
                       : `配套改进清单 · 共 ${deliverables.length} 份`}
                   </span>
                 </span>
@@ -833,7 +833,7 @@ export default function OptimizationHeroCard({
               {needsGitHubPushFirst
                 ? isEn
                   ? 'Push docs to GitHub'
-                  : '前往优化方案推送'
+                  : '前往行动计划推送'
                 : formatNextOutreachCta(topNextOutreach)}
             </span>
             <ArrowRight size={16} />
@@ -902,7 +902,7 @@ export default function OptimizationHeroCard({
               <p className="ohc-why">
                 {isEn
                   ? `Early re-checks (${beforeM} → ${afterM} across ${compared} answers) hit pre-index caches rather than reflecting the new docs.${topNextOutreach ? ' Tackle the top AI-cited outreach channel next while indexing settles.' : ''}`
-                  : `刚推送完不久重测（${beforeM} → ${afterM}，共 ${compared} 条）多半命中旧缓存，不代表改稿无效。${topNextOutreach ? '等待期间建议先推进排名第一的外链/榜单曝光渠道。' : ''}`}
+                  : `刚推送完不久重测（${beforeM} → ${afterM}，共 ${compared} 条）多半命中旧缓存，不代表修改无效。${topNextOutreach ? '等待期间建议先推进排名第一的外链/榜单曝光渠道。' : ''}`}
               </p>
               {renderTopCitedStrip(visibleCitedSources, isEn)}
             </div>
@@ -997,10 +997,10 @@ export default function OptimizationHeroCard({
               <span>
                 {hasImprovement
                   ? isEn
-                    ? 'Re-audit completed'
+                    ? 'Retest completed'
                     : '本轮改进已完成复测'
                   : isEn
-                    ? 'Re-audit · No lift after indexing window'
+                    ? 'Retest · No lift after indexing window'
                     : '收录期后复测 · 暂未见明显提升'}
               </span>
             </div>
@@ -1019,11 +1019,11 @@ export default function OptimizationHeroCard({
               {retestSummary
                 ? isEn
                   ? hasImprovement
-                    ? `Retested ${compared} answers: mentions ${beforeM} → ${afterM}, official citations ${beforeC} → ${afterC}.`
-                    : `Retested ${compared} answers: mentions ${beforeM} → ${afterM}, official citations ${beforeC} → ${afterC}. Open Action Plan to tackle the highest-impact cited lists next.`
+                    ? `Retested ${compared} answers: mentions ${beforeM} → ${afterM}, site cited ${beforeC} → ${afterC}.`
+                    : `Retested ${compared} answers: mentions ${beforeM} → ${afterM}, site cited ${beforeC} → ${afterC}. Open Action Plan to tackle the highest-impact cited lists next.`
                   : hasImprovement
-                    ? `共复测 ${compared} 条问答：AI 提及从 ${beforeM} 条变为 ${afterM} 条，官网引用从 ${beforeC} 条变为 ${afterC} 条。`
-                    : `共复测 ${compared} 条问答：提及 ${beforeM} → ${afterM} 条，引用 ${beforeC} → ${afterC} 条。打开「优化方案」按推荐顺序逐项拿下外部高引用渠道。`
+                    ? `共复测 ${compared} 条问答：AI 提及从 ${beforeM} 条变为 ${afterM} 条，官网被引用从 ${beforeC} 条变为 ${afterC} 条。`
+                    : `共复测 ${compared} 条问答：提及 ${beforeM} → ${afterM} 条，官网被引用 ${beforeC} → ${afterC} 条。打开「行动计划」按推荐顺序逐项拿下外部高引用渠道。`
                 : run.statusMessage ||
                   (isEn
                     ? 'Inspect answer-by-answer comparisons or start a new round.'
@@ -1040,7 +1040,7 @@ export default function OptimizationHeroCard({
               {hasImprovement
                 ? isEn
                   ? 'Open Action Plan'
-                  : '查看优化方案'
+                  : '查看行动计划'
                 : formatNextOutreachCta(topNextOutreach)}
             </span>
             <ArrowRight size={16} />

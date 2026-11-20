@@ -84,7 +84,7 @@ When a question misses you, OpenGEO first reads the pages AI cited for it — th
 
 ![OpenGEO optimization studio showing winner structure breakdown, markdown draft view, and per-draft adoption](docs/images/improvement-tracking-en.png)
 
-*Optimization & Tracking — read each draft in full, compare before/after edits, view companion translations when enabled, and adopt one piece at a time*
+*Action Plan — read each draft in full, compare before/after edits, view companion translations when enabled, and publish one piece at a time*
 
 ### Supported platforms
 

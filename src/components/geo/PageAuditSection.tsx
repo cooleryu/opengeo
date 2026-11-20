@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import type { HumanProgressStep } from '@/lib/agent-hub';
+import { plural } from '@/lib/geo/i18n';
 import type {
   PageAuditFinding,
   PageAuditRecord,
@@ -399,8 +400,8 @@ export default function PageAuditSection({
         setModalOpen(true);
         onNotice?.(
           isEn
-            ? `Drafted ${missingPreviewSelectedIds.length} targeted edits—review below and click Apply to write to ${latestAudit.targetLabel}.`
-            : `已并发生成 ${missingPreviewSelectedIds.length} 处改稿预览，滚一眼确认无误后点右下角即可写入本地 ${latestAudit.targetLabel}。`,
+            ? `Wrote ${plural('en', missingPreviewSelectedIds.length, { one: '{n} suggested edit', other: '{n} suggested edits' })}—review below and click Apply to write to ${latestAudit.targetLabel}.`
+            : `已并发生成 ${missingPreviewSelectedIds.length} 条修改建议，滚一眼确认无误后点右下角即可写入本地 ${latestAudit.targetLabel}。`,
         );
         return;
       }
@@ -412,8 +413,8 @@ export default function PageAuditSection({
       await navigator.clipboard?.writeText(brief).catch(() => {});
       onNotice?.(
         isEn
-          ? `Copied ${selectedOpenIds.length} updates for ${latestAudit.targetLabel} to clipboard. After publishing them live, click "Mark live" with the live URL to start the retest clock.`
-          : `已复制 ${selectedOpenIds.length} 处「${latestAudit.targetLabel}」改稿清单到剪贴板；更新线上页面后点「我已上线」并填入线上链接，即可自动入账并开启复测计时。`,
+          ? `Copied ${plural('en', selectedOpenIds.length, { one: '{n} suggested edit', other: '{n} suggested edits' })} for ${latestAudit.targetLabel} to clipboard. After publishing them live, click "Mark live" with the live URL to start the retest clock.`
+          : `已复制 ${selectedOpenIds.length} 条「${latestAudit.targetLabel}」修改建议到剪贴板；更新线上页面后点「我已上线」并填入线上链接，即可自动入账并开启复测计时。`,
       );
       return;
     }
@@ -520,8 +521,8 @@ export default function PageAuditSection({
       setModalOpen(false);
       onNotice?.(
         isEn
-          ? `Logged ${markLiveCandidateIds.length} live page updates to Shipped Log and started the retest clock.`
-          : `已将 ${markLiveCandidateIds.length} 处页面改稿记入「已上线记录」，复测计时已开始。`,
+          ? `Logged ${plural('en', markLiveCandidateIds.length, { one: '{n} live page update', other: '{n} live page updates' })} to Published and started the retest clock.`
+          : `已将 ${markLiveCandidateIds.length} 条页面修改记入「已发布」，复测计时已开始。`,
       );
     } catch (err) {
       onError?.(
@@ -535,14 +536,6 @@ export default function PageAuditSection({
       setBusyBatchOp(null);
     }
   };
-
-  const kickerLabel = isLiveWebTarget
-    ? isEn
-      ? 'Track 1 · Upgrade Your Homepage'
-      : '主线 1 · 改官网页面'
-    : isEn
-      ? 'Track 1 · Upgrade Your Own Page'
-      : '主线 1 · 改自己门面';
 
   const cardTitle = activeAudit
     ? isEn
@@ -558,55 +551,56 @@ export default function PageAuditSection({
     <>
       <section
         className={`oap-lp-card ${allApplied ? 'is-done' : ''}`}
-        aria-label={kickerLabel}
+        aria-label={cardTitle}
       >
         {/* Row 1: Aligned Card Header */}
         <div className="oap-lp-head">
-          <div className="oap-lp-head-top">
-            <span className="oap-lp-kicker is-green">{kickerLabel}</span>
-            <div className="oap-lp-head-meta">
-              {targets.length > 1 && (
-                <GeoSelect
-                  label={isEn ? 'Select page to audit' : '切换体检页面'}
-                  className="oap-lp-select"
-                  value={effectiveAssetId}
-                  disabled={runningAudit}
-                  onChange={setSelectedAssetId}
-                  options={targets.map((item) => ({
-                    value: item.assetId,
-                    label: item.label,
-                  }))}
-                />
-              )}
-              {activeAudit && !runningAudit && (
-                <button
-                  type="button"
-                  className="oap-lp-icon-btn"
-                  title={isEn ? 'Re-run audit' : '重新体检'}
-                  aria-label={isEn ? 'Re-run audit' : '重新体检'}
-                  disabled={questionTotal === 0}
-                  onClick={() => void runAudit()}
-                >
-                  <RefreshCw size={13} />
-                </button>
-              )}
-              {activeAudit && (
-                <span className={`oap-lp-count ${allApplied ? 'is-done' : ''}`}>
-                  {allApplied
-                    ? hasShippedCurrentAudit
-                      ? isEn
-                        ? '✓ Live'
-                        : '✓ 已上线入账'
+          {(targets.length > 1 || activeAudit) && (
+            <div className="oap-lp-head-top">
+              <div className="oap-lp-head-meta">
+                {targets.length > 1 && (
+                  <GeoSelect
+                    label={isEn ? 'Select page to audit' : '切换体检页面'}
+                    className="oap-lp-select"
+                    value={effectiveAssetId}
+                    disabled={runningAudit}
+                    onChange={setSelectedAssetId}
+                    options={targets.map((item) => ({
+                      value: item.assetId,
+                      label: item.label,
+                    }))}
+                  />
+                )}
+                {activeAudit && !runningAudit && (
+                  <button
+                    type="button"
+                    className="oap-lp-icon-btn"
+                    title={isEn ? 'Re-run audit' : '重新体检'}
+                    aria-label={isEn ? 'Re-run audit' : '重新体检'}
+                    disabled={questionTotal === 0}
+                    onClick={() => void runAudit()}
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                )}
+                {activeAudit && (
+                  <span className={`oap-lp-count ${allApplied ? 'is-done' : ''}`}>
+                    {allApplied
+                      ? hasShippedCurrentAudit
+                        ? isEn
+                          ? '✓ Live'
+                          : '✓ 已上线入账'
+                        : isEn
+                          ? '✓ Written locally'
+                          : '✓ 已写入本地'
                       : isEn
-                        ? '✓ Written locally'
-                        : '✓ 已写入本地'
-                    : isEn
-                      ? `${selectedOpenIds.length} / ${openFindings.length} selected`
-                      : `已选 ${selectedOpenIds.length} / ${openFindings.length} 处`}
-                </span>
-              )}
+                        ? `${selectedOpenIds.length} / ${openFindings.length} selected`
+                        : `已选 ${selectedOpenIds.length} / ${openFindings.length} 处`}
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <h2 className="oap-lp-title">{cardTitle}</h2>
           <p className="oap-lp-desc">
@@ -874,16 +868,16 @@ export default function PageAuditSection({
                       <span>
                         {busyBatchOp === 'preview'
                           ? isEn
-                            ? 'Drafting edits…'
-                            : '并发生成改稿中…'
+                            ? 'Writing suggested edits…'
+                            : '正在生成修改建议…'
                           : busyBatchOp === 'apply'
                             ? isEn
                               ? 'Writing locally…'
                               : '正在写入本地…'
                             : !canWriteLocalFile
                               ? isEn
-                                ? `Copy ${selectedOpenIds.length} updates`
-                                : `复制已选 ${selectedOpenIds.length} 处改稿`
+                                ? `Copy ${plural('en', selectedOpenIds.length, { one: '{n} suggested edit', other: '{n} suggested edits' })}`
+                                : `复制已选 ${selectedOpenIds.length} 条修改建议`
                               : isEn
                                 ? `Apply ${selectedOpenIds.length} locally`
                                 : `写入本地已选 ${selectedOpenIds.length} 处`}
@@ -934,11 +928,11 @@ export default function PageAuditSection({
                     <span>
                       {busyBatchOp === 'preview'
                         ? isEn
-                          ? 'Drafting all…'
-                          : '并发生成中…'
+                          ? 'Writing suggested edits…'
+                          : '正在生成修改建议…'
                         : isEn
-                          ? `Draft all ${missingPreviewSelectedIds.length} previews`
-                          : `一次生成全部 ${missingPreviewSelectedIds.length} 处改稿`}
+                          ? `Write all ${plural('en', missingPreviewSelectedIds.length, { one: '{n} suggested edit', other: '{n} suggested edits' })}`
+                          : `一次生成全部 ${missingPreviewSelectedIds.length} 条修改建议`}
                     </span>
                   </button>
                 )}
@@ -1196,11 +1190,11 @@ export default function PageAuditSection({
                               <span>
                                 {isBusyOne
                                   ? isEn
-                                    ? 'Drafting…'
+                                    ? 'Writing…'
                                     : '生成中…'
                                   : isEn
-                                    ? 'Draft exact wording'
-                                    : '生成具体改稿'}
+                                    ? 'Write suggested edit'
+                                    : '生成修改建议'}
                               </span>
                             </button>
                           )}
@@ -1258,14 +1252,14 @@ export default function PageAuditSection({
                 {allApplied
                   ? hasShippedCurrentAudit
                     ? isEn
-                      ? 'Logged live to Shipped Log'
-                      : '已记入「已上线记录」'
+                      ? 'Logged live to Published'
+                      : '已记入「已发布」'
                     : isEn
                       ? 'Written to local file'
                       : '全部改动已写入本地文件'
                   : isEn
-                    ? `${selectedOpenIds.length} of ${openFindings.length} edits selected`
-                    : `已选 ${selectedOpenIds.length} / ${openFindings.length} 处改动`}
+                    ? `${selectedOpenIds.length} of ${openFindings.length} suggested edits selected`
+                    : `已选 ${selectedOpenIds.length} / ${openFindings.length} 条修改建议`}
               </span>
               <div className="oap-modal-footer-actions">
                 {(!canWriteLocalFile || (allApplied && !hasShippedCurrentAudit)) &&
@@ -1299,16 +1293,16 @@ export default function PageAuditSection({
                     <span>
                       {busyBatchOp === 'preview'
                         ? isEn
-                          ? 'Drafting selected edits…'
-                          : '正在生成缺失改稿…'
+                          ? 'Writing suggested edits…'
+                          : '正在生成修改建议…'
                         : busyBatchOp === 'apply'
                           ? isEn
                             ? 'Writing locally…'
                             : '正在写入本地…'
                           : !canWriteLocalFile
                             ? isEn
-                              ? `Copy ${selectedOpenIds.length} updates`
-                              : `复制已选 ${selectedOpenIds.length} 处改稿`
+                              ? `Copy ${plural('en', selectedOpenIds.length, { one: '{n} suggested edit', other: '{n} suggested edits' })}`
+                              : `复制已选 ${selectedOpenIds.length} 条修改建议`
                             : isEn
                               ? `Apply ${selectedOpenIds.length} locally to ${activeAudit.targetLabel}`
                               : `写入本地已选 ${selectedOpenIds.length} 处`}

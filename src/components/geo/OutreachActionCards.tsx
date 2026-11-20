@@ -548,7 +548,7 @@ export default function OutreachActionCards({
                         if (res) {
                           setMarkingSentId(null);
                           setSentUrlInput('');
-                          onNotice(isEn ? 'Archived to Shipped Log.' : '已记入「已上线记录」。');
+                          onNotice(isEn ? 'Archived to Published.' : '已记入「已发布」。');
                         }
                       }}
                     >
@@ -607,8 +607,8 @@ export default function OutreachActionCards({
                     if (res) {
                       onNotice(
                         isEn
-                          ? 'Copied submission details and opened the directory page in Ego Lite.'
-                          : '已复制材料并在 Ego Lite 打开目标目录页；提交后点击「记为已发」即可入账。',
+                          ? 'Copied submission details and opened the directory page.'
+                          : '已复制材料并打开目标目录页；提交后点击「记为已发」即可入账。',
                       );
                     }
                   }}
@@ -742,8 +742,8 @@ export default function OutreachActionCards({
                         setSentUrlInput('');
                         onNotice(
                           isEn
-                            ? 'Archived to Shipped Log.'
-                            : '已记入「已上线记录」。',
+                            ? 'Archived to Published.'
+                            : '已记入「已发布」。',
                         );
                       }
                     }}
@@ -822,8 +822,8 @@ export default function OutreachActionCards({
                       if (res) {
                         onNotice(
                           isEn
-                            ? 'Copied draft and opened the page in Ego Lite—review and click send, then Mark Sent.'
-                            : '已复制草稿并在 Ego Lite 打开目标页；检查发送后点击「记为已发」即可入账。',
+                            ? 'Copied draft and opened the target page—review and click send, then Mark Sent.'
+                            : '已复制草稿并打开目标页；检查发送后点击「记为已发」即可入账。',
                         );
                       }
                     }}

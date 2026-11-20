@@ -69,13 +69,6 @@
     "html-lang": {},
     "fixed-locale": {},
     "manual-plural": {},
-    "deprecated-term": {
-      "src/components/geo/ObservedCompetitorView.tsx": 3,
-      "src/components/geo/OptimizationHeroCard.tsx": 10,
-      "src/components/geo/OptimizationStudio.tsx": 3,
-      "src/components/geo/OutreachActionCards.tsx": 2,
-      "src/components/geo/PageAuditSection.tsx": 11,
-      "src/lib/geo/i18n.ts": 15
-    }
+    "deprecated-term": {}
   }
 }

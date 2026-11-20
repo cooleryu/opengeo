@@ -11,6 +11,29 @@
 .cs-group + .cs-group {
   margin-top: 36px;
 }
+.cs-advanced {
+  border-top: 1px solid #e3e6eb;
+  padding-top: 20px;
+}
+.cs-advanced-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: #586170;
+  list-style: none;
+}
+.cs-advanced-summary::-webkit-details-marker {
+  display: none;
+}
+.cs-advanced-summary:hover {
+  color: #272a2f;
+}
+.cs-advanced-body {
+  margin-top: 18px;
+}
 .cs-group-heading {
   display: flex;
   align-items: center;

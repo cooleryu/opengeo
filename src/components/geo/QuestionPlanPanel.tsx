@@ -20,10 +20,7 @@ import {
   type QuestionGenerationJob,
 } from '@/lib/geo/question-types';
 import GeoSelect from './GeoSelect';
-import BackgroundPreparationStatus, {
-  QuestionGenerationRequestStatus,
-  useQuestionGenerationStep,
-} from './BackgroundPreparationStatus';
+import BackgroundPreparationStatus from './BackgroundPreparationStatus';
 import QuestionAssessmentDetails, {
   hasQuestionAssessment,
 } from './QuestionAssessmentDetails';
@@ -70,13 +67,6 @@ const decisionLabels = {
   exclude: { en: 'Not recommended', zh: '暂不推荐' },
 };
 
-const generationSteps = [
-  { en: 'Topic themes', zh: '选题方向' },
-  { en: 'Draft questions', zh: '生成问题' },
-  { en: 'Independent review', zh: '独立审核' },
-  { en: 'Save', zh: '保存' },
-];
-
 export default function QuestionPlanPanel({
   plan,
   assets,
@@ -92,7 +82,7 @@ export default function QuestionPlanPanel({
   onConfigureModel,
   onAuditCandidate,
 }: Props) {
-  const { uiLanguage } = useUiLanguage();
+  const { uiLanguage, t } = useUiLanguage();
   const isEn = uiLanguage === 'en';
   const langKey = isEn ? 'en' : 'zh';
   const preparedPositioning = generationJob?.positioning || plan.positioning;
@@ -116,10 +106,6 @@ export default function QuestionPlanPanel({
   const generationPending =
     generating || (busy && !!generationProgress) || generationJobActive;
   const working = busy || generationPending;
-  const generationStep = useQuestionGenerationStep(
-    generationProgress,
-    generationPending ? 'active-generation' : undefined,
-  );
   const questionContent = plan.candidates
     .map((candidate) => `${candidate.id}:${candidate.query}`)
     .join('\n');
@@ -322,56 +308,10 @@ export default function QuestionPlanPanel({
           ))}
         {generationPending && generationJobActive ? null : generationPending ? (
           <div className="qp-generating" role="status" aria-live="polite">
-            <ol
-              className="qp-generation-steps"
-              aria-label={isEn ? 'Generation progress' : '生成进度'}
-            >
-              {generationSteps.map((step, index) => (
-                <li
-                  key={step.en}
-                  className={
-                    index < generationStep
-                      ? 'is-done'
-                      : index === generationStep
-                        ? 'is-active'
-                        : undefined
-                  }
-                  aria-current={index === generationStep ? 'step' : undefined}
-                >
-                  <span className="qp-generation-step-icon" aria-hidden="true">
-                    {index < generationStep ? (
-                      <Check size={16} />
-                    ) : index === generationStep ? (
-                      <Loader2 size={16} className="spin" />
-                    ) : (
-                      index + 1
-                    )}
-                  </span>
-                  <span>{step[langKey]}</span>
-                  <span className="qp-sr-only">
-                    {index < generationStep
-                      ? isEn
-                        ? 'Completed'
-                        : '已完成'
-                      : index === generationStep
-                        ? isEn
-                          ? 'In progress'
-                          : '进行中'
-                        : isEn
-                          ? 'Pending'
-                          : '等待中'}
-                  </span>
-                </li>
-              ))}
-            </ol>
             <p>
-              {generationProgress?.message ||
-                (isEn ? 'Preparing project materials…' : '正在准备产品材料…')}
+              <Loader2 size={15} className="spin" />{' '}
+              {t('prep.writingQuestions')}
             </p>
-            <QuestionGenerationRequestStatus
-              request={generationProgress?.request}
-              active={generationPending}
-            />
           </div>
         ) : (
           <>
@@ -839,9 +779,7 @@ export default function QuestionPlanPanel({
             <Check size={15} />
           ) : null}
           {generationPending
-            ? isEn
-              ? `${generationSteps[generationStep].en}…`
-              : `正在${generationSteps[generationStep].zh}…`
+            ? t('prep.writingQuestions')
             : busy
               ? isEn
                 ? 'Saving…'

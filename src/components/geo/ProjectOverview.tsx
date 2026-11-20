@@ -115,7 +115,7 @@ export function OverviewMention({
   batch: ResearchBatch;
   row: ResearchRow;
 }) {
-  const { uiLanguage } = useUiLanguage();
+  const { uiLanguage, t } = useUiLanguage();
   const isEn = uiLanguage === 'en';
   const audit = auditRows(batch, [row], batch.answerAudits ?? [])[0]?.audit;
   return (
@@ -124,7 +124,11 @@ export function OverviewMention({
     >
       {!row.observation
         ? (isEn ? 'Not run' : '未测')
-        : verdictLabels[isEn ? 'en' : 'zh'][audit?.mention ?? 'unknown']}
+        : !audit
+          ? (isEn ? 'Analyzing' : '分析中')
+          : audit.mention === 'unknown'
+            ? t('term.couldNotVerify')
+            : verdictLabels[isEn ? 'en' : 'zh'][audit.mention]}
     </span>
   );
 }
@@ -192,7 +196,7 @@ export function OverviewAudit({
   batch: ResearchBatch;
   row: ResearchRow;
 }) {
-  const { uiLanguage } = useUiLanguage();
+  const { uiLanguage, t } = useUiLanguage();
   const isEn = uiLanguage === 'en';
   const audit = auditRows(batch, [row], batch.answerAudits ?? [])[0]?.audit;
   if (!row.observation || !isAiAnswerRow(row)) return null;
@@ -202,7 +206,12 @@ export function OverviewAudit({
     <div className="pov-audit-detail">
       <div>
         <strong>
-          {isEn ? 'Brand mention' : '正文提及'} · {verdictLabels[isEn ? 'en' : 'zh'][mention]}
+          {isEn ? 'Brand mention' : '正文提及'} ·{' '}
+          {!audit
+            ? (isEn ? 'Analyzing' : '分析中')
+            : mention === 'unknown'
+              ? t('term.couldNotVerify')
+              : verdictLabels[isEn ? 'en' : 'zh'][mention]}
         </strong>
         <p
           lang={audit?.mentionEvidence ? inferContentLang(audit.mentionEvidence) : undefined}
@@ -214,11 +223,13 @@ export function OverviewAudit({
       <div>
         <strong>
           {isEn ? 'Official citation' : '官方引用'} ·{' '}
-          {citation === 'yes'
-            ? (isEn ? 'Cited' : '已确认')
-            : citation === 'no'
-              ? (isEn ? 'Not cited' : '未引用')
-              : (isEn ? 'Analyzing' : '分析中')}
+          {!audit
+            ? (isEn ? 'Analyzing' : '分析中')
+            : citation === 'yes'
+              ? (isEn ? 'Cited' : '已确认')
+              : citation === 'no'
+                ? (isEn ? 'Not cited' : '未引用')
+                : t('term.couldNotVerify')}
         </strong>
         <p
           lang={audit?.citationEvidence ? inferContentLang(audit.citationEvidence) : undefined}
@@ -331,6 +342,7 @@ function formatDirectMetric(
   metric: MetricSummary,
   metricKind: 'mention' | 'citation',
   isEn: boolean,
+  options?: { unauditedCount?: number; couldNotVerifyLabel?: string },
 ): {
   primary: string;
   qualifier?: string;
@@ -344,6 +356,14 @@ function formatDirectMetric(
       ringCenter: '0/0',
     };
   }
+  const hasUnaudited = (options?.unauditedCount ?? 0) > 0;
+  const couldNotVerify =
+    options?.couldNotVerifyLabel || (isEn ? "Couldn't verify" : '无法确认');
+  const unknownBadge = hasUnaudited
+    ? isEn
+      ? 'analyzing'
+      : '分析中'
+    : couldNotVerify;
   const positiveVerb = isEn
     ? (metricKind === 'citation' ? 'cited your site' : 'mentioned your brand')
     : (metricKind === 'citation' ? '附上你的官网' : '提到你');
@@ -362,13 +382,22 @@ function formatDirectMetric(
       qualifier: isEn ? 'At least' : '至少',
       primary: `${directPct}%`,
       subline: isEn
-        ? `${metric.yes} of ${metric.completed} ${positiveVerb} (${metric.unknown} analyzing)`
-        : `${metric.completed} 条回答里 ${metric.yes} 条${positiveVerb}（${metric.unknown} 条分析中）`,
+        ? `${metric.yes} of ${metric.completed} ${positiveVerb} (${metric.unknown} ${unknownBadge})`
+        : `${metric.completed} 条回答里 ${metric.yes} 条${positiveVerb}（${metric.unknown} 条${unknownBadge}）`,
       ringCenter: `${metric.yes}/${metric.completed}`,
     };
   }
   const verifiedNo = metric.yes + metric.no;
   if (verifiedNo === 0) {
+    if (!hasUnaudited) {
+      return {
+        primary: couldNotVerify,
+        subline: isEn
+          ? `${metric.unknown} answers could not be verified`
+          : `${metric.unknown} 条回答无法确认`,
+        ringCenter: '?',
+      };
+    }
     const unknownReason = isEn
       ? metricKind === 'citation'
         ? `Analyzing citation links in ${metric.unknown} answers`
@@ -385,8 +414,8 @@ function formatDirectMetric(
   return {
     primary: '0%',
     subline: isEn
-      ? `${verifiedNo} verified not found · ${metric.unknown} analyzing`
-      : `${verifiedNo} 条确认未见 · ${metric.unknown} 条分析中`,
+      ? `${verifiedNo} verified not found · ${metric.unknown} ${unknownBadge}`
+      : `${verifiedNo} 条确认未见 · ${metric.unknown} 条${unknownBadge}`,
     ringCenter: `0/${metric.completed}`,
   };
 }
@@ -394,6 +423,7 @@ function formatDirectMetric(
 function describeTileStatus(
   row: AuditedResearchRow | undefined,
   isEn = false,
+  couldNotVerifyLabel?: string,
 ): {
   state: 'found' | 'absent' | 'pending' | 'unmeasured';
   statusText: string;
@@ -414,8 +444,11 @@ function describeTileStatus(
       : { state: 'absent', statusText: isEn ? 'Not in search results' : '搜索结果未出现', dateText: rawDate };
   }
 
-  const mention = row.audit?.mention ?? 'unknown';
-  const citation = row.audit?.citation ?? 'unknown';
+  if (!row.audit) {
+    return { state: 'pending', statusText: isEn ? 'Analyzing answer' : '正在分析回答', dateText: rawDate };
+  }
+  const mention = row.audit.mention ?? 'unknown';
+  const citation = row.audit.citation ?? 'unknown';
   if (mention === 'yes' && citation === 'yes') {
     return { state: 'found', statusText: isEn ? 'Mentioned and cited' : '已提及并引用官网', dateText: rawDate };
   }
@@ -425,7 +458,11 @@ function describeTileStatus(
   if (mention === 'no') {
     return { state: 'absent', statusText: isEn ? 'Not mentioned in answer' : '回答未提及你', dateText: rawDate };
   }
-  return { state: 'pending', statusText: isEn ? 'Analyzing answer' : '正在分析回答', dateText: rawDate };
+  return {
+    state: 'pending',
+    statusText: couldNotVerifyLabel || (isEn ? "Couldn't verify" : '无法确认'),
+    dateText: rawDate,
+  };
 }
 
 type Props = {
@@ -1242,6 +1279,11 @@ export default function ProjectOverview({
     return isEn ? 'Competitor' : '竞品来源';
   };
 
+  const unauditedAiCount = rows.filter(
+    (r) => r.observation && isAiAnswerRow(r) && !r.audit,
+  ).length;
+  const couldNotVerifyLabel = t('term.couldNotVerify');
+
   const mentionDisplay = sourceOnly
     ? {
         primary: pct(officialMetrics.rate),
@@ -1251,9 +1293,15 @@ export default function ProjectOverview({
           : `${officialMetrics.completed} 条搜索记录中，${officialMetrics.found} 条找到官网`,
         ringCenter: `${officialMetrics.found}/${officialMetrics.completed}`,
       }
-    : formatDirectMetric(mention, 'mention', isEn);
+    : formatDirectMetric(mention, 'mention', isEn, {
+        unauditedCount: unauditedAiCount,
+        couldNotVerifyLabel,
+      });
 
-  const citationDisplay = formatDirectMetric(citation, 'citation', isEn);
+  const citationDisplay = formatDirectMetric(citation, 'citation', isEn, {
+    unauditedCount: unauditedAiCount,
+    couldNotVerifyLabel,
+  });
 
   const unmeasuredConsumerEngines = CONSUMER_RESEARCH_ENGINES.filter(
     (e) => !availableEngines.includes(e),
@@ -1902,7 +1950,7 @@ export default function ProjectOverview({
                   );
                   return {
                     engine,
-                    ...describeTileStatus(cellRow, isEn),
+                    ...describeTileStatus(cellRow, isEn, couldNotVerifyLabel),
                   };
                 });
 
