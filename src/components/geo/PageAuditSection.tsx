@@ -450,8 +450,8 @@ export default function PageAuditSection({
       if (count > 0) {
         onNotice?.(
           isEn
-            ? `Wrote ${count} targeted updates to local file ${payload.writtenPath || payload.pageAudit.targetLabel}. Push them live and click "Mark live" to start the retest clock.`
-            : `已写入本地文件 ${payload.writtenPath || payload.pageAudit.targetLabel}（共 ${count} 处，其余内容保持原样）；推送上线后点击「我已上线」即可记入已上线记录并开始复测计时。`,
+            ? `Wrote ${plural('en', count, { one: '{n} suggested edit', other: '{n} suggested edits' })} to local file ${payload.writtenPath || payload.pageAudit.targetLabel}. Push them live and click "Mark live" to start the retest clock.`
+            : `已写入本地文件 ${payload.writtenPath || payload.pageAudit.targetLabel}（共 ${count} 条，其余内容保持原样）；推送上线后点击「我已上线」即可记入「已发布」并开始复测计时。`,
         );
         if (fromModal) setModalOpen(false);
       }
@@ -1215,7 +1215,7 @@ export default function PageAuditSection({
                   placeholder={
                     isEn
                       ? 'Required: paste the live public page URL (https://...)'
-                      : '必填：粘贴已上线的公开网页链接（https://...），记入「已上线记录」并开始复测计时'
+                      : '必填：粘贴已上线的公开网页链接（https://...），记入「已发布」并开始复测计时'
                   }
                 />
                 <div className="oap-mark-sent-btns">

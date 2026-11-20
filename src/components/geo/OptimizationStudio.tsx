@@ -1359,14 +1359,14 @@ export default function OptimizationStudio({
                       : '正在备好插入行…'
                     : allAwesomeExternal
                       ? isEn
-                        ? `Prepare & review ${selectedExternalCount} PRs`
+                        ? `Prepare & review ${plural('en', selectedExternalCount, { one: '{n} PR', other: '{n} PRs' })}`
                         : `准备并核对已选 ${selectedExternalCount} 个 PR`
                       : allDirectoryExternal
                         ? isEn
-                          ? `Copy & open ${selectedExternalCount} directories`
+                          ? `Copy & open ${plural('en', selectedExternalCount, { one: '{n} directory', other: '{n} directories' })}`
                           : `复制已选 ${selectedExternalCount} 份收录材料`
                         : isEn
-                          ? `Review & ship ${selectedExternalCount} items`
+                          ? `Review & ship ${plural('en', selectedExternalCount, { one: '{n} item', other: '{n} items' })}`
                           : `核对并推进已选 ${selectedExternalCount} 项`}
                 </span>
               </button>

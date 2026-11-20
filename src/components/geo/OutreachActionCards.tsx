@@ -280,7 +280,7 @@ export default function OutreachActionCards({
                       onNotice(
                         isEn
                           ? 'Updated GitHub repository description, homepage, and topics.'
-                          : '已同步更新 GitHub 仓库简介、主页链接与 Topics，并记入已上线记录。',
+                          : '已同步更新 GitHub 仓库简介、主页链接与 Topics，并记入「已发布」。',
                       );
                     }
                   }}
@@ -433,7 +433,7 @@ export default function OutreachActionCards({
                         onNotice(
                           isEn
                             ? `Submitted PR cleanly: ${res.record.resultUrl}`
-                            : `PR 已提交成功并记入已上线记录：${res.record.resultUrl}`,
+                            : `PR 已提交成功并记入「已发布」：${res.record.resultUrl}`,
                         );
                       }
                     }}

@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import type { BrowserCollectJobSnapshot } from '@/lib/geo/browser-collect-types';
-import { inferContentLang, resolveProjectTargetLanguage } from '@/lib/geo/i18n';
+import { inferContentLang, plural, resolveProjectTargetLanguage } from '@/lib/geo/i18n';
 import type { QuestionCategory } from '@/lib/geo/question-types';
 import type {
   ResearchBatch,
@@ -138,9 +138,19 @@ function humanizeAuditEvidence(
   kind: 'mention' | 'citation',
   verdict: 'yes' | 'no' | 'unknown',
   isEn = false,
+  audited = false,
 ): string {
   const trimmed = text?.trim();
   if (!trimmed) {
+    if (audited && verdict === 'unknown') {
+      return kind === 'mention'
+        ? isEn
+          ? "Couldn't verify whether this answer mentioned your product."
+          : '无法确认这条回答是否提到了你的产品。'
+        : isEn
+          ? "Couldn't verify whether this answer cited your site."
+          : '无法确认这条回答是否引用了你的网站。';
+    }
     return kind === 'mention'
       ? isEn
         ? 'This answer has not been verified yet.'
@@ -151,9 +161,13 @@ function humanizeAuditEvidence(
   }
   if (/(?:nativeCitations|citationSource|citationsComplete|observedSourceHints|\bevidence\.)/i.test(trimmed)) {
     if (kind === 'citation' && verdict === 'unknown') {
-      return isEn
-        ? 'Checking captured source links against your project pages.'
-        : '正在核对采集到的来源链接归属。';
+      return audited
+        ? isEn
+          ? "Couldn't verify whether this answer cited your site from the captured links."
+          : '无法根据已采集的来源链接确认是否引用了你的网站。'
+        : isEn
+          ? 'Checking captured source links against your project pages.'
+          : '正在核对采集到的来源链接归属。';
     }
     if (kind === 'citation' && verdict === 'no') {
       return isEn
@@ -174,7 +188,9 @@ function humanizeAuditEvidence(
       if (verdict === 'yes') {
         return 'Verified direct mention of your project in the captured answer.';
       }
-      return 'Analyzing brand mention in this captured answer.';
+      return audited
+        ? "Couldn't verify whether this answer mentioned your product."
+        : 'Analyzing brand mention in this captured answer.';
     }
     if (verdict === 'no') {
       return 'Verified captured links: none point to your site, repository, or owned articles.';
@@ -182,7 +198,9 @@ function humanizeAuditEvidence(
     if (verdict === 'yes') {
       return 'Confirmed a citation link pointing to your official site, repository, or authored article.';
     }
-    return 'Checking captured source links against your project pages.';
+    return audited
+      ? "Couldn't verify whether this answer cited your site."
+      : 'Checking captured source links against your project pages.';
   }
   return trimmed
     .replace(/[（(]\s*(?:citationSource|citationsComplete)\s*=[^）)]+[）)]/gi, '')
@@ -217,7 +235,7 @@ export function OverviewAudit({
           lang={audit?.mentionEvidence ? inferContentLang(audit.mentionEvidence) : undefined}
           data-i18n-skip={audit?.mentionEvidence ? '' : undefined}
         >
-          {humanizeAuditEvidence(audit?.mentionEvidence, 'mention', mention, isEn)}
+          {humanizeAuditEvidence(audit?.mentionEvidence, 'mention', mention, isEn, Boolean(audit))}
         </p>
       </div>
       <div>
@@ -235,7 +253,7 @@ export function OverviewAudit({
           lang={audit?.citationEvidence ? inferContentLang(audit.citationEvidence) : undefined}
           data-i18n-skip={audit?.citationEvidence ? '' : undefined}
         >
-          {humanizeAuditEvidence(audit?.citationEvidence, 'citation', citation, isEn)}
+          {humanizeAuditEvidence(audit?.citationEvidence, 'citation', citation, isEn, Boolean(audit))}
         </p>
       </div>
     </div>
@@ -393,15 +411,15 @@ function formatDirectMetric(
       return {
         primary: couldNotVerify,
         subline: isEn
-          ? `${metric.unknown} answers could not be verified`
+          ? `${plural('en', metric.unknown, { one: '{n} answer', other: '{n} answers' })} could not be verified`
           : `${metric.unknown} 条回答无法确认`,
         ringCenter: '?',
       };
     }
     const unknownReason = isEn
       ? metricKind === 'citation'
-        ? `Analyzing citation links in ${metric.unknown} answers`
-        : `Analyzing mentions in ${metric.unknown} answers`
+        ? `Analyzing citation links in ${plural('en', metric.unknown, { one: '{n} answer', other: '{n} answers' })}`
+        : `Analyzing mentions in ${plural('en', metric.unknown, { one: '{n} answer', other: '{n} answers' })}`
       : metricKind === 'citation'
         ? `正在核对 ${metric.unknown} 条回答的链接归属`
         : `正在核对 ${metric.unknown} 条回答的品牌提及`;
