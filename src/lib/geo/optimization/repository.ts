@@ -30,6 +30,8 @@ export class OptimizationStateError extends Error {
   constructor(
     message: string,
     public readonly status = 400,
+    /** Optional `error.<code>` key for a localized message (see i18n-server). */
+    public readonly code?: string,
   ) {
     super(message);
   }

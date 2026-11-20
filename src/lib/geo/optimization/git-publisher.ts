@@ -158,6 +158,7 @@ function probeRemoteAndBranch(
   throw new OptimizationStateError(
     `当前电脑尚未配置免交互推送到 GitHub 仓库的权限（已依次尝试 ${candidates.join(' / ')}）。请先在本机完成 SSH 密钥配置（ssh -T git@github.com）或运行 gh auth login 后再试。\n详情：${failures[0] || ''}`.trim(),
     422,
+    'github_push_not_authorized',
   );
 }
 
@@ -297,6 +298,66 @@ function collectMissingLocalCompanionAssets(
   return copied;
 }
 
+export interface RepoPushOutcome {
+  slug: GitHubRepoSlug | null;
+  defaultBranch: string;
+  commitHash: string;
+  /** False when the remote already had exactly this content, so nothing was committed. */
+  changed: boolean;
+}
+
+/**
+ * Clones the project's GitHub repository into a temporary folder, lets `edit` change files there
+ * (it returns the paths it touched), then commits and pushes them to the default branch.
+ * The user's working copy and development branches are never touched.
+ */
+export function pushEditsToProjectRepo(
+  projectId: string,
+  commitMessage: string,
+  edit: (cloneDir: string, context: { matchedOrigin: string | null }) => string[],
+  options: Pick<PublishGitHubOptions, 'remoteUrlOverride' | 'branchOverride'> = {},
+): RepoPushOutcome {
+  const slug = parseGitHubRepoSlug(loadProjectSeed(projectId).project.repositoryUrl);
+  if (!slug && !options.remoteUrlOverride) {
+    throw new OptimizationStateError('The project has no GitHub repository URL.', 400, 'github_repo_missing');
+  }
+
+  const matchedOrigin = slug ? detectMatchingLocalOriginRemote(slug) : null;
+  const remoteCandidates: string[] = [];
+  if (options.remoteUrlOverride) {
+    remoteCandidates.push(options.remoteUrlOverride);
+  } else if (slug) {
+    if (matchedOrigin) remoteCandidates.push(matchedOrigin);
+    remoteCandidates.push(`git@github.com:${slug.owner}/${slug.repo}.git`);
+    remoteCandidates.push(`https://github.com/${slug.owner}/${slug.repo}.git`);
+  }
+  const { remoteUrl, defaultBranch } = probeRemoteAndBranch(Array.from(new Set(remoteCandidates)), options.branchOverride);
+
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'opengeo-gh-push-'));
+  const cloneDir = path.join(tempRoot, 'repo');
+  try {
+    runGit(['clone', '--depth', '1', '--branch', defaultBranch, '--single-branch', remoteUrl, cloneDir]);
+    const touchedPaths = edit(cloneDir, { matchedOrigin });
+    const statusOut = runGit(['status', '--porcelain'], cloneDir);
+    let commitHash = runGit(['rev-parse', '--short', 'HEAD'], cloneDir);
+    if (statusOut.length > 0) {
+      ensureGitAuthorInTempClone(cloneDir);
+      runGit(['add', '-A', '--', ...touchedPaths], cloneDir);
+      runGit(['commit', '-m', commitMessage], cloneDir);
+      try {
+        runGit(['push', 'origin', `HEAD:${defaultBranch}`], cloneDir);
+      } catch {
+        // Git's own message can include the remote URL; keep only what the user can act on.
+        throw new OptimizationStateError(`git push to ${defaultBranch} was rejected.`, 502, 'github_push_failed');
+      }
+      commitHash = runGit(['rev-parse', '--short', 'HEAD'], cloneDir);
+    }
+    return { slug, defaultBranch, commitHash, changed: statusOut.length > 0 };
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 /**
  * 将已采用的仓库文档（含配套多语言文件与旧路径清理）通过临时浅克隆非交互式提交并推送到 GitHub 默认分支。
  * 不会触碰用户当前工作区未提交代码或开发分支。
@@ -312,7 +373,7 @@ export function publishRepoDeliverablesToGitHub(
   const seed = loadProjectSeed(projectId);
   const slug = parseGitHubRepoSlug(seed.project.repositoryUrl);
   if (!slug && !options.remoteUrlOverride) {
-    throw new OptimizationStateError('当前项目未配置有效的 GitHub 仓库地址，无法自动推送到远程仓库。', 400);
+    throw new OptimizationStateError('The project has no GitHub repository URL.', 400, 'github_repo_missing');
   }
 
   const filterSet = options.deliverableIds?.length ? new Set(options.deliverableIds) : null;
@@ -346,104 +407,72 @@ export function publishRepoDeliverablesToGitHub(
     return { deliverable: deliv, primaryPath, writes, deletes };
   });
 
-  const matchedOrigin = slug ? detectMatchingLocalOriginRemote(slug) : null;
-  const remoteCandidates: string[] = [];
-  if (options.remoteUrlOverride) {
-    remoteCandidates.push(options.remoteUrlOverride);
-  } else if (slug) {
-    if (matchedOrigin) remoteCandidates.push(matchedOrigin);
-    remoteCandidates.push(`git@github.com:${slug.owner}/${slug.repo}.git`);
-    remoteCandidates.push(`https://github.com/${slug.owner}/${slug.repo}.git`);
-  }
-
-  const uniqueCandidates = Array.from(new Set(remoteCandidates));
-  const { remoteUrl, defaultBranch } = probeRemoteAndBranch(uniqueCandidates, options.branchOverride);
-
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'opengeo-gh-push-'));
-  const cloneDir = path.join(tempRoot, 'repo');
-
-  try {
-    runGit(['clone', '--depth', '1', '--branch', defaultBranch, '--single-branch', remoteUrl, cloneDir]);
-
-    const touchedPaths = new Set<string>();
-    const deletedPaths = new Set<string>();
-    const allWrites: Array<{ path: string; content: string }> = [];
-    for (const plan of plans) {
-      for (const item of plan.writes) {
-        writeRepoFile(cloneDir, item.path, item.content);
-        touchedPaths.add(item.path);
-        allWrites.push(item);
-      }
-      for (const delPath of plan.deletes) {
-        deletedPaths.add(delPath);
-        if (deleteRepoFileIfExists(cloneDir, delPath)) {
-          touchedPaths.add(delPath);
+  const extraAssetPaths: string[] = [];
+  const docList = plans.map((p) => p.primaryPath).join(', ');
+  const { slug: pushedSlug, defaultBranch, commitHash, changed } = pushEditsToProjectRepo(
+    projectId,
+    options.commitMessage || `docs: publish ${docList} via OpenGEO`,
+    (cloneDir, { matchedOrigin }) => {
+      const touchedPaths = new Set<string>();
+      const deletedPaths = new Set<string>();
+      const allWrites: Array<{ path: string; content: string }> = [];
+      for (const plan of plans) {
+        for (const item of plan.writes) {
+          writeRepoFile(cloneDir, item.path, item.content);
+          touchedPaths.add(item.path);
+          allWrites.push(item);
+        }
+        for (const delPath of plan.deletes) {
+          deletedPaths.add(delPath);
+          if (deleteRepoFileIfExists(cloneDir, delPath)) {
+            touchedPaths.add(delPath);
+          }
         }
       }
-    }
 
-    const extraAssetPaths: string[] = [];
-    const localAssetRoot = options.localAssetRootOverride ?? (matchedOrigin ? process.cwd() : undefined);
-    if (localAssetRoot) {
-      const copiedAssets = collectMissingLocalCompanionAssets(
-        cloneDir,
-        localAssetRoot,
-        allWrites,
-        deletedPaths,
-      );
-      for (const assetPath of copiedAssets) {
-        touchedPaths.add(assetPath);
-        extraAssetPaths.push(assetPath);
+      const localAssetRoot = options.localAssetRootOverride ?? (matchedOrigin ? process.cwd() : undefined);
+      if (localAssetRoot) {
+        for (const assetPath of collectMissingLocalCompanionAssets(cloneDir, localAssetRoot, allWrites, deletedPaths)) {
+          touchedPaths.add(assetPath);
+          extraAssetPaths.push(assetPath);
+        }
       }
-    }
+      return Array.from(touchedPaths);
+    },
+    options,
+  );
 
-    const statusOut = runGit(['status', '--porcelain'], cloneDir);
-    let commitHash = runGit(['rev-parse', '--short', 'HEAD'], cloneDir);
+  const now = new Date().toISOString();
+  for (const plan of plans) {
+    const pushedPaths = Array.from(new Set([...plan.writes.map((w) => w.path), ...extraAssetPaths]));
+    const publishedUrl = pushedSlug
+      ? `https://github.com/${pushedSlug.owner}/${pushedSlug.repo}/blob/${defaultBranch}/${plan.primaryPath}`
+      : plan.deliverable.appliedRecord?.publishedUrl;
 
-    if (statusOut.length > 0) {
-      ensureGitAuthorInTempClone(cloneDir);
-      runGit(['add', '-A', '--', ...Array.from(touchedPaths)], cloneDir);
-      const docList = plans.map((p) => p.primaryPath).join(', ');
-      const message = options.commitMessage || `docs: publish ${docList} via OpenGEO`;
-      runGit(['commit', '-m', message], cloneDir);
-      runGit(['push', 'origin', `HEAD:${defaultBranch}`], cloneDir);
-      commitHash = runGit(['rev-parse', '--short', 'HEAD'], cloneDir);
-    }
-
-    const now = new Date().toISOString();
-    for (const plan of plans) {
-      const pushedPaths = Array.from(new Set([...plan.writes.map((w) => w.path), ...extraAssetPaths]));
-      const publishedUrl = slug
-        ? `https://github.com/${slug.owner}/${slug.repo}/blob/${defaultBranch}/${plan.primaryPath}`
-        : plan.deliverable.appliedRecord?.publishedUrl;
-
-      updateDeliverableRecord(projectId, plan.deliverable.id, {
-        status: 'applied',
-        appliedRecord: {
-          appliedAt: now,
-          mode: 'github_pushed',
-          destination: plan.primaryPath,
-          ...(publishedUrl ? { publishedUrl } : {}),
-          commitHash,
-          branch: defaultBranch,
-          pushedPaths,
-          note:
-            statusOut.length > 0
-              ? `已推送至 ${defaultBranch} 分支（${commitHash}）`
-              : `远程仓库 ${defaultBranch} 分支已是最新内容（${commitHash}）`,
-        },
-      });
-    }
-
-    appendRunProgress(projectId, runId, {
-      at: now,
-      agentId: 'github-publisher',
-      kind: 'done',
-      message: `已将 ${plans.length} 套已采用文档推送到 ${defaultBranch}（提交 ${commitHash}），等待搜索引擎重新抓取收录。`,
+    updateDeliverableRecord(projectId, plan.deliverable.id, {
+      status: 'applied',
+      appliedRecord: {
+        appliedAt: now,
+        mode: 'github_pushed',
+        destination: plan.primaryPath,
+        ...(publishedUrl ? { publishedUrl } : {}),
+        commitHash,
+        branch: defaultBranch,
+        pushedPaths,
+        note:
+          changed
+            ? `已推送至 ${defaultBranch} 分支（${commitHash}）`
+            : `远程仓库 ${defaultBranch} 分支已是最新内容（${commitHash}）`,
+      },
     });
-
-    return getOptimizationRun(projectId, runId)!;
-  } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+
+  appendRunProgress(projectId, runId, {
+    at: now,
+    agentId: 'github-publisher',
+    kind: 'done',
+    message: `已将 ${plans.length} 套已采用文档推送到 ${defaultBranch}（提交 ${commitHash}），等待搜索引擎重新抓取收录。`,
+  });
+
+  return getOptimizationRun(projectId, runId)!;
 }

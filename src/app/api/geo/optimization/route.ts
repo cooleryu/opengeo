@@ -16,6 +16,7 @@ import {
   OptimizationStateError,
   previewPageFindingBatch,
   previewPageFindingPatch,
+  publishPageFindingsToGitHub,
   publishRepoDeliverablesToGitHub,
   readLatestPageAudit,
   resumeOptimizationRun,
@@ -232,14 +233,22 @@ export async function POST(request: NextRequest) {
       const deliverableIds = Array.isArray(body.deliverableIds)
         ? body.deliverableIds.filter((item): item is string => typeof item === 'string')
         : undefined;
-      return withGeoProject(projectId, () => {
-        const run = publishRepoDeliverablesToGitHub(projectId, runId, { deliverableIds });
-        return NextResponse.json({
-          projectId,
-          viewModel: buildOptimizationRunViewModel(projectId, run.id),
-          runs: listOptimizationRuns(projectId),
+      try {
+        return withGeoProject(projectId, () => {
+          const run = publishRepoDeliverablesToGitHub(projectId, runId, { deliverableIds });
+          return NextResponse.json({
+            projectId,
+            viewModel: buildOptimizationRunViewModel(projectId, run.id),
+            runs: listOptimizationRuns(projectId),
+          });
         });
-      });
+      } catch (error) {
+        // Push failures carry a code, so the user reads them in their own language.
+        if (error instanceof OptimizationStateError && error.code) {
+          return serverErrorResponse(error, resolveRequestUiLanguage(request, body));
+        }
+        throw error;
+      }
     }
 
     if (action === 'generate_zh_companion') {
@@ -423,6 +432,28 @@ export async function POST(request: NextRequest) {
           shippedRecord: result.shippedRecord,
         });
       });
+    }
+
+    if (action === 'publish_findings_github') {
+      const requestUiLanguage = resolveRequestUiLanguage(request, body);
+      const findingIds = Array.isArray(body.findingIds)
+        ? body.findingIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
+        : [];
+      try {
+        return withGeoProject(projectId, () => {
+          const result = publishPageFindingsToGitHub(projectId, findingIds);
+          return NextResponse.json({
+            projectId,
+            pageAudit: result.audit,
+            shippedRecord: result.shippedRecord,
+            branch: result.branch,
+            commitHash: result.commitHash,
+            changed: result.changed,
+          });
+        });
+      } catch (error) {
+        return serverErrorResponse(error, requestUiLanguage);
+      }
     }
 
     if (action === 'apply_finding_patch') {

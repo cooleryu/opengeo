@@ -12,6 +12,7 @@ import {
   RefreshCw,
   RotateCcw,
   Sparkles,
+  Upload,
   X,
 } from 'lucide-react';
 import type { HumanProgressStep } from '@/lib/agent-hub';
@@ -116,7 +117,7 @@ export default function PageAuditSection({
   const [runningAudit, setRunningAudit] = useState(false);
   const [auditSteps, setAuditSteps] = useState<HumanProgressStep[]>([]);
   const [busyFindingId, setBusyFindingId] = useState<string | null>(null);
-  const [busyBatchOp, setBusyBatchOp] = useState<'preview' | 'apply' | 'mark_live' | null>(null);
+  const [busyBatchOp, setBusyBatchOp] = useState<'preview' | 'apply' | 'mark_live' | 'publish' | null>(null);
   const [markingLiveScope, setMarkingLiveScope] = useState<'card' | 'modal' | null>(null);
   const [liveUrlInput, setLiveUrlInput] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -189,6 +190,11 @@ export default function PageAuditSection({
     [openFindings, selectedIds],
   );
   const canWriteLocalFile = Boolean(activeAudit?.localFilePath);
+  // A document in a GitHub repository publishes in one click: pushed to the default branch, then logged live.
+  const canPublishGitHub =
+    /^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/[^/]+\/(?:README(?:\.[\w-]+)?\.md|(?:docs|public)\/[\w./-]+\.(?:md|html))$/i.test(
+      activeAudit?.targetUrl ?? '',
+    );
   const isLiveWebTarget = Boolean(activeAudit && activeAudit.targetKind === 'live_web');
   const hasShippedCurrentAudit = useMemo(() => {
     if (!activeAudit?.shippedRecords?.length) return false;
@@ -396,15 +402,24 @@ export default function PageAuditSection({
       if (!generated) return;
       latestAudit = generated;
       // When triggered from the closed Launchpad before previews existed, open Idea B modal so user sees exact green edits!
-      if (!fromModal && canWriteLocalFile) {
+      if (!fromModal && (canWriteLocalFile || canPublishGitHub)) {
         setModalOpen(true);
         onNotice?.(
-          isEn
-            ? `Wrote ${plural('en', missingPreviewSelectedIds.length, { one: '{n} suggested edit', other: '{n} suggested edits' })}—review below and click Apply to write to ${latestAudit.targetLabel}.`
-            : `已并发生成 ${missingPreviewSelectedIds.length} 条修改建议，滚一眼确认无误后点右下角即可写入本地 ${latestAudit.targetLabel}。`,
+          canPublishGitHub
+            ? isEn
+              ? `Wrote ${plural('en', missingPreviewSelectedIds.length, { one: '{n} suggested edit', other: '{n} suggested edits' })}—review below, then publish to GitHub.`
+              : `已生成 ${missingPreviewSelectedIds.length} 条修改建议，确认无误后点右下角发布到 GitHub。`
+            : isEn
+              ? `Wrote ${plural('en', missingPreviewSelectedIds.length, { one: '{n} suggested edit', other: '{n} suggested edits' })}—review below and click Apply to write to ${latestAudit.targetLabel}.`
+              : `已并发生成 ${missingPreviewSelectedIds.length} 条修改建议，滚一眼确认无误后点右下角即可写入本地 ${latestAudit.targetLabel}。`,
         );
         return;
       }
+    }
+
+    if (canPublishGitHub) {
+      await handlePublishGitHub(selectedOpenIds);
+      return;
     }
 
     // Step 2A: No writable local repository file (pure SaaS site OR remote repo) -> copy brief honestly, NEVER mutate data/ snapshots
@@ -470,6 +485,58 @@ export default function PageAuditSection({
       setBusyBatchOp(null);
     }
   };
+
+  const handlePublishGitHub = async (findingIds: string[]) => {
+    if (!activeAudit || !findingIds.length || busyBatchOp || busyFindingId) return;
+    setBusyBatchOp('publish');
+    onError?.('');
+    try {
+      const res = await fetch('/api/geo/optimization', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          action: 'publish_findings_github',
+          findingIds,
+          uiLanguage: isEn ? 'en' : 'zh',
+        }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        pageAudit?: PageAuditRecord;
+        branch?: string;
+        error?: string;
+      };
+      if (!res.ok || !payload.pageAudit) {
+        throw new Error(payload.error || (isEn ? 'Could not publish to GitHub.' : '发布到 GitHub 失败，请重试。'));
+      }
+      setAudit(payload.pageAudit);
+      onAuditUpdated?.(payload.pageAudit);
+      setModalOpen(false);
+      onNotice?.(
+        isEn
+          ? `Published ${plural('en', findingIds.length, { one: '{n} edit', other: '{n} edits' })} to GitHub (${payload.branch}) and started the retest clock.`
+          : `已把 ${findingIds.length} 处修改发布到 GitHub（${payload.branch}），复测计时已开始。`,
+      );
+    } catch (err) {
+      onError?.(
+        err instanceof Error ? err.message : isEn ? 'Could not publish to GitHub.' : '发布到 GitHub 失败，请重试。',
+      );
+    } finally {
+      setBusyBatchOp(null);
+    }
+  };
+
+  const renderPublishButton = (findingIds: string[], label: string) => (
+    <button
+      type="button"
+      className="ost-btn-primary is-sm"
+      disabled={findingIds.length === 0 || Boolean(busyBatchOp) || Boolean(busyFindingId)}
+      onClick={() => void handlePublishGitHub(findingIds)}
+    >
+      {busyBatchOp === 'publish' ? <Loader2 size={14} className="ost-spin" /> : <Upload size={13} />}
+      <span>{busyBatchOp === 'publish' ? (isEn ? 'Publishing to GitHub…' : '正在发布到 GitHub…') : label}</span>
+    </button>
+  );
 
   const openMarkLiveBar = (scope: 'card' | 'modal') => {
     const defaultUrl =
@@ -813,6 +880,8 @@ export default function PageAuditSection({
                         {isEn ? 'Logged live' : `已上线入账 · ${activeAudit.targetLabel}`}
                       </span>
                     </span>
+                  ) : canPublishGitHub ? (
+                    renderPublishButton(markLiveCandidateIds, isEn ? 'Publish to GitHub' : '发布到 GitHub')
                   ) : (
                     <>
                       <span className="oap-lp-desc">
@@ -833,7 +902,7 @@ export default function PageAuditSection({
                   )
                 ) : (
                   <>
-                    {!canWriteLocalFile && (
+                    {!canWriteLocalFile && !canPublishGitHub && (
                       <button
                         type="button"
                         className="ost-btn-secondary is-sm"
@@ -856,8 +925,10 @@ export default function PageAuditSection({
                       }
                       onClick={() => void handlePrimaryShip(false)}
                     >
-                      {busyBatchOp === 'preview' || busyBatchOp === 'apply' ? (
+                      {busyBatchOp === 'preview' || busyBatchOp === 'apply' || busyBatchOp === 'publish' ? (
                         <Loader2 size={14} className="ost-spin" />
+                      ) : canPublishGitHub ? (
+                        <Upload size={13} />
                       ) : !canWriteLocalFile ? (
                         <Copy size={13} />
                       ) : (
@@ -872,7 +943,15 @@ export default function PageAuditSection({
                             ? isEn
                               ? 'Writing locally…'
                               : '正在写入本地…'
-                            : !canWriteLocalFile
+                            : busyBatchOp === 'publish'
+                              ? isEn
+                                ? 'Publishing to GitHub…'
+                                : '正在发布到 GitHub…'
+                              : canPublishGitHub
+                                ? isEn
+                                  ? `Publish ${plural('en', selectedOpenIds.length, { one: '{n} edit', other: '{n} edits' })} to GitHub`
+                                  : `发布 ${selectedOpenIds.length} 处修改到 GitHub`
+                              : !canWriteLocalFile
                               ? isEn
                                 ? `Copy ${plural('en', selectedOpenIds.length, { one: '{n} suggested edit', other: '{n} suggested edits' })}`
                                 : `复制已选 ${selectedOpenIds.length} 条修改建议`
@@ -1261,7 +1340,9 @@ export default function PageAuditSection({
                     : `已选 ${selectedOpenIds.length} / ${openFindings.length} 条修改建议`}
               </span>
               <div className="oap-modal-footer-actions">
-                {(!canWriteLocalFile || (allApplied && !hasShippedCurrentAudit)) &&
+                {canPublishGitHub && allApplied && !hasShippedCurrentAudit &&
+                  renderPublishButton(markLiveCandidateIds, isEn ? 'Publish to GitHub' : '发布到 GitHub')}
+                {!canPublishGitHub && (!canWriteLocalFile || (allApplied && !hasShippedCurrentAudit)) &&
                   markLiveCandidateIds.length > 0 && (
                     <button
                       type="button"
@@ -1282,8 +1363,10 @@ export default function PageAuditSection({
                     }
                     onClick={() => void handlePrimaryShip(true)}
                   >
-                    {busyBatchOp === 'preview' || busyBatchOp === 'apply' ? (
+                    {busyBatchOp === 'preview' || busyBatchOp === 'apply' || busyBatchOp === 'publish' ? (
                       <Loader2 size={14} className="ost-spin" />
+                    ) : canPublishGitHub ? (
+                      <Upload size={13} />
                     ) : !canWriteLocalFile ? (
                       <Copy size={13} />
                     ) : (
@@ -1298,7 +1381,15 @@ export default function PageAuditSection({
                           ? isEn
                             ? 'Writing locally…'
                             : '正在写入本地…'
-                          : !canWriteLocalFile
+                          : busyBatchOp === 'publish'
+                            ? isEn
+                              ? 'Publishing to GitHub…'
+                              : '正在发布到 GitHub…'
+                            : canPublishGitHub
+                              ? isEn
+                                ? `Publish ${plural('en', selectedOpenIds.length, { one: '{n} edit', other: '{n} edits' })} to GitHub`
+                                : `发布 ${selectedOpenIds.length} 处修改到 GitHub`
+                            : !canWriteLocalFile
                             ? isEn
                               ? `Copy ${plural('en', selectedOpenIds.length, { one: '{n} suggested edit', other: '{n} suggested edits' })}`
                               : `复制已选 ${selectedOpenIds.length} 条修改建议`

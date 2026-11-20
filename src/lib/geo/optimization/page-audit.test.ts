@@ -1,6 +1,8 @@
 import '../test-fixtures';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { createModelTransport } from '../../agent-hub';
@@ -17,6 +19,7 @@ import {
   extractStructuredMarkdownFromHtml,
   markPageAuditFindingsLive,
   parsePageSections,
+  publishPageFindingsToGitHub,
   readLatestPageAudit,
   type AnswerShardItem,
   type PageAuditRecord,
@@ -456,3 +459,75 @@ test('rows inserted after a table row or list item stay in the same table or lis
   const paragraph = applySurgicalPatchToContent('| one | two |\n\nEnd.', { insertionMode: 'insert_after', beforeExcerpt: '| one | two |', afterExcerpt: 'A new paragraph.' });
   assert.equal(paragraph.patchedContent, '| one | two |\n\nA new paragraph.\n\nEnd.');
 });
+
+test('publishing a GitHub README pushes the chosen edits onto the remote file and logs them live once', () => {
+  const projectId = 'sample-project';
+  const gitRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'opengeo-page-publish-'));
+  const git = (args: string[], cwd?: string) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  try {
+    const bareDir = path.join(gitRoot, 'remote.git');
+    const seedDir = path.join(gitRoot, 'seed');
+    git(['init', '--bare', bareDir]);
+    git(['clone', bareDir, seedDir]);
+    git(['config', 'user.name', 'Tester'], seedDir);
+    git(['config', 'user.email', 'tester@example.com'], seedDir);
+    git(['checkout', '-b', 'main'], seedDir);
+    // The remote has a newer line the local audit never saw; it must survive the publish.
+    fs.writeFileSync(path.join(seedDir, 'README.md'), '# SampleProject\n\nOld intro.\n\n| Tool | Note |\n| --- | --- |\n| A | first |\n\nAdded on GitHub later.\n');
+    git(['add', 'README.md'], seedDir);
+    git(['commit', '-m', 'init'], seedDir);
+    git(['push', '-u', 'origin', 'main'], seedDir);
+
+    const nowIso = new Date().toISOString();
+    const finding = (id: string, patch: { insertionMode: 'replace' | 'insert_after'; beforeExcerpt: string; afterExcerpt: string }) => ({
+      id, category: 'missing_definition', impact: 'high', sectionId: 'S0', sectionHeading: 'Opening', startLine: 1, endLine: 3,
+      sectionExcerpt: '', anchorQuote: patch.beforeExcerpt, title: id, whyAiMissed: '', citedEngines: ['chatgpt'],
+      codebaseFact: '', suggestedDirection: '', status: 'applied',
+      patchPreview: { ...patch, plainSummary: id, unifiedDiff: '', generatedAt: nowIso },
+    });
+    const audit = {
+      id: 'pa-github', projectId, targetAssetId: 'readme', targetLabel: 'README.md',
+      targetUrl: 'https://github.com/example/sample-project/blob/main/README.md', localFilePath: null,
+      targetKind: 'repo_doc', targetLanguage: 'en', uiLanguage: 'en',
+      shardStats: { totalAnswers: 2, chatgptAnswers: 1, googleAnswers: 1, shardCount: 1 },
+      signalSheet: { dominantCategory: '', platformDifferences: { chatgpt: '', google: '' }, topCompetitorAngles: [], mustAnswerCriteria: [], summary: '' },
+      findings: [
+        finding('intro', { insertionMode: 'replace', beforeExcerpt: 'Old intro.', afterExcerpt: 'SampleProject checks AI answers locally.' }),
+        finding('row', { insertionMode: 'insert_after', beforeExcerpt: '| A | first |', afterExcerpt: '| B | second |' }),
+      ],
+      progress: [], createdAt: nowIso, updatedAt: nowIso,
+    } as unknown as PageAuditRecord;
+    const auditFile = withGeoProject(projectId, () => path.join(projectDataDirectory(), 'page-audit.json'));
+    fs.mkdirSync(path.dirname(auditFile), { recursive: true });
+    fs.writeFileSync(auditFile, JSON.stringify({ version: 1, latest: audit }), 'utf8');
+
+    const options = { remoteUrlOverride: bareDir, branchOverride: 'main' };
+    const first = withGeoProject(projectId, () => publishPageFindingsToGitHub(projectId, ['intro', 'row'], options));
+    assert.equal(first.changed, true);
+    assert.equal(first.shippedRecord.liveUrl, 'https://github.com/example/sample-project/blob/main/README.md');
+    assert.deepEqual(first.shippedRecord.findingIds, ['intro', 'row']);
+    const remoteReadme = () => git(['show', 'main:README.md'], bareDir);
+    assert.equal(remoteReadme(), '# SampleProject\n\nSampleProject checks AI answers locally.\n\n| Tool | Note |\n| --- | --- |\n| A | first |\n| B | second |\n\nAdded on GitHub later.');
+
+    // Publishing again adds nothing twice and makes no new commit.
+    const commits = git(['rev-list', '--count', 'main'], bareDir);
+    const second = withGeoProject(projectId, () => publishPageFindingsToGitHub(projectId, ['intro', 'row'], options));
+    assert.equal(second.changed, false);
+    assert.equal(git(['rev-list', '--count', 'main'], bareDir), commits);
+
+    // If the anchor text is gone on GitHub, nothing is pushed and the user is told to re-run the audit.
+    git(['pull', '--ff-only'], seedDir);
+    fs.writeFileSync(path.join(seedDir, 'README.md'), '# SampleProject\n\nRewritten elsewhere.\n');
+    git(['commit', '-am', 'rewrite'], seedDir);
+    git(['push'], seedDir);
+    const rewritten = remoteReadme();
+    assert.throws(
+      () => withGeoProject(projectId, () => publishPageFindingsToGitHub(projectId, ['row'], options)),
+      (error: unknown) => (error as { code?: string }).code === 'github_publish_remote_changed',
+    );
+    assert.equal(remoteReadme(), rewritten);
+  } finally {
+    fs.rmSync(gitRoot, { recursive: true, force: true });
+  }
+});
+

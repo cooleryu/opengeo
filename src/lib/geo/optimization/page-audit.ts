@@ -24,6 +24,7 @@ import { readProjectContext } from '../project-context';
 import { loadProjectSeed } from '../project-data';
 import { evidenceLocation, projectDataDirectory, withGeoProject } from '../projects';
 import type { GeoAsset } from '../types';
+import { parseGitHubRepoSlug, pushEditsToProjectRepo, resolveRepoRelativeDocPath, type PublishGitHubOptions } from './git-publisher';
 import { OptimizationStateError } from './repository';
 
 export type PageAuditEngine = 'chatgpt' | 'google';
@@ -1897,6 +1898,65 @@ export function markPageAuditFindingsLive(
     audit: saveLatestPageAudit(projectId, updated),
     shippedRecord,
   };
+}
+
+/**
+ * One click from approved edits to live for a document in the project's GitHub repository:
+ * re-applies the chosen verbatim patches onto a fresh clone of the file on GitHub, pushes them to
+ * the default branch and logs them live with the GitHub link. Newer remote changes are kept, edits
+ * already on GitHub are not added twice, and the user's own working copy is never touched.
+ */
+export function publishPageFindingsToGitHub(
+  projectId: string,
+  findingIds: string[],
+  options: Pick<PublishGitHubOptions, 'remoteUrlOverride' | 'branchOverride'> = {},
+): { audit: PageAuditRecord; shippedRecord: PageAuditShippedRecord; commitHash: string; branch: string; changed: boolean } {
+  const existing = readLatestPageAudit(projectId);
+  if (!existing) {
+    throw new OptimizationStateError('No page audit found.', 404, 'page_audit_missing');
+  }
+  const slug = parseGitHubRepoSlug(loadProjectSeed(projectId).project.repositoryUrl);
+  const repoPath = existing.targetUrl ? resolveRepoRelativeDocPath(existing.targetUrl, slug) : null;
+  if (!repoPath) {
+    throw new OptimizationStateError(`${existing.targetUrl || existing.targetLabel} is not a document in the project's GitHub repository.`, 400, 'github_publish_not_repo_doc');
+  }
+  const wanted = new Set(findingIds.filter(Boolean));
+  const findings = existing.findings.filter((f) => wanted.has(f.id) && f.status !== 'dismissed' && f.patchPreview);
+  if (!findings.length) {
+    throw new OptimizationStateError('No drafted edit was selected.', 400, 'github_publish_nothing_selected');
+  }
+
+  const remoteChanged = (title: string) => new OptimizationStateError(
+    `${repoPath} on GitHub no longer contains the text "${title}" edits.`, 409, 'github_publish_remote_changed');
+  const pushed = pushEditsToProjectRepo(projectId, `docs: improve ${repoPath} via OpenGEO`, (cloneDir) => {
+    const filePath = path.join(cloneDir, repoPath);
+    if (!fs.existsSync(filePath)) throw remoteChanged(findings[0].title);
+    let content = fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n');
+    let edited = false;
+    for (const finding of findings) {
+      const patch = finding.patchPreview!;
+      // Already on GitHub (published earlier or by hand): adding it again would duplicate it.
+      if (content.includes(patch.afterExcerpt.replace(/\r\n/g, '\n').trim())) continue;
+      try {
+        content = applySurgicalPatchToContent(content, patch).patchedContent;
+        edited = true;
+      } catch {
+        throw remoteChanged(finding.title);
+      }
+    }
+    if (edited) fs.writeFileSync(filePath, `${content.trimEnd()}\n`, 'utf8');
+    return [repoPath];
+  }, options);
+
+  const liveUrl = pushed.slug
+    ? `https://github.com/${pushed.slug.owner}/${pushed.slug.repo}/blob/${pushed.defaultBranch}/${repoPath}`
+    : existing.targetUrl!;
+  const en = existing.uiLanguage === 'en';
+  const note = pushed.changed
+    ? (en ? `Pushed to ${pushed.defaultBranch} (${pushed.commitHash})` : `已推送到 ${pushed.defaultBranch}（${pushed.commitHash}）`)
+    : (en ? `${pushed.defaultBranch} already had these edits (${pushed.commitHash})` : `${pushed.defaultBranch} 已包含这些修改（${pushed.commitHash}）`);
+  const { audit, shippedRecord } = markPageAuditFindingsLive(projectId, findings.map((f) => f.id), { liveUrl, note });
+  return { audit, shippedRecord, commitHash: pushed.commitHash, branch: pushed.defaultBranch, changed: pushed.changed };
 }
 
 /**

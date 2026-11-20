@@ -39,7 +39,7 @@
       "src/lib/geo/improvement-model.ts": 1,
       "src/lib/geo/monitor.ts": 13,
       "src/lib/geo/optimization/engine.ts": 19,
-      "src/lib/geo/optimization/git-publisher.ts": 8,
+      "src/lib/geo/optimization/git-publisher.ts": 7,
       "src/lib/geo/optimization/page-audit.ts": 24,
       "src/lib/geo/optimization/repository.ts": 4,
       "src/lib/geo/outreach/outreach-actions.ts": 23,
