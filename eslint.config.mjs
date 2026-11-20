@@ -22,7 +22,7 @@ const confusingBrowserGlobals = [
 // allowance. Shrink the file and lower or delete its entry; never raise it.
 const MAX_LINES = 600;
 const maxLinesCeilings = {
-  'src/components/geo/ProjectOverview.tsx': 2170,
+  'src/components/geo/ProjectOverview.tsx': 671,
   'src/components/geo/OptimizationStudio.tsx': 1897,
   'src/components/geo/OpenGeoApp.tsx': 1766,
   'src/lib/geo/optimization/page-audit.ts': 1723,
