@@ -1,29 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Archive,
-  ArrowLeft,
-  BookOpen,
-  Check,
-  Clock,
-  ExternalLink,
-  GitCommit,
-  GitPullRequest,
-  Globe,
-  Loader2,
-  MessageSquarePlus,
-  Plus,
-  RotateCcw,
-  Settings2,
-  Sparkles,
-  Square,
-  Upload,
-  X,
-} from 'lucide-react';
+import { Loader2, RotateCcw } from 'lucide-react';
 import type { HumanProgressStep } from '@/lib/agent-hub';
 import type { OptimizationRunStatus } from '@/lib/geo/db/schema';
-import { plural, type GeoLanguage } from '@/lib/geo/i18n';
+import type { GeoLanguage } from '@/lib/geo/i18n';
 import { buildExternalMarkdown } from '@/lib/geo/optimization/external-export';
 import type {
   OptimizationDeliverable,
@@ -33,68 +14,26 @@ import type {
 import type { PageAuditRecord, PageAuditTargetOption } from '@/lib/geo/optimization/page-audit';
 import type { OutreachActionRecord } from '@/lib/geo/outreach/outreach-store';
 import type { ResearchBatch } from '@/lib/geo/research-types';
-import DeliverableArticleView, {
-  estimateReadingMinutes,
-  getDeliverableRoleLabel,
-} from './DeliverableArticleView';
-import OutreachActionCards from './OutreachActionCards';
 import PageAuditSection from './PageAuditSection';
-import ResearchEngineIcon from './ResearchEngineIcon';
 import { useChineseCompanionPreference, useUiLanguage } from './UiLanguageContext';
 import './optimization-studio.css';
-
-const REPO_DOC_PATH_RE =
-  /^(?:README(?:\.[a-zA-Z0-9_-]+)?\.md|(?:docs|public)\/[a-zA-Z0-9._/-]+\.(?:md|html))$/i;
-
-type AngleOptionKey = 'comparison' | 'collision' | 'workflow' | 'custom';
-
-/** Project-agnostic preset article angles (parameterized by projectName — zero domain overfitting). */
-function buildPresetAngleBrief(key: Exclude<AngleOptionKey, 'custom'>, projectName: string): string {
-  const name = projectName.trim() || 'this product';
-  switch (key) {
-    case 'comparison':
-      return `Write a balanced, factual buyer comparison showing how ${name} differs from the top alternatives cited in real AI answers, covering pricing model, setup trade-offs, and best-fit scenarios.`;
-    case 'collision':
-      return `Write a clear, authoritative explainer defining what ${name} is, who it is built for, and how it differs from similarly named or adjacent tools, grounded strictly in verified product facts.`;
-    case 'workflow':
-      return `Write a hands-on getting-started and workflow guide showing real users how to adopt ${name} step by step to solve the core buyer questions surfaced in monitoring.`;
-  }
-}
-
-function isRepoDocDestinationPath(destination?: string | null): boolean {
-  const trimmed = (destination || '').trim();
-  if (!trimmed) return false;
-  const blobMatch = trimmed.match(
-    /^https?:\/\/github\.com\/[^/]+\/[^/]+\/blob\/[^/]+\/(.+)$/i,
-  );
-  const candidate = blobMatch ? decodeURIComponent(blobMatch[1]) : trimmed.replace(/^\/+/, '');
-  return REPO_DOC_PATH_RE.test(candidate);
-}
-
-function isExternalArticleDeliverable(d: OptimizationDeliverable): boolean {
-  return (
-    d.kind === 'new_content' &&
-    getDeliverableRoleLabel(d, 'zh') === '公开获客文章'
-  );
-}
-
-function formatShortDate(iso: string | undefined, isEn: boolean): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString(isEn ? 'en-US' : 'zh-CN', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-}
-
-function formatElapsedWindow(hours: number, isEn: boolean): string {
-  if (hours < 1) return isEn ? '<1h ago' : '不到 1 小时';
-  if (hours < 24) return isEn ? `${hours}h ago` : `第 ${hours} 小时`;
-  const days = Math.floor(hours / 24);
-  return isEn ? `Day ${days}` : `第 ${days} 天`;
-}
+import {
+  type AngleOptionKey,
+  type OutreachModalState,
+  type ReaderState,
+  type ShippedHistoryEntry,
+  buildPresetAngleBrief,
+  isExternalArticleDeliverable,
+  isRepoDocDestinationPath,
+} from './optimization-studio/studio-format';
+import { StudioTopbar } from './optimization-studio/StudioTopbar';
+import { StudioWorkingCard } from './optimization-studio/StudioWorkingCard';
+import { StudioExternalListingsCard } from './optimization-studio/StudioExternalListingsCard';
+import { StudioOptionalStrip } from './optimization-studio/StudioOptionalStrip';
+import { StudioOutreachDialog } from './optimization-studio/StudioOutreachDialog';
+import { StudioReaderDrawer } from './optimization-studio/StudioReaderDrawer';
+import { StudioHistoryDrawer } from './optimization-studio/StudioHistoryDrawer';
+import { StudioAngleModal } from './optimization-studio/StudioAngleModal';
 
 export interface OptimizationStudioProps {
   projectId: string;
@@ -109,24 +48,6 @@ export interface OptimizationStudioProps {
   onSelectRun?: (runId: string) => void;
   onStatusChange?: (viewModel: OptimizationRunViewModel | null) => void;
   onRefresh?: () => void;
-}
-
-interface ShippedHistoryEntry {
-  key: string;
-  at: string;
-  title: string;
-  sourceKind:
-    | 'doc'
-    | 'article'
-    | 'page_audit'
-    | 'repo_meta'
-    | 'awesome_pr'
-    | 'directory_listing'
-    | 'community_post';
-  subtitle: string;
-  liveUrl?: string;
-  run?: OptimizationRun;
-  deliverable?: OptimizationDeliverable;
 }
 
 export default function OptimizationStudio({
@@ -172,16 +93,11 @@ export default function OptimizationStudio({
   // Launchpad External Pack + Outreach Review Modal state
   const [selectedExternalIds, setSelectedExternalIds] = useState<Set<string>>(new Set());
   const [preparingExternalPack, setPreparingExternalPack] = useState(false);
-  const [outreachModal, setOutreachModal] = useState<
-    null | { mode: 'external_pack' } | { mode: 'community_item'; actionId: string }
-  >(null);
+  const [outreachModal, setOutreachModal] = useState<OutreachModalState>(null);
   const outreachDialogRef = useRef<HTMLDialogElement | null>(null);
 
   // Slide-over drawers & angle picker modal
-  const [readerState, setReaderState] = useState<{
-    runId: string;
-    deliverable: OptimizationDeliverable;
-  } | null>(null);
+  const [readerState, setReaderState] = useState<ReaderState>(null);
   const [readingTab, setReadingTab] = useState<'after' | 'before'>('after');
   const [langVariant, setLangVariant] = useState<string>('default');
   const [generatingZhId, setGeneratingZhId] = useState<string | null>(null);
@@ -1037,80 +953,18 @@ export default function OptimizationStudio({
   return (
     <div className="ost-shell oap-shell">
       {/* Clean Action Plan Header */}
-      <header className="ost-topbar oap-topbar">
-        <div className="oap-header-left">
-          <div className="ost-title-left">
-            <button type="button" className="ost-back-btn" onClick={onBackOverview}>
-              <ArrowLeft size={15} />
-              <span>{t('nav.overview')}</span>
-            </button>
-            <span className="ost-title-divider" aria-hidden="true">
-              /
-            </span>
-            <h1>{t('term.actionPlan')}</h1>
-          </div>
-          {!pageAudit && (
-            <p className="oap-header-sub">{t('actionPlan.subtitle')}</p>
-          )}
-        </div>
-
-        <div className="oap-header-right">
-          <button
-            type="button"
-            className="oap-ledger-pill"
-            onClick={() => setHistoryOpen(true)}
-            title={t('actionPlan.historyDrawerDesc')}
-          >
-            {shippedItems.length > 0 && elapsedHoursSinceOnline !== null ? (
-              <>
-                <Clock size={13} />
-                <span>
-                  {t('actionPlan.ledgerPillBtn', {
-                    count: shippedItems.length,
-                    elapsed: formatElapsedWindow(elapsedHoursSinceOnline, isEn),
-                  })}
-                </span>
-              </>
-            ) : (
-              <>
-                <Archive size={13} />
-                <span>{t('actionPlan.ledgerEmptyBtn')}</span>
-              </>
-            )}
-          </button>
-
-          {isWorking ? (
-            <button
-              type="button"
-              className="oap-stop-btn"
-              disabled={cancellingRun}
-              onClick={() => void handleCancelRun()}
-            >
-              {cancellingRun ? (
-                <Loader2 size={13} className="ost-spin" />
-              ) : (
-                <Square size={12} />
-              )}
-              <span>
-                {cancellingRun
-                  ? t('actionPlan.stoppingGeneratingBtn')
-                  : t('actionPlan.stopGeneratingBtn')}
-              </span>
-            </button>
-          ) : (
-            questionTotal > 0 && (
-              <button
-                type="button"
-                className="ost-btn-secondary is-sm"
-                onClick={() => setAngleModalOpen(true)}
-              >
-                <Plus size={14} />
-                <span>{t('actionPlan.newAngleBtn')}</span>
-              </button>
-            )
-          )}
-        </div>
-      </header>
+      <StudioTopbar
+        onBackOverview={onBackOverview}
+        pageAudit={pageAudit}
+        setHistoryOpen={setHistoryOpen}
+        shippedItems={shippedItems}
+        elapsedHoursSinceOnline={elapsedHoursSinceOnline}
+        isWorking={isWorking}
+        cancellingRun={cancellingRun}
+        handleCancelRun={handleCancelRun}
+        questionTotal={questionTotal}
+        setAngleModalOpen={setAngleModalOpen}
+      />
 
       {error && (
         <div className="ost-alert" role="alert">
@@ -1146,50 +1000,13 @@ export default function OptimizationStudio({
 
       {/* Live Working Banner when generating a new angle package */}
       {isWorking && (
-        <section className="ost-working-card" aria-live="polite">
-          <div className="ost-working-head">
-            <div className="oap-working-lead">
-              <Loader2 size={18} className="ost-spin" />
-              <div>
-                <h2>{t('actionPlan.generatingBtn')}</h2>
-                <p>
-                  {latestProgress?.message ||
-                    latestRun?.statusMessage ||
-                    (isEn
-                      ? 'Drafting concise repo updates and multi-angle articles…'
-                      : '正在结合真实回答撰写新版内容与配图，请稍候…')}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="oap-stop-btn"
-              disabled={cancellingRun}
-              onClick={() => void handleCancelRun()}
-            >
-              {cancellingRun ? (
-                <Loader2 size={13} className="ost-spin" />
-              ) : (
-                <Square size={12} />
-              )}
-              <span>
-                {cancellingRun
-                  ? t('actionPlan.stoppingGeneratingBtn')
-                  : t('actionPlan.stopGeneratingBtn')}
-              </span>
-            </button>
-          </div>
-          {progressSteps.length > 1 && (
-            <ul className="ost-working-log">
-              {progressSteps.slice(-4).map((step, i) => (
-                <li key={`${step.at}-${i}`}>
-                  <Check size={13} />
-                  <span>{step.message}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <StudioWorkingCard
+          latestProgress={latestProgress}
+          latestRun={latestRun}
+          cancellingRun={cancellingRun}
+          handleCancelRun={handleCancelRun}
+          progressSteps={progressSteps}
+        />
       )}
 
       {/* Resumable banner only if the very latest run paused mid-draft */}
@@ -1230,287 +1047,49 @@ export default function OptimizationStudio({
 
         {/* TRACK 2 (Right Card): High-Authority External Listings (Awesome PRs + SaaS Directories) */}
         {hasRightLaunchCard && (
-          <section
-            className="oap-lp-card"
-            aria-label={isEn ? 'External listings' : '外部高权收录'}
-          >
-            <div className="oap-lp-head">
-              {!outreachLoading && (
-                <div className="oap-lp-head-top">
-                  <span className="oap-lp-count">
-                    {isEn
-                      ? `${selectedExternalCount} / ${primaryExternalListings.length} selected`
-                      : `已选 ${selectedExternalCount} / ${primaryExternalListings.length} 项`}
-                  </span>
-                </div>
-              )}
-              <h2 className="oap-lp-title">
-                {outreachLoading && primaryExternalListings.length === 0
-                  ? isEn
-                    ? 'Scanning AI-cited external lists…'
-                    : '正在扫描 AI 引用的外部榜单…'
-                  : externalPackTitle}
-              </h2>
-              <p className="oap-lp-desc">{externalPackDesc}</p>
-            </div>
-
-            <div className="oap-lp-body">
-              {outreachLoading && primaryExternalListings.length === 0 ? (
-                <div className="oap-lp-empty">
-                  <Loader2 size={18} className="ost-spin" />
-                  <p>{t('actionPlan.outreachLoading')}</p>
-                </div>
-              ) : (
-                <div className="oap-lp-ext-list">
-                  {primaryExternalListings.map((item, idx) => {
-                    const checked = selectedExternalIds.has(item.id);
-                    const engines = item.citedEngines ?? [];
-                    const kindMeta =
-                      item.kind === 'awesome_pr'
-                        ? isEn
-                          ? 'Open-source list PR'
-                          : '开源清单 · 提 PR'
-                        : item.kind === 'directory_listing'
-                          ? isEn
-                            ? 'Directory submission'
-                            : '外部目录 · 申请收录'
-                          : isEn
-                            ? 'GitHub About & Topics'
-                            : '仓库门面元信息';
-                    return (
-                      <label
-                        key={item.id}
-                        className={`oap-lp-ext-row ${checked ? '' : 'is-off'}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleExternalSelection(item.id)}
-                        />
-                        <div className="oap-lp-ext-copy">
-                          <div className="oap-lp-ext-top">
-                            <strong data-i18n-skip="">{item.title}</strong>
-                            {idx === 0 && (
-                              <span className="oap-lp-top-tag">
-                                {isEn ? 'Top priority' : '最优先'}
-                              </span>
-                            )}
-                          </div>
-                          <div className="oap-lp-ext-meta">
-                            <span>{kindMeta}</span>
-                            {Boolean(item.citedCount) && (
-                              <span>
-                                ·{' '}
-                                {isEn
-                                  ? `Cited in ${plural('en', item.citedCount ?? 0, {
-                                      one: '{n} prompt',
-                                      other: '{n} prompts',
-                                    })}`
-                                  : `被 AI 引用 ${item.citedCount} 题`}
-                              </span>
-                            )}
-                            {engines.map((eng) => (
-                              <span key={eng} className="oap-evidence-engine-tag">
-                                <ResearchEngineIcon engine={eng} />
-                                <span>{eng === 'chatgpt' ? 'ChatGPT' : 'Google'}</span>
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="oap-lp-footer">
-              <button
-                type="button"
-                className="ost-btn-secondary is-sm"
-                disabled={primaryExternalListings.length === 0}
-                onClick={() => setOutreachModal({ mode: 'external_pack' })}
-              >
-                {allAwesomeExternal
-                  ? isEn
-                    ? 'Inspect PR entries'
-                    : '细看插入内容'
-                  : isEn
-                    ? 'Inspect details'
-                    : '细看提交材料'}
-              </button>
-              <button
-                type="button"
-                className="ost-btn-primary is-sm"
-                disabled={selectedExternalCount === 0 || preparingExternalPack}
-                onClick={() => void handlePrepareExternalPack()}
-              >
-                {preparingExternalPack ? (
-                  <Loader2 size={14} className="ost-spin" />
-                ) : allAwesomeExternal ? (
-                  <GitPullRequest size={14} />
-                ) : (
-                  <Globe size={14} />
-                )}
-                <span>
-                  {preparingExternalPack
-                    ? isEn
-                      ? 'Preparing drafts…'
-                      : '正在备好插入行…'
-                    : allAwesomeExternal
-                      ? isEn
-                        ? `Prepare & review ${plural('en', selectedExternalCount, { one: '{n} PR', other: '{n} PRs' })}`
-                        : `准备并核对已选 ${selectedExternalCount} 个 PR`
-                      : allDirectoryExternal
-                        ? isEn
-                          ? `Copy & open ${plural('en', selectedExternalCount, { one: '{n} directory', other: '{n} directories' })}`
-                          : `复制已选 ${selectedExternalCount} 份收录材料`
-                        : isEn
-                          ? `Review & ship ${plural('en', selectedExternalCount, { one: '{n} item', other: '{n} items' })}`
-                          : `核对并推进已选 ${selectedExternalCount} 项`}
-                </span>
-              </button>
-            </div>
-          </section>
+          <StudioExternalListingsCard
+            outreachLoading={outreachLoading}
+            selectedExternalCount={selectedExternalCount}
+            primaryExternalListings={primaryExternalListings}
+            externalPackTitle={externalPackTitle}
+            externalPackDesc={externalPackDesc}
+            selectedExternalIds={selectedExternalIds}
+            toggleExternalSelection={toggleExternalSelection}
+            setOutreachModal={setOutreachModal}
+            allAwesomeExternal={allAwesomeExternal}
+            preparingExternalPack={preparingExternalPack}
+            handlePrepareExternalPack={handlePrepareExternalPack}
+            allDirectoryExternal={allDirectoryExternal}
+          />
         )}
       </div>
 
       {/* QUIET BUCKET 3: Optional Community Discussions & New Articles (Collapsed by Default) */}
       {optionalTotalCount > 0 && (
-        <details className="oap-optional-strip">
-          <summary>
-            <span>
-              {isEn
-                ? `Optional when you have time · ${plural('en', optionalTotalCount, {
-                    one: '{n} community / article draft',
-                    other: '{n} community / article drafts',
-                  })} (no rush — click to inspect or copy)`
-                : `有空再发 · ${optionalTotalCount} 条社区讨论 / 新内容草稿（不着急，点开即可查看或复制）`}
-            </span>
-          </summary>
-          <div className="oap-optional-grid">
-            {communityOutreach.map((item) => (
-              <div key={item.id} className="oap-optional-row">
-                <div className="oap-optional-copy">
-                  <strong data-i18n-skip="">{item.title}</strong>
-                  <span>{item.subtitle}</span>
-                </div>
-                <button
-                  type="button"
-                  className="ost-btn-secondary is-sm"
-                  onClick={() => setOutreachModal({ mode: 'community_item', actionId: item.id })}
-                >
-                  {isEn ? 'Open draft ›' : '打开草稿 ›'}
-                </button>
-              </div>
-            ))}
-            {pendingDeliverables.map((d) => {
-              const roleLabel = getDeliverableRoleLabel(d, uiLanguage);
-              const mins = estimateReadingMinutes(d.afterContent);
-              return (
-                <div key={d.id} className="oap-optional-row">
-                  <div className="oap-optional-copy">
-                    <strong data-i18n-skip="">{d.title}</strong>
-                    <span>
-                      {roleLabel} ·{' '}
-                      {isEn
-                        ? `${d.questionIds.length} prompts · ~${mins} min`
-                        : `回应 ${d.questionIds.length} 题 · 约 ${mins} 分钟`}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="ost-btn-secondary is-sm"
-                    onClick={() => {
-                      if (!activeDocsRun) return;
-                      setReadingTab('after');
-                      setLangVariant('default');
-                      setReaderState({ runId: activeDocsRun.id, deliverable: d });
-                    }}
-                  >
-                    {isEn ? 'Open article ›' : '打开成稿 ›'}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </details>
+        <StudioOptionalStrip
+          optionalTotalCount={optionalTotalCount}
+          communityOutreach={communityOutreach}
+          setOutreachModal={setOutreachModal}
+          pendingDeliverables={pendingDeliverables}
+          activeDocsRun={activeDocsRun}
+          setReadingTab={setReadingTab}
+          setLangVariant={setLangVariant}
+          setReaderState={setReaderState}
+        />
       )}
 
       {/* NATIVE MODAL: External Listings / Community Draft Review (wraps full OutreachActionCards) */}
-      <dialog
-        ref={outreachDialogRef}
-        className="oap-clean-modal"
-        aria-labelledby="oap-outreach-modal-title"
-        onClose={() => setOutreachModal(null)}
-        onClick={(e) => {
-          if (e.target === outreachDialogRef.current) setOutreachModal(null);
-        }}
-      >
-        {outreachModal && (
-          <>
-            <header className="oap-modal-head">
-              <div className="oap-modal-head-copy">
-                <h2 id="oap-outreach-modal-title">
-                  {outreachModal.mode === 'external_pack'
-                    ? externalPackTitle
-                    : isEn
-                      ? 'Community Post Draft'
-                      : '社区补充草稿'}
-                </h2>
-                <p>
-                  {outreachModal.mode === 'external_pack'
-                    ? isEn
-                      ? 'Inspect and edit each entry before submitting PRs or opening directory forms.'
-                      : '提交前可逐项核对或微调插入行与提交材料，一切由你确认后才发出。'
-                    : isEn
-                      ? 'Edit freely, copy to clipboard, and open the target page.'
-                      : '可按需微调措辞，一键复制并打开目标页面。'}
-                </p>
-              </div>
-              <button
-                type="button"
-                className="oap-modal-close-btn"
-                aria-label={isEn ? 'Close' : '关闭'}
-                onClick={() => setOutreachModal(null)}
-              >
-                <X size={15} />
-                <span>{isEn ? 'Close' : '关闭'}</span>
-              </button>
-            </header>
-
-            <div className="oap-modal-body oap-modal-outreach-pad">
-              <OutreachActionCards
-                projectId={projectId}
-                lang={uiLanguage}
-                actions={modalOutreachItems}
-                loading={false}
-                highlightFirst={outreachModal.mode === 'external_pack'}
-                onActionsUpdated={(nextActions) => {
-                  setOutreachActions(nextActions);
-                  const stillLeft =
-                    outreachModal.mode === 'community_item'
-                      ? nextActions.some(
-                          (a) =>
-                            a.id === outreachModal.actionId &&
-                            a.status !== 'completed' &&
-                            a.status !== 'skipped',
-                        )
-                      : nextActions.some(
-                          (a) =>
-                            a.kind !== 'community_post' &&
-                            a.status !== 'completed' &&
-                            a.status !== 'skipped',
-                        );
-                  if (!stillLeft) setOutreachModal(null);
-                }}
-                onError={setError}
-                onNotice={setNotice}
-              />
-            </div>
-          </>
-        )}
-      </dialog>
+      <StudioOutreachDialog
+        outreachDialogRef={outreachDialogRef}
+        setOutreachModal={setOutreachModal}
+        outreachModal={outreachModal}
+        externalPackTitle={externalPackTitle}
+        projectId={projectId}
+        modalOutreachItems={modalOutreachItems}
+        setOutreachActions={setOutreachActions}
+        setError={setError}
+        setNotice={setNotice}
+      />
 
       {/* DRAWER A: Right Slide-Over Full Article / Snapshot Reader */}
       {activeReaderDeliverable && (() => {
@@ -1541,467 +1120,66 @@ export default function OptimizationStudio({
           !isPendingRepo;
 
         return (
-          <div
-            className="oap-drawer-backdrop"
-            role="dialog"
-            aria-modal="true"
-            aria-label={deliverable.title}
-            onClick={() => {
-              setReaderState(null);
-              setMarkingPublishedDocId(null);
-              setPublishedUrlInput('');
-            }}
-          >
-            <aside
-              className="oap-drawer is-reader"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <header className="oap-drawer-head">
-                <div className="oap-drawer-title-wrap">
-                  <span className="oap-kind-pill is-doc">
-                    {getDeliverableRoleLabel(deliverable, uiLanguage)}
-                  </span>
-                  <h2>{deliverable.title}</h2>
-                </div>
-                <div className="oap-drawer-head-actions">
-                  {isPendingRepo && (
-                    <button
-                      type="button"
-                      className="ost-btn-primary is-sm"
-                      disabled={Boolean(busyDocId)}
-                      onClick={() => void handleOneClickPushToGitHub(runId, deliverable)}
-                    >
-                      {busyDocId === deliverable.id ? (
-                        <Loader2 size={14} className="ost-spin" />
-                      ) : (
-                        <Upload size={14} />
-                      )}
-                      <span>
-                        {busyDocId === deliverable.id
-                          ? t('actionPlan.pushingGithubBtn')
-                          : t('actionPlan.pushGithubOneStepBtn')}
-                      </span>
-                    </button>
-                  )}
-                  {isPendingExternal && (
-                    <>
-                      <button
-                        type="button"
-                        className="ost-btn-secondary is-sm"
-                        disabled={Boolean(busyDocId)}
-                        onClick={() => {
-                          setMarkingPublishedDocId(deliverable.id);
-                          setPublishedUrlInput(deliverable.appliedRecord?.publishedUrl ?? '');
-                          setError('');
-                        }}
-                      >
-                        <Check size={13} />
-                        <span>{t('actionPlan.confirmPublishedBtn')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="ost-btn-primary is-sm"
-                        disabled={Boolean(busyDocId)}
-                        onClick={() => void handleOpenExternalInEgo(deliverable)}
-                      >
-                        {busyDocId === deliverable.id && busyDocOp === 'ego' ? (
-                          <Loader2 size={14} className="ost-spin" />
-                        ) : (
-                          <ExternalLink size={14} />
-                        )}
-                        <span>{t('actionPlan.openPublishPageBtn')}</span>
-                      </button>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    className="oap-drawer-close"
-                    aria-label={t('actionPlan.readerDrawerClose')}
-                    onClick={() => {
-                      setReaderState(null);
-                      setMarkingPublishedDocId(null);
-                      setPublishedUrlInput('');
-                    }}
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-              </header>
-
-              {isPendingExternal && markingPublishedDocId === deliverable.id && (
-                <div className="oap-mark-sent-box oap-drawer-publish-bar">
-                  <input
-                    type="url"
-                    value={publishedUrlInput}
-                    onChange={(e) => setPublishedUrlInput(e.target.value)}
-                    placeholder={
-                      isEn
-                        ? 'Required: paste the live published article URL (https://...)'
-                        : '必填：粘贴文章发布后的公开网址（https://...），复测时用于识别你的外链文章'
-                    }
-                  />
-                  <div className="oap-mark-sent-btns">
-                    <button
-                      type="button"
-                      className="ost-btn-secondary is-sm"
-                      onClick={() => {
-                        setMarkingPublishedDocId(null);
-                        setPublishedUrlInput('');
-                      }}
-                    >
-                      {isEn ? 'Cancel' : '取消'}
-                    </button>
-                    <button
-                      type="button"
-                      className="ost-btn-primary is-sm"
-                      disabled={
-                        Boolean(busyDocId) || !/^https?:\/\/\S+/i.test(publishedUrlInput.trim())
-                      }
-                      onClick={() =>
-                        void handleMarkDocPublished(runId, deliverable, publishedUrlInput)
-                      }
-                    >
-                      {busyDocId === deliverable.id && busyDocOp === 'mark' ? (
-                        <Loader2 size={13} className="ost-spin" />
-                      ) : (
-                        <Check size={13} />
-                      )}
-                      <span>{t('actionPlan.confirmPublishedBtn')}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {(Boolean(deliverable.beforeContent.trim()) ||
-                companions.length > 0 ||
-                (readingTab === 'after' && uiLanguage === 'zh')) && (
-                <div className="oap-drawer-toolbar">
-                  {Boolean(deliverable.beforeContent.trim()) && (
-                    <div className="ost-compare-toggle" role="tablist">
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={readingTab === 'after'}
-                        onClick={() => setReadingTab('after')}
-                      >
-                        {isEn ? 'Updated draft' : '修改后新稿'}
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={readingTab === 'before'}
-                        onClick={() => setReadingTab('before')}
-                      >
-                        {isEn ? 'Original version' : '修改前原文'}
-                      </button>
-                    </div>
-                  )}
-
-                  {readingTab === 'after' && companions.length > 0 && (
-                    <div className="ost-compare-toggle" role="tablist">
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={langVariant === 'default'}
-                        onClick={() => setLangVariant('default')}
-                      >
-                        {isExt || companions.every((c) => c.reviewOnly)
-                          ? isEn
-                            ? 'English'
-                            : 'English 原稿'
-                          : `English (${deliverable.destination.split('/').pop()})`}
-                      </button>
-                      {companions.map((comp) => (
-                        <button
-                          key={comp.lang}
-                          type="button"
-                          role="tab"
-                          aria-selected={langVariant === comp.lang}
-                          onClick={() => setLangVariant(comp.lang)}
-                        >
-                          {comp.reviewOnly
-                            ? isEn
-                              ? 'Chinese companion'
-                              : '中文对照'
-                            : `${comp.label} (${comp.path.split('/').pop()})`}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {readingTab === 'after' && !hasZhComp && uiLanguage === 'zh' && (
-                    <button
-                      type="button"
-                      className="ost-gen-zh-btn"
-                      disabled={generatingZhId === deliverable.id}
-                      onClick={() =>
-                        void handleGenerateZhCompanion(runId, deliverable.id)
-                      }
-                    >
-                      {generatingZhId === deliverable.id ? (
-                        <Loader2 size={14} className="ost-spin" />
-                      ) : (
-                        <Sparkles size={14} />
-                      )}
-                      <span>
-                        {generatingZhId === deliverable.id
-                          ? isEn
-                            ? 'Generating Chinese companion…'
-                            : '正在生成中文版…'
-                          : isEn
-                            ? 'Generate Chinese companion'
-                            : '生成中文对照版'}
-                      </span>
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <div className="oap-drawer-body">
-                <DeliverableArticleView
-                  projectId={projectId}
-                  projectName={projectName}
-                  siteUrl={siteUrl}
-                  batch={batch}
-                  deliverable={deliverable}
-                  repositoryUrl={repositoryUrl}
-                  showMetaStrip={readingTab === 'after'}
-                  hideCopyButton={false}
-                  externalExportMode={isExt && readingTab === 'after'}
-                  branch={deliverable.appliedRecord?.branch || 'main'}
-                  contentOverride={contentOverride}
-                  destinationOverride={destinationOverride}
-                />
-              </div>
-            </aside>
-          </div>
+          <StudioReaderDrawer
+            deliverable={deliverable}
+            setReaderState={setReaderState}
+            setMarkingPublishedDocId={setMarkingPublishedDocId}
+            setPublishedUrlInput={setPublishedUrlInput}
+            isPendingRepo={isPendingRepo}
+            busyDocId={busyDocId}
+            handleOneClickPushToGitHub={handleOneClickPushToGitHub}
+            runId={runId}
+            isPendingExternal={isPendingExternal}
+            setError={setError}
+            handleOpenExternalInEgo={handleOpenExternalInEgo}
+            busyDocOp={busyDocOp}
+            markingPublishedDocId={markingPublishedDocId}
+            publishedUrlInput={publishedUrlInput}
+            handleMarkDocPublished={handleMarkDocPublished}
+            companions={companions}
+            readingTab={readingTab}
+            setReadingTab={setReadingTab}
+            langVariant={langVariant}
+            setLangVariant={setLangVariant}
+            isExt={isExt}
+            hasZhComp={hasZhComp}
+            generatingZhId={generatingZhId}
+            handleGenerateZhCompanion={handleGenerateZhCompanion}
+            projectId={projectId}
+            projectName={projectName}
+            siteUrl={siteUrl}
+            batch={batch}
+            repositoryUrl={repositoryUrl}
+            contentOverride={contentOverride}
+            destinationOverride={destinationOverride}
+          />
         );
       })()}
 
       {/* DRAWER B: Right Slide-Over Automatic Shipped History Drawer */}
       {historyOpen && (
-        <div
-          className="oap-drawer-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('actionPlan.historyDrawerTitle')}
-          onClick={() => setHistoryOpen(false)}
-        >
-          <aside
-            className="oap-drawer is-history"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header className="oap-drawer-head">
-              <div>
-                <h2>{t('actionPlan.historyDrawerTitle')}</h2>
-                <p className="oap-drawer-desc">{t('actionPlan.historyDrawerDesc')}</p>
-              </div>
-              <button
-                type="button"
-                className="oap-drawer-close"
-                aria-label={t('actionPlan.readerDrawerClose')}
-                onClick={() => setHistoryOpen(false)}
-              >
-                <X size={18} />
-              </button>
-            </header>
-
-            <div className="oap-drawer-body">
-              {shippedItems.length === 0 ? (
-                <p className="oap-history-empty">{t('actionPlan.historyEmpty')}</p>
-              ) : (
-                <ul className="oap-history-list">
-                  {shippedItems.map((entry) => (
-                    <li key={entry.key} className="oap-history-row">
-                      <div className="oap-history-top">
-                        <span className={`oap-kind-pill is-${entry.sourceKind}`}>
-                          {entry.sourceKind === 'awesome_pr' ? (
-                            <GitPullRequest size={11} />
-                          ) : entry.sourceKind === 'directory_listing' || entry.sourceKind === 'page_audit' ? (
-                            <Globe size={11} />
-                          ) : entry.sourceKind === 'repo_meta' ? (
-                            <Settings2 size={11} />
-                          ) : entry.sourceKind === 'community_post' ? (
-                            <MessageSquarePlus size={11} />
-                          ) : (
-                            <GitCommit size={11} />
-                          )}
-                          {entry.sourceKind === 'awesome_pr'
-                            ? t('actionPlan.awesomeBadge')
-                            : entry.sourceKind === 'directory_listing'
-                              ? isEn
-                                ? 'External directory'
-                                : '外部目录收录'
-                              : entry.sourceKind === 'page_audit'
-                                ? isEn
-                                  ? 'Suggested edit'
-                                  : '修改建议'
-                                : entry.sourceKind === 'repo_meta'
-                                  ? t('actionPlan.repoMetaBadge')
-                                  : entry.sourceKind === 'community_post'
-                                    ? t('actionPlan.communityBadge')
-                                    : entry.sourceKind === 'article'
-                                      ? getDeliverableRoleLabel(entry.deliverable!, uiLanguage)
-                                      : isEn
-                                        ? 'Repo Doc'
-                                        : '仓库文档'}
-                        </span>
-                        <time>{formatShortDate(entry.at, isEn)}</time>
-                      </div>
-
-                      <strong>{entry.title}</strong>
-                      <p>{entry.subtitle}</p>
-
-                      <div className="oap-history-links">
-                        {entry.liveUrl && (
-                          <a href={entry.liveUrl} target="_blank" rel="noreferrer">
-                            {t('actionPlan.openLiveLinkBtn')} <ExternalLink size={11} />
-                          </a>
-                        )}
-                        {entry.deliverable && entry.run && (
-                          <button
-                            type="button"
-                            className="oap-snapshot-btn"
-                            onClick={() => {
-                              setHistoryOpen(false);
-                              setReadingTab('after');
-                              setLangVariant('default');
-                              setReaderState({
-                                runId: entry.run!.id,
-                                deliverable: entry.deliverable!,
-                              });
-                            }}
-                          >
-                            <BookOpen size={12} />
-                            <span>{t('actionPlan.viewSnapshotBtn')}</span>
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </aside>
-        </div>
+        <StudioHistoryDrawer
+          setHistoryOpen={setHistoryOpen}
+          shippedItems={shippedItems}
+          setReadingTab={setReadingTab}
+          setLangVariant={setLangVariant}
+          setReaderState={setReaderState}
+        />
       )}
 
       {/* MODAL: Explicit Angle Selection Before Drafting a New Standalone Article */}
       {angleModalOpen && (
-        <div
-          className="oap-modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('actionPlan.angleModalTitle')}
-          onClick={() => setAngleModalOpen(false)}
-        >
-          <section
-            className="oap-angle-modal"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header className="oap-modal-head">
-              <div>
-                <h2>{t('actionPlan.angleModalTitle')}</h2>
-                <p>{t('actionPlan.angleModalDesc')}</p>
-              </div>
-              <button
-                type="button"
-                className="oap-drawer-close"
-                aria-label={t('actionPlan.readerDrawerClose')}
-                onClick={() => setAngleModalOpen(false)}
-              >
-                <X size={18} />
-              </button>
-            </header>
-
-            <div className="oap-angle-list">
-              {(
-                [
-                  {
-                    key: 'comparison',
-                    title: t('actionPlan.angleOptComparisonTitle'),
-                    desc: t('actionPlan.angleOptComparisonDesc'),
-                  },
-                  {
-                    key: 'collision',
-                    title: t('actionPlan.angleOptCollisionTitle'),
-                    desc: t('actionPlan.angleOptCollisionDesc'),
-                  },
-                  {
-                    key: 'workflow',
-                    title: t('actionPlan.angleOptWorkflowTitle'),
-                    desc: t('actionPlan.angleOptWorkflowDesc'),
-                  },
-                  {
-                    key: 'custom',
-                    title: t('actionPlan.angleOptCustomTitle'),
-                    desc: null,
-                  },
-                ] as const
-              ).map((opt) => {
-                const active = selectedAngleKey === opt.key;
-                return (
-                  <label
-                    key={opt.key}
-                    className={`oap-angle-item ${active ? 'is-selected' : ''}`}
-                  >
-                    <input
-                      type="radio"
-                      name="oap-angle-choice"
-                      checked={active}
-                      onChange={() => setSelectedAngleKey(opt.key)}
-                    />
-                    <div className="oap-angle-copy">
-                      <strong>{opt.title}</strong>
-                      {opt.desc && <p>{opt.desc}</p>}
-                      {opt.key === 'custom' && active && (
-                        <textarea
-                          rows={3}
-                          maxLength={500}
-                          className="oap-angle-textarea"
-                          value={customAngleText}
-                          onChange={(e) => setCustomAngleText(e.target.value)}
-                          placeholder={t('actionPlan.angleOptCustomPlaceholder')}
-                          autoFocus
-                        />
-                      )}
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-
-            {uiLanguage === 'zh' && (
-              <label className="oap-modal-zh-opt">
-                <input
-                  type="checkbox"
-                  checked={includeChineseCompanion}
-                  onChange={(e) => setIncludeChineseCompanion(e.target.checked)}
-                />
-                <span>{t('actionPlan.angleIncludeZhLabel')}</span>
-              </label>
-            )}
-
-            <footer className="oap-modal-footer">
-              <button
-                type="button"
-                className="ost-btn-secondary is-sm"
-                onClick={() => setAngleModalOpen(false)}
-              >
-                {t('actionPlan.angleCancelBtn')}
-              </button>
-              <button
-                type="button"
-                className="ost-btn-primary is-sm"
-                disabled={!canStartSelectedAngle}
-                onClick={handleConfirmAngleDraft}
-              >
-                <Sparkles size={14} />
-                <span>{t('actionPlan.angleConfirmBtn')}</span>
-              </button>
-            </footer>
-          </section>
-        </div>
+        <StudioAngleModal
+          setAngleModalOpen={setAngleModalOpen}
+          selectedAngleKey={selectedAngleKey}
+          setSelectedAngleKey={setSelectedAngleKey}
+          customAngleText={customAngleText}
+          setCustomAngleText={setCustomAngleText}
+          includeChineseCompanion={includeChineseCompanion}
+          setIncludeChineseCompanion={setIncludeChineseCompanion}
+          canStartSelectedAngle={canStartSelectedAngle}
+          handleConfirmAngleDraft={handleConfirmAngleDraft}
+        />
       )}
     </div>
   );
