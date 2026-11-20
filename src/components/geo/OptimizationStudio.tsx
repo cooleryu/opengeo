@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import type { HumanProgressStep } from '@/lib/agent-hub';
 import type { OptimizationRunStatus } from '@/lib/geo/db/schema';
-import type { GeoLanguage } from '@/lib/geo/i18n';
+import { plural, type GeoLanguage } from '@/lib/geo/i18n';
 import { buildExternalMarkdown } from '@/lib/geo/optimization/external-export';
 import type {
   OptimizationDeliverable,
@@ -82,10 +82,11 @@ function formatShortDate(iso: string | undefined, isEn: boolean): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  if (isEn) {
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
+  return d.toLocaleDateString(isEn ? 'en-US' : 'zh-CN', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 function formatElapsedWindow(hours: number, isEn: boolean): string {
@@ -1295,7 +1296,7 @@ export default function OptimizationStudio({
                         />
                         <div className="oap-lp-ext-copy">
                           <div className="oap-lp-ext-top">
-                            <strong>{item.title}</strong>
+                            <strong data-i18n-skip="">{item.title}</strong>
                             {idx === 0 && (
                               <span className="oap-lp-top-tag">
                                 {isEn ? 'Top priority' : '最优先'}
@@ -1308,7 +1309,10 @@ export default function OptimizationStudio({
                               <span>
                                 ·{' '}
                                 {isEn
-                                  ? `Cited in ${item.citedCount} prompt${item.citedCount === 1 ? '' : 's'}`
+                                  ? `Cited in ${plural('en', item.citedCount ?? 0, {
+                                      one: '{n} prompt',
+                                      other: '{n} prompts',
+                                    })}`
                                   : `被 AI 引用 ${item.citedCount} 题`}
                               </span>
                             )}
@@ -1384,7 +1388,10 @@ export default function OptimizationStudio({
           <summary>
             <span>
               {isEn
-                ? `Optional when you have time · ${optionalTotalCount} community / article draft${optionalTotalCount === 1 ? '' : 's'} (no rush — click to inspect or copy)`
+                ? `Optional when you have time · ${plural('en', optionalTotalCount, {
+                    one: '{n} community / article draft',
+                    other: '{n} community / article drafts',
+                  })} (no rush — click to inspect or copy)`
                 : `有空再发 · ${optionalTotalCount} 条社区讨论 / 新内容草稿（不着急，点开即可查看或复制）`}
             </span>
           </summary>
@@ -1392,7 +1399,7 @@ export default function OptimizationStudio({
             {communityOutreach.map((item) => (
               <div key={item.id} className="oap-optional-row">
                 <div className="oap-optional-copy">
-                  <strong>{item.title}</strong>
+                  <strong data-i18n-skip="">{item.title}</strong>
                   <span>{item.subtitle}</span>
                 </div>
                 <button
@@ -1410,7 +1417,7 @@ export default function OptimizationStudio({
               return (
                 <div key={d.id} className="oap-optional-row">
                   <div className="oap-optional-copy">
-                    <strong>{d.title}</strong>
+                    <strong data-i18n-skip="">{d.title}</strong>
                     <span>
                       {roleLabel} ·{' '}
                       {isEn
@@ -1744,7 +1751,13 @@ export default function OptimizationStudio({
                         <Sparkles size={14} />
                       )}
                       <span>
-                        {generatingZhId === deliverable.id ? '正在生成中文版…' : '生成中文对照版'}
+                        {generatingZhId === deliverable.id
+                          ? isEn
+                            ? 'Generating Chinese companion…'
+                            : '正在生成中文版…'
+                          : isEn
+                            ? 'Generate Chinese companion'
+                            : '生成中文对照版'}
                       </span>
                     </button>
                   )}

@@ -44,6 +44,8 @@ import './deliverable-article-view.css';
 export { resolveRelativeRepoTarget };
 
 function MermaidFlowDiagram({ code }: { code: string }) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const [showSource, setShowSource] = useState(false);
   const parsed = useMemo(() => parseMermaidFlowchart(code), [code]);
 
@@ -55,7 +57,6 @@ function MermaidFlowDiagram({ code }: { code: string }) {
     );
   }
 
-  const isEnglishDiagram = !/[\p{Script=Han}]/u.test(code);
   const orderIndex = new Map<string, number>();
   const orderedIds: string[] = [];
   for (const id of parsed.nodes.keys()) {
@@ -94,11 +95,11 @@ function MermaidFlowDiagram({ code }: { code: string }) {
   return (
     <figure
       className="dav-diagram"
-      aria-label={isEnglishDiagram ? 'Workflow overview flowchart' : '步骤流程示意图'}
+      aria-label={isEn ? 'Workflow overview flowchart' : '步骤流程示意图'}
     >
       <div className="dav-diagram-bar">
         <span className="dav-diagram-tag">
-          {isEnglishDiagram
+          {isEn
             ? 'Workflow Overview · Mermaid Flowchart'
             : '步骤一览 · Mermaid 流程图'}
         </span>
@@ -108,10 +109,10 @@ function MermaidFlowDiagram({ code }: { code: string }) {
           onClick={() => setShowSource((v) => !v)}
         >
           {showSource
-            ? isEnglishDiagram
+            ? isEn
               ? 'Card View'
               : '卡片视图'
-            : isEnglishDiagram
+            : isEn
               ? 'Mermaid Code'
               : 'Mermaid 源码'}
         </button>
@@ -158,7 +159,7 @@ function MermaidFlowDiagram({ code }: { code: string }) {
                         <div key={loopIdx} className="dav-flow-loop-badge">
                           <CornerDownLeft size={13} />
                           <span>
-                            {isEnglishDiagram
+                            {isEn
                               ? `${loop.label ? `${loop.label}: ` : 'Loop: '}back to Step ${targetIndex}${targetNode ? ` (${targetNode.label})` : ''}`
                               : `${loop.label ? `${loop.label}：` : '循环：'}回到第 ${targetIndex} 步${targetNode ? `（${targetNode.label}）` : ''}`}
                           </span>
@@ -923,7 +924,7 @@ export default function DeliverableArticleView({
                       ? `${winner.citedQuestionCount}q`
                       : `${winner.citedQuestionCount}题`}
                     {typeof winner.stars === 'number' && winner.stars > 0
-                      ? ` · ★ ${winner.stars.toLocaleString('en-US')}`
+                      ? ` · ★ ${winner.stars.toLocaleString(uiLanguage === 'en' ? 'en-US' : 'zh-CN')}`
                       : ''}
                     {winner.probeStatus !== 'local_fallback'
                       ? ` · ${t('dav.winnerFullRead')}`
@@ -1014,7 +1015,10 @@ export default function DeliverableArticleView({
               </div>
             )}
             {centeredHero.links.length > 0 && (
-              <nav className="dav-readme-nav" aria-label="文档快速导航">
+              <nav
+                className="dav-readme-nav"
+                aria-label={uiLanguage === 'en' ? 'Document quick navigation' : '文档快速导航'}
+              >
                 {centeredHero.links.map((link, idx) => (
                   <span key={`${link.href}-${idx}`}>
                     {idx > 0 && <span className="dav-readme-sep"> · </span>}
@@ -1065,7 +1069,15 @@ export default function DeliverableArticleView({
                         type="button"
                         className="dav-figure-frame"
                         onClick={() => setLightbox({ src: resolved, alt })}
-                        aria-label={alt ? `放大查看：${alt}` : '放大查看配图'}
+                        aria-label={
+                          alt
+                            ? uiLanguage === 'en'
+                              ? `Zoom image: ${alt}`
+                              : `放大查看：${alt}`
+                            : uiLanguage === 'en'
+                              ? 'Zoom image'
+                              : '放大查看配图'
+                        }
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={resolved} alt={alt} loading="lazy" />
@@ -1124,7 +1136,9 @@ export default function DeliverableArticleView({
           className="dav-lightbox"
           role="dialog"
           aria-modal="true"
-          aria-label={lightbox.alt || '配图预览'}
+          aria-label={
+            lightbox.alt || (uiLanguage === 'en' ? 'Image preview' : '配图预览')
+          }
           onClick={() => setLightbox(null)}
         >
           <div
@@ -1134,7 +1148,7 @@ export default function DeliverableArticleView({
             <button
               type="button"
               className="dav-lightbox-close"
-              aria-label="关闭大图"
+              aria-label={uiLanguage === 'en' ? 'Close image' : '关闭大图'}
               onClick={() => setLightbox(null)}
             >
               <X size={18} />

@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import type { BrowserCollectJobSnapshot } from '@/lib/geo/browser-collect-types';
-import { resolveProjectTargetLanguage } from '@/lib/geo/i18n';
+import { inferContentLang, resolveProjectTargetLanguage } from '@/lib/geo/i18n';
 import type { QuestionCategory } from '@/lib/geo/question-types';
 import type {
   ResearchBatch,
@@ -204,7 +204,12 @@ export function OverviewAudit({
         <strong>
           {isEn ? 'Brand mention' : '正文提及'} · {verdictLabels[isEn ? 'en' : 'zh'][mention]}
         </strong>
-        <p>{humanizeAuditEvidence(audit?.mentionEvidence, 'mention', mention, isEn)}</p>
+        <p
+          lang={audit?.mentionEvidence ? inferContentLang(audit.mentionEvidence) : undefined}
+          data-i18n-skip={audit?.mentionEvidence ? '' : undefined}
+        >
+          {humanizeAuditEvidence(audit?.mentionEvidence, 'mention', mention, isEn)}
+        </p>
       </div>
       <div>
         <strong>
@@ -215,7 +220,12 @@ export function OverviewAudit({
               ? (isEn ? 'Not cited' : '未引用')
               : (isEn ? 'Analyzing' : '分析中')}
         </strong>
-        <p>{humanizeAuditEvidence(audit?.citationEvidence, 'citation', citation, isEn)}</p>
+        <p
+          lang={audit?.citationEvidence ? inferContentLang(audit.citationEvidence) : undefined}
+          data-i18n-skip={audit?.citationEvidence ? '' : undefined}
+        >
+          {humanizeAuditEvidence(audit?.citationEvidence, 'citation', citation, isEn)}
+        </p>
       </div>
     </div>
   );

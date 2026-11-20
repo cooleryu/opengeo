@@ -45,7 +45,7 @@ import ProjectOverview, {
 } from './ProjectOverview';
 import type { ClaimReviewInput } from './ClaimReviewPanel';
 import { overviewProgress } from '@/lib/geo/overview-progress';
-import { resolveProjectTargetLanguage } from '@/lib/geo/i18n';
+import { inferContentLang, plural, resolveProjectTargetLanguage } from '@/lib/geo/i18n';
 import { isAiAnswerRow } from '@/lib/geo/overview-metrics';
 import { sameCanonicalSource } from '@/lib/geo/overview-sources';
 import type { GeoTask, GeoProject, ClaimReviewRecord } from '@/lib/geo/types';
@@ -98,11 +98,11 @@ const initialFilters: ResearchFilter = {
   result: 'all',
 };
 const kinds = {
-  official: '官方来源',
-  other: '第三方',
-  self_submission: '自荐内容',
-  mirror: '镜像',
-};
+  official: { en: 'Official source', zh: '官方来源' },
+  other: { en: 'Third-party', zh: '第三方' },
+  self_submission: { en: 'Self-submitted', zh: '自荐内容' },
+  mirror: { en: 'Mirror', zh: '镜像' },
+} as const;
 
 export function clearResearchDetailParams(url: URL) {
   [
@@ -123,16 +123,18 @@ export function clearResearchDetailParams(url: URL) {
 function collectionTitle(
   engine: ResearchFilter['engine'],
   result: ResearchFilter['result'],
+  isEn: boolean,
 ) {
+  const resultLabels: Record<ResearchFilter['result'], { en: string; zh: string }> = {
+    all: { en: 'All records', zh: '全部记录' },
+    found: { en: 'Official source found', zh: '找到官方来源' },
+    not_observed: { en: 'No official source seen', zh: '本次未见官方来源' },
+    unmeasured: { en: 'Unmeasured questions', zh: '未测问题' },
+  };
   return (
-    (engine === 'all' ? '所选入口' : names[engine]) +
+    (engine === 'all' ? (isEn ? 'Selected platforms' : '所选入口') : names[engine]) +
     ' · ' +
-    {
-      all: '全部记录',
-      found: '找到官方来源',
-      not_observed: '本次未见官方来源',
-      unmeasured: '未测问题',
-    }[result]
+    (isEn ? resultLabels[result].en : resultLabels[result].zh)
   );
 }
 
@@ -144,11 +146,19 @@ function safeUrl(value: string) {
     return null;
   }
 }
-function statusText(row: ResearchRow) {
-  if (!row.observation) return '未测';
-  return row.observation.status === 'found' ? '已找到' : '本次未见';
+function statusText(row: ResearchRow, isEn: boolean) {
+  if (!row.observation) return isEn ? 'Unmeasured' : '未测';
+  return row.observation.status === 'found'
+    ? isEn
+      ? 'Found'
+      : '已找到'
+    : isEn
+      ? 'Not seen'
+      : '本次未见';
 }
 function Status({ rows }: { rows: ResearchRow[] }) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const stats = getResearchMetrics(rows);
   const found = stats.found > 0;
   return (
@@ -158,7 +168,17 @@ function Status({ rows }: { rows: ResearchRow[] }) {
       }
     >
       {found ? <Check size={13} /> : <span className="rw-dot" />}
-      {found ? '已找到' : stats.completed ? '本次未见' : '未测'}
+      {found
+        ? isEn
+          ? 'Found'
+          : '已找到'
+        : stats.completed
+          ? isEn
+            ? 'Not seen'
+            : '本次未见'
+          : isEn
+            ? 'Unmeasured'
+            : '未测'}
       {stats.completed > 1 && (
         <small>
           {stats.found}/{stats.completed}
@@ -174,22 +194,31 @@ function SourceItem({
   source: ResearchSource;
   assetHref?: string;
 }) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const url = safeUrl(source.url);
   if (!url) return null;
   return (
     <li className="rw-source-item">
       <span className={'rw-source-kind ' + source.kind}>
-        {kinds[source.kind]}
+        {isEn ? kinds[source.kind].en : kinds[source.kind].zh}
       </span>
       <div>
-        <a href={url.href} target="_blank" rel="noopener noreferrer">
+        <a
+          href={url.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-i18n-skip=""
+        >
           {source.title || url.hostname}
           <ArrowUpRight size={13} />
         </a>
         <small>
-          {url.hostname}
+          <span data-i18n-skip="">{url.hostname}</span>
           {source.position !== undefined
-            ? ' · 网页第 ' + source.position + ' 条'
+            ? isEn
+              ? ` · Web #${source.position}`
+              : ' · 网页第 ' + source.position + ' 条'
             : ''}
         </small>
       </div>
@@ -197,8 +226,8 @@ function SourceItem({
         <a
           className="rw-asset-link"
           href={assetHref}
-          aria-label={'在内容资产中查看 ' + source.title}
-          title="查看内容资产"
+          aria-label={isEn ? 'View content asset' : '查看内容资产'}
+          title={isEn ? 'View content asset' : '查看内容资产'}
         >
           <Library size={16} />
         </a>
@@ -207,6 +236,8 @@ function SourceItem({
   );
 }
 function Evidence({ projectId, path }: { projectId: string; path: string }) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const reqKey = `${projectId}:${path}`;
   const [state, setState] = useState<{
     key: string;
@@ -223,7 +254,12 @@ function Evidence({ projectId, path }: { projectId: string; path: string }) {
       { signal: controller.signal },
     )
       .then(async (response) => {
-        if (!response.ok) throw new Error('这份记录暂时无法读取。');
+        if (!response.ok)
+          throw new Error(
+            isEn
+              ? 'This record could not be loaded right now.'
+              : '这份记录暂时无法读取。',
+          );
         return response.json();
       })
       .then((record) => {
@@ -234,24 +270,31 @@ function Evidence({ projectId, path }: { projectId: string; path: string }) {
           setState({
             key: reqKey,
             record: null,
-            error: cause instanceof Error ? cause.message : '这份记录暂时无法读取。',
+            error:
+              cause instanceof Error
+                ? cause.message
+                : isEn
+                  ? 'This record could not be loaded right now.'
+                  : '这份记录暂时无法读取。',
           });
         }
       });
     return () => controller.abort();
-  }, [projectId, path, reqKey]);
+  }, [projectId, path, reqKey, isEn]);
   const record = state.key === reqKey ? state.record : null;
   const error = state.key === reqKey ? state.error : '';
   return (
     <section className="rw-evidence" aria-live="polite">
       <details className="rw-file-location">
-        <summary>记录位置</summary>
-        <p className="rw-path">{path}</p>
+        <summary>{isEn ? 'Record path' : '记录位置'}</summary>
+        <p className="rw-path" data-i18n-skip="">
+          {path}
+        </p>
       </details>
       {error ? (
         <p role="alert">{error}</p>
       ) : !record ? (
-        <p>正在读取原文…</p>
+        <p>{isEn ? 'Loading raw text…' : '正在读取原文…'}</p>
       ) : record.format === 'markdown' ? (
         <Markdown
           options={{
@@ -354,17 +397,24 @@ export default function ResearchPanel({
           body.batch?.id !== requestedBatch ||
           body.batch?.projectId !== latestBatch.projectId
         )
-          throw new Error(body.error || '历史批次无法读取。');
+          throw new Error(
+            body.error ||
+              (isEn ? 'Could not load historical batch.' : '历史批次无法读取。'),
+          );
         if (!controller.signal.aborted) setHistoricalBatch(body.batch);
       })
       .catch((error) => {
         if (!controller.signal.aborted)
           setBatchError(
-            error instanceof Error ? error.message : '历史批次无法读取。',
+            error instanceof Error
+              ? error.message
+              : isEn
+                ? 'Could not load historical batch.'
+                : '历史批次无法读取。',
           );
       });
     return () => controller.abort();
-  }, [requestedBatch, latestBatch.id, latestBatch.projectId]);
+  }, [requestedBatch, latestBatch.id, latestBatch.projectId, isEn]);
   const defaultLanguage = resolveProjectTargetLanguage(project, batch);
   const progress = overviewProgress(batch, tasks);
   const [filters, setFilters] = useState<ResearchFilter>(() => ({
@@ -406,7 +456,9 @@ export default function ResearchPanel({
       setReturnTo(safeReturn);
       setTraceError(
         params.has('batch') && params.get('batch') !== batch.id
-          ? '这条链接属于其他研究批次，不能用本批记录替代。'
+          ? isEn
+            ? 'This link belongs to another research batch and cannot be replaced with the current batch.'
+            : '这条链接属于其他研究批次，不能用本批记录替代。'
           : '',
       );
       const engine = params.get('engine');
@@ -429,7 +481,12 @@ export default function ResearchPanel({
       setReadPath(params.get('evidence'));
       if (params.has('batch') && params.get('batch') !== batch.id) {
         setTraceError(batchError);
-        setDrawer({ title: batchError || '正在读取历史记录…', rows: [] });
+        setDrawer({
+          title:
+            batchError ||
+            (isEn ? 'Loading historical records…' : '正在读取历史记录…'),
+          rows: [],
+        });
         return;
       }
       const question = [...batch.questions, ...batch.deferredQuestions].find(
@@ -460,7 +517,11 @@ export default function ResearchPanel({
             : null,
         );
       } else if (params.get('directory') === 'sources') {
-        setDrawer({ title: '全部来源页面', rows, directory: true });
+        setDrawer({
+          title: isEn ? 'All source pages' : '全部来源页面',
+          rows,
+          directory: true,
+        });
       } else if (question) {
         const index = params.has('observationIndex')
           ? Number(params.get('observationIndex'))
@@ -493,7 +554,9 @@ export default function ResearchPanel({
         );
         if ((record || index !== null || linkedSource) && !matchingRows.length)
           setTraceError(
-            '未找到这条链接对应的原始观测或来源，未显示其他记录代替。',
+            isEn
+              ? 'Could not find the original observation or source for this link; no substitute record is shown.'
+              : '未找到这条链接对应的原始观测或来源，未显示其他记录代替。',
           );
         setDrawer({
           title: next.language === 'zh' ? question.zh || question.en : question.en || question.zh,
@@ -507,7 +570,7 @@ export default function ResearchPanel({
         collection === 'unmeasured'
       ) {
         setDrawer({
-          title: collectionTitle(next.engine, collection),
+          title: collectionTitle(next.engine, collection, isEn),
           rows: getResearchRows(batch, { ...next, result: collection }),
           collection,
           engine: next.engine,
@@ -521,7 +584,7 @@ export default function ResearchPanel({
         )
       ) {
         setDrawer({
-          title: collectionTitle(next.engine, 'all'),
+          title: collectionTitle(next.engine, 'all', isEn),
           rows,
           collection: 'all',
           engine: next.engine,
@@ -531,7 +594,7 @@ export default function ResearchPanel({
     readLocation();
     window.addEventListener('popstate', readLocation);
     return () => window.removeEventListener('popstate', readLocation);
-  }, [batch, view, detailsOnly, batchError, latestBatch.id, defaultLanguage]);
+  }, [batch, view, detailsOnly, batchError, latestBatch.id, defaultLanguage, isEn]);
 
   useEffect(() => {
     if (drawer && !dialog.current?.open) {
@@ -712,7 +775,7 @@ export default function ResearchPanel({
       result,
     });
     showDrawer({
-      title: collectionTitle(engine, result),
+      title: collectionTitle(engine, result, isEn),
       rows,
       engine,
       collection: result,
@@ -774,7 +837,7 @@ export default function ResearchPanel({
             >
               <OpenGeoBrandMark size={25} /> OpenGEO
             </a>
-            <h1>项目概览</h1>
+            <h1>{isEn ? 'Overview' : '项目概览'}</h1>
           </div>
           <form
             className="rw-global-search"
@@ -785,8 +848,8 @@ export default function ResearchPanel({
           >
             <Search size={15} />
             <input
-              aria-label="搜索项目内问题"
-              placeholder="搜索项目内问题…"
+              aria-label={isEn ? 'Search project questions' : '搜索项目内问题'}
+              placeholder={isEn ? 'Search project questions…' : '搜索项目内问题…'}
               value={query}
               onChange={(event) => searchQuestions(event.target.value)}
             />
@@ -795,7 +858,7 @@ export default function ResearchPanel({
             className="rw-button"
             onClick={() => onEvidence(batch.reportPath)}
           >
-            <FileText size={15} /> 研究报告
+            <FileText size={15} /> {isEn ? 'Research report' : '研究报告'}
           </button>
         </header>
       )}
@@ -830,18 +893,28 @@ export default function ResearchPanel({
             workflow={
               <details className="rw-workflow">
                 <summary>
-                  第 {progress.step} 环 · {progress.label}{' '}
+                  {isEn ? `Step ${progress.step}` : `第 ${progress.step} 环`} ·{' '}
+                  <span lang={inferContentLang(progress.label)}>
+                    {progress.label}
+                  </span>{' '}
                   <ChevronDown size={13} />
                 </summary>
-                <ol className="rw-progress" aria-label="本轮五环进度">
+                <ol
+                  className="rw-progress"
+                  aria-label={isEn ? '5-step loop progress' : '本轮五环进度'}
+                >
                   {progress.steps.map((item, index) => (
                     <li
                       key={item.title}
                       className={index + 1 === progress.step ? 'current' : ''}
                     >
                       <span className="rw-step">{index + 1}</span>
-                      {item.title}
-                      <span>{item.status}</span>
+                      <span lang={inferContentLang(item.title)}>
+                        {item.title}
+                      </span>
+                      <span lang={inferContentLang(item.status)}>
+                        {item.status}
+                      </span>
                     </li>
                   ))}
                 </ol>
@@ -919,23 +992,52 @@ export default function ResearchPanel({
               )}
               {traceError && <p role="alert">{traceError}</p>}
               <div className="rw-detail-title">
-                <h2 id="rw-detail-title" className={drawer.question && !readPath && drawer.rows.length ? 'rw-reading-title' : undefined}>{drawer.title}</h2>
+                <h2
+                  id="rw-detail-title"
+                  className={
+                    drawer.question && !readPath && drawer.rows.length
+                      ? 'rw-reading-title'
+                      : undefined
+                  }
+                  lang={drawer.question ? filters.language : undefined}
+                  data-i18n-skip={drawer.source ? '' : undefined}
+                >
+                  {drawer.title}
+                </h2>
                 <p>
                   {view === 'overview' || drawer.question
                     ? overviewObservationDates(drawer.rows, isEn)
                     : (batch.updatedAt || batch.date).slice(0, 10)}{' '}
-                  · {filters.language === 'zh' ? (isEn ? 'Chinese query' : '中文问法') : 'English query'} ·{' '}
+                  ·{' '}
+                  {filters.language === 'zh'
+                    ? isEn
+                      ? 'Chinese query'
+                      : '中文问法'
+                    : isEn
+                      ? 'English query'
+                      : '英文问法'}{' '}
+                  ·{' '}
                   {drawer.directory
-                    ? `${sources.length}${isEn ? ' source pages' : ' 个来源页面'}`
-                    : `${drawer.rows.filter((row) => row.observation).length}${
-                        isEn
+                    ? isEn
+                      ? plural(uiLanguage, sources.length, {
+                          one: `${sources.length} source page`,
+                          other: `${sources.length} source pages`,
+                        })
+                      : `${sources.length} 个来源页面`
+                    : (() => {
+                        const count = drawer.rows.filter((row) => row.observation).length;
+                        return isEn
                           ? showingHistory
-                            ? ' historical records'
-                            : ' records'
-                          : showingHistory
-                            ? ' 条历史记录'
-                            : ' 条记录'
-                      }`}
+                            ? plural(uiLanguage, count, {
+                                one: `${count} historical record`,
+                                other: `${count} historical records`,
+                              })
+                            : plural(uiLanguage, count, {
+                                one: `${count} record`,
+                                other: `${count} records`,
+                              })
+                          : `${count}${showingHistory ? ' 条历史记录' : ' 条记录'}`;
+                      })()}
                 </p>
                 {drawer.question && (
                   <div
@@ -966,7 +1068,8 @@ export default function ResearchPanel({
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    打开来源页面 <ArrowUpRight size={14} />
+                    {isEn ? 'Open source page' : '打开来源页面'}{' '}
+                    <ArrowUpRight size={14} />
                   </a>
                   {drawer.rows[0] &&
                     isConsumerResearchEngine(drawer.rows[0].engine) && (
@@ -974,7 +1077,8 @@ export default function ResearchPanel({
                         className="rw-button"
                         href={assetHref(drawer.source, drawer.rows[0].engine)}
                       >
-                        <Library size={14} /> 查看内容资产
+                        <Library size={14} />{' '}
+                        {isEn ? 'View content asset' : '查看内容资产'}
                       </a>
                     )}
                 </div>
@@ -985,15 +1089,15 @@ export default function ResearchPanel({
                     className="rw-back"
                     onClick={() => readEvidence(null)}
                   >
-                    ← 返回详情
+                    {isEn ? '← Back to details' : '← 返回详情'}
                   </button>
                   <Evidence projectId={batch.projectId} path={readPath} />
                 </>
               ) : drawer.directory ? (
                 <div className="rw-source-directory">
                   <div className="rw-source-columns">
-                    <span>来源页面</span>
-                    <span>记录数</span>
+                    <span>{isEn ? 'Source page' : '来源页面'}</span>
+                    <span>{isEn ? 'Records' : '记录数'}</span>
                   </div>
                   {sources.map(({ source, rows }, index) => (
                     <button
@@ -1009,9 +1113,12 @@ export default function ResearchPanel({
                     >
                       <span className="rw-source-rank">{index + 1}</span>
                       <span className="rw-source-description">
-                        <strong>{source.title}</strong>
+                        <strong data-i18n-skip="">{source.title}</strong>
                         <small>
-                          {safeUrl(source.url)?.hostname} · {kinds[source.kind]}
+                          <span data-i18n-skip="">
+                            {safeUrl(source.url)?.hostname}
+                          </span>{' '}
+                          · {isEn ? kinds[source.kind].en : kinds[source.kind].zh}
                         </small>
                       </span>
                       <span className="rw-source-count">{rows.length}</span>
@@ -1069,21 +1176,29 @@ export default function ResearchPanel({
                       )}
                     {!!drawer.rows.length && !drawer.question && (
                       <div className="rw-record-table-heading">
-                        <span>执行记录</span>
+                        <span>{isEn ? 'Run record' : '执行记录'}</span>
                         <span>
                           {view === 'overview' &&
                           drawer.rows.every(isAiAnswerRow)
-                            ? '正文提及'
-                            : '官方来源'}
+                            ? isEn
+                              ? 'Mentioned in answer'
+                              : '正文提及'
+                            : isEn
+                              ? 'Official source'
+                              : '官方来源'}
                         </span>
-                        <span>来源数</span>
+                        <span>{isEn ? 'Sources' : '来源数'}</span>
                       </div>
                     )}
                     {!drawer.rows.length && (
                       <div className="rw-empty">
                         {drawer.question
-                          ? '这道题尚无搜索记录。'
-                          : '当前范围没有符合条件的记录。返回概览可查看全部已测结果。'}
+                          ? isEn
+                            ? 'No search records for this question yet.'
+                            : '这道题尚无搜索记录。'
+                          : isEn
+                            ? 'No records match this filter. Return to Overview to see all measured results.'
+                            : '当前范围没有符合条件的记录。返回概览可查看全部已测结果。'}
                       </div>
                     )}
                     {(drawer.question
@@ -1144,14 +1259,22 @@ export default function ResearchPanel({
                                   ? row.question.zh
                                   : row.question.en) + ' · '
                               : ''}
-                            {row.observation
-                              ? view === 'overview'
-                                ? row.observation.summary.replace(
-                                    /^(完整可见正文未观察到我方提及及官方来源。|正文提及并给出我方官方来源。)/,
-                                    '',
-                                  )
-                                : row.observation.summary
-                              : '尚无该入口的观测记录'}
+                            {row.observation ? (
+                              <span
+                                lang={inferContentLang(row.observation.summary)}
+                              >
+                                {view === 'overview'
+                                  ? row.observation.summary.replace(
+                                      /^(完整可见正文未观察到我方提及及官方来源。|正文提及并给出我方官方来源。)/,
+                                      '',
+                                    )
+                                  : row.observation.summary}
+                              </span>
+                            ) : isEn ? (
+                              'No observation recorded for this platform yet'
+                            ) : (
+                              '尚无该入口的观测记录'
+                            )}
                           </span>
                         </summary>
                         <div
@@ -1215,12 +1338,14 @@ export default function ResearchPanel({
                                   </p>
                                   {row.observation.overviewStatus && (
                                     <p className="rw-overview-state">
-                                      Google AI 概览：
+                                      {isEn ? 'Google AI Overview: ' : 'Google AI 概览：'}
                                       {(
                                         {
-                                          generated: '已生成',
-                                          generation_failed: '生成失败',
-                                          not_shown: '未显示',
+                                          generated: isEn ? 'Generated' : '已生成',
+                                          generation_failed: isEn
+                                            ? 'Generation failed'
+                                            : '生成失败',
+                                          not_shown: isEn ? 'Not shown' : '未显示',
                                         } as Record<string, string>
                                       )[row.observation.overviewStatus] ??
                                         row.observation.overviewStatus}
@@ -1278,16 +1403,24 @@ export default function ResearchPanel({
                                       <p className="rw-overview-state">
                                         {row.observation.overviewStatus ===
                                         'generation_failed'
-                                          ? '本次 AI 概览生成失败'
+                                          ? isEn
+                                            ? 'AI Overview failed to generate'
+                                            : '本次 AI 概览生成失败'
                                           : row.observation.overviewStatus ===
                                               'not_shown'
-                                            ? '本次未显示 AI 概览'
-                                            : '本次已生成 AI 概览 · 下方为网页结果'}
+                                            ? isEn
+                                              ? 'AI Overview not shown'
+                                              : '本次未显示 AI 概览'
+                                            : isEn
+                                              ? 'AI Overview generated · Web results below'
+                                              : '本次已生成 AI 概览 · 下方为网页结果'}
                                       </p>
                                     )}
                                   {!row.observation.sources.length && (
                                     <p className="rw-answer-placeholder">
-                                      本次没有返回网页结果。
+                                      {isEn
+                                        ? 'No web results returned in this run.'
+                                        : '本次没有返回网页结果。'}
                                     </p>
                                   )}
                                   <ul className="rw-source-list">
@@ -1343,15 +1476,29 @@ export default function ResearchPanel({
                                   <ChevronDown size={13} />
                                 </summary>
                                 {!drawer.question && (
-                                  <p>{row.observation.query}</p>
+                                  <p lang={row.observation.language}>
+                                    {row.observation.query}
+                                  </p>
                                 )}
-                                <p>{row.observation.conditions}</p>
+                                <p
+                                  data-i18n-skip=""
+                                  lang={
+                                    row.observation.conditions
+                                      ? inferContentLang(row.observation.conditions)
+                                      : undefined
+                                  }
+                                >
+                                  {row.observation.conditions}
+                                </p>
                                 <p>{row.observation.recordedAt}</p>
                               </details>
                             </>
                           ) : (
                             <p className="rw-summary">
-                              {statusText(row)} · 没有该语言与入口的观察记录。
+                              {statusText(row, isEn)} ·{' '}
+                              {isEn
+                                ? 'No observation recorded for this language and platform.'
+                                : '没有该语言与入口的观察记录。'}
                             </p>
                           )}
                         </div>

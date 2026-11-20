@@ -2,6 +2,7 @@ import './test-fixtures';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  plural,
   resolveProjectTargetLanguage,
   resolveProjectUiLanguage,
   translateUi,
@@ -72,4 +73,12 @@ test('UI dictionary provides non-empty strings for zh and en and interpolates va
     translateUi('zh', 'overview.confirmQuestionsBtn', { count: 8 }),
     '确认这 8 道问题，准备搜索',
   );
+});
+
+test('plural formats English singular/plural and Chinese counts via Intl.PluralRules', () => {
+  assert.equal(plural('en', 1, { one: '{n} prompt', other: '{n} prompts' }), '1 prompt');
+  assert.equal(plural('en', 0, { one: '{n} prompt', other: '{n} prompts' }), '0 prompts');
+  assert.equal(plural('en', 3, { one: '{n} prompt', other: '{n} prompts' }), '3 prompts');
+  assert.equal(plural('zh', 1, { one: '{n} 道题', other: '{n} 道题' }), '1 道题');
+  assert.equal(plural('zh', 5, { one: '{n} 道题', other: '{n} 道题' }), '5 道题');
 });

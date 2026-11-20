@@ -12,7 +12,7 @@ import {
   buildObservedCompetitorSnapshot,
   formatObservedCompetitorReportMarkdown,
 } from '@/lib/geo/observed-competitors';
-import { resolveProjectTargetLanguage } from '@/lib/geo/i18n';
+import { plural, resolveProjectTargetLanguage } from '@/lib/geo/i18n';
 import { RESEARCH_ENGINE_NAMES } from '@/lib/geo/research-engines';
 import type {
   ResearchBatch,
@@ -369,7 +369,10 @@ export default function ObservedCompetitorView({
                   {comp.missedByYouCount > 0 && (
                     <span className="ocv-gap-note">
                       {isEn
-                        ? `Beats you on ${comp.missedByYouCount} missed prompt${comp.missedByYouCount > 1 ? 's' : ''}`
+                        ? `Beats you on ${plural('en', comp.missedByYouCount, {
+                            one: '{n} missed prompt',
+                            other: '{n} missed prompts',
+                          })}`
                         : `在你未命中的 ${comp.missedByYouCount} 题中出现`}
                     </span>
                   )}

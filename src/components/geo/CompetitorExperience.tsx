@@ -14,11 +14,13 @@ import type {
   CompetitorCandidates,
   CompetitorComparison,
 } from '@/lib/geo/competitor-types';
+import { inferContentLang, plural } from '@/lib/geo/i18n';
 import type { ResearchEngine } from '@/lib/geo/research-types';
 import { RESEARCH_ENGINE_NAMES } from '@/lib/geo/research-engines';
 import CompetitorPerformance from './CompetitorPerformance';
 import OverviewCompetitorCard from './OverviewCompetitorCard';
 import CompetitorGapJourney from './CompetitorGapJourney';
+import { useUiLanguage } from './UiLanguageContext';
 import './competitor-experience.css';
 
 type Props = {
@@ -38,10 +40,10 @@ type Props = {
 };
 
 const analysisPhases = [
-  { id: 'preparing', label: '整理搜索依据' },
-  { id: 'generating', label: '生成竞品推荐' },
-  { id: 'validating', label: '核对推荐依据' },
-  { id: 'saving', label: '保存推荐结果' },
+  { id: 'preparing', en: 'Organizing search evidence', zh: '整理搜索依据' },
+  { id: 'generating', en: 'Generating recommendations', zh: '生成竞品推荐' },
+  { id: 'validating', en: 'Checking supporting evidence', zh: '核对推荐依据' },
+  { id: 'saving', en: 'Saving recommendations', zh: '保存推荐结果' },
 ] as const;
 
 function AnalysisProgress({
@@ -51,6 +53,8 @@ function AnalysisProgress({
   analysis: CompetitorCandidates['analysis'];
   compact?: boolean;
 }) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1_000);
@@ -69,20 +73,29 @@ function AnalysisProgress({
         <span role="status">
           <Loader2 size={15} className="animate-spin" />
           {phaseIndex >= 0
-            ? analysisPhases[phaseIndex].label
+            ? isEn
+              ? analysisPhases[phaseIndex].en
+              : analysisPhases[phaseIndex].zh
             : analysis.status === 'running'
-              ? '正在分析竞品'
-              : '正在提交分析'}
+              ? isEn
+                ? 'Analyzing competitors'
+                : '正在分析竞品'
+              : isEn
+                ? 'Submitting analysis'
+                : '正在提交分析'}
         </span>
         {elapsed !== null && (
           <time dateTime={analysis.startedAt}>
-            已用时 {Math.floor(elapsed / 60)}:
+            {isEn ? 'Elapsed' : '已用时'} {Math.floor(elapsed / 60)}:
             {String(elapsed % 60).padStart(2, '0')}
           </time>
         )}
       </div>
       {!compact && phaseIndex >= 0 && (
-        <ol className="cx-analysis-steps" aria-label="分析步骤">
+        <ol
+          className="cx-analysis-steps"
+          aria-label={isEn ? 'Analysis steps' : '分析步骤'}
+        >
           {analysisPhases.map((phase, index) => (
             <li
               key={phase.id}
@@ -100,7 +113,7 @@ function AnalysisProgress({
               ) : (
                 <span>{index + 1}</span>
               )}
-              {phase.label}
+              {isEn ? phase.en : phase.zh}
             </li>
           ))}
         </ol>
@@ -111,10 +124,20 @@ function AnalysisProgress({
           <p className="cx-analysis-counts">
             {[
               analysis.candidateCount !== undefined
-                ? `${analysis.candidateCount} 个候选`
+                ? isEn
+                  ? plural(uiLanguage, analysis.candidateCount, {
+                      one: `${analysis.candidateCount} candidate`,
+                      other: `${analysis.candidateCount} candidates`,
+                    })
+                  : `${analysis.candidateCount} 个候选`
                 : '',
               analysis.evidenceCount !== undefined
-                ? `${analysis.evidenceCount} 条证据摘录`
+                ? isEn
+                  ? plural(uiLanguage, analysis.evidenceCount, {
+                      one: `${analysis.evidenceCount} evidence excerpt`,
+                      other: `${analysis.evidenceCount} evidence excerpts`,
+                    })
+                  : `${analysis.evidenceCount} 条证据摘录`
                 : '',
             ]
               .filter(Boolean)
@@ -123,21 +146,28 @@ function AnalysisProgress({
         )}
       {!compact && (
         <p className="cx-analysis-note">
-          {elapsed !== null && elapsed >= 60 ? '本次分析等待较久。' : ''}
-          您可以离开此页，完成后结果会自动保存。
+          {elapsed !== null && elapsed >= 60
+            ? isEn
+              ? 'This analysis is taking longer than usual. '
+              : '本次分析等待较久。'
+            : ''}
+          {isEn
+            ? 'You can leave this page — results will be saved automatically.'
+            : '您可以离开此页，完成后结果会自动保存。'}
         </p>
       )}
     </div>
   );
 }
 
-function analysisDate(value?: string) {
+function analysisDate(value: string | undefined, isEn: boolean) {
   if (!value || !Number.isFinite(Date.parse(value))) return '';
-  return new Date(value).toLocaleString('zh-CN', {
+  return new Date(value).toLocaleString(isEn ? 'en-US' : 'zh-CN', {
     month: 'numeric',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'UTC',
   });
 }
 
@@ -156,6 +186,8 @@ export default function CompetitorExperience({
   onSelect,
   onOpen,
 }: Props) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const [changingTarget, setChangingTarget] = useState<string | null>(null);
   const isOverview = presentation === 'overview';
   const selectedCandidate = data.selectedCandidate;
@@ -182,6 +214,7 @@ export default function CompetitorExperience({
     data.analysis?.status === 'pending' || data.analysis?.stale;
   const showingPrevious = !!data.analysis?.stale;
   const showRecommendations = !target || changing;
+  const formattedAnalysisDate = analysisDate(data.analysis.generatedAt, isEn);
   const analysisStatus = (
     <>
       {(showingPrevious ||
@@ -189,12 +222,22 @@ export default function CompetitorExperience({
         <div className="cx-analysis-refresh">
           <p>
             {showingPrevious
-              ? `显示上次分析${analysisDate(data.analysis.generatedAt) ? ` · ${analysisDate(data.analysis.generatedAt)}` : ''}`
-              : '已有搜索依据，可以生成竞品推荐。'}
+              ? isEn
+                ? `Showing previous analysis${formattedAnalysisDate ? ` · ${formattedAnalysisDate}` : ''}`
+                : `显示上次分析${formattedAnalysisDate ? ` · ${formattedAnalysisDate}` : ''}`
+              : isEn
+                ? 'Search evidence is ready — you can generate competitor recommendations.'
+                : '已有搜索依据，可以生成竞品推荐。'}
           </p>
           {!analysisRunning && !analysisFailed && !readError && (
             <button type="button" className="cc-button" onClick={onAnalyze}>
-              {showingPrevious ? '更新推荐' : '生成推荐'}
+              {showingPrevious
+                ? isEn
+                  ? 'Refresh recommendations'
+                  : '更新推荐'
+                : isEn
+                  ? 'Generate recommendations'
+                  : '生成推荐'}
               <ArrowRight size={13} />
             </button>
           )}
@@ -206,12 +249,22 @@ export default function CompetitorExperience({
       {analysisFailed && (
         <div className="cx-analysis-error" role="alert">
           <p>
-            竞品分析未完成：
-            {analysisError || data.analysis?.error || '请重试。'}
+            {isEn ? 'Competitor analysis failed: ' : '竞品分析未完成：'}
+            <span
+              lang={
+                analysisError || data.analysis?.error
+                  ? inferContentLang(analysisError || data.analysis?.error || '')
+                  : undefined
+              }
+            >
+              {analysisError ||
+                data.analysis?.error ||
+                (isEn ? 'Please try again.' : '请重试。')}
+            </span>
           </p>
           {data.analysis?.status !== 'running' && !readError && (
             <button type="button" className="cc-button" onClick={onAnalyze}>
-              重试分析
+              {isEn ? 'Retry analysis' : '重试分析'}
             </button>
           )}
         </div>
@@ -237,6 +290,8 @@ export default function CompetitorExperience({
     const evidence = rankingMatchesScope
       ? candidate.recommendation?.evidence
       : undefined;
+    const candidateDescription =
+      candidate.analysis?.description || candidate.description;
     const actions = (
       <div className="cx-card-actions">
         <button
@@ -246,10 +301,16 @@ export default function CompetitorExperience({
           onClick={() => onSelect(candidate)}
         >
           {pending === candidate.id
-            ? '正在保存…'
+            ? isEn
+              ? 'Saving…'
+              : '正在保存…'
             : candidate.id === candidateId
-              ? '当前参照竞品'
-              : '以它为参照'}
+              ? isEn
+                ? 'Current benchmark'
+                : '当前参照竞品'
+              : isEn
+                ? 'Use as benchmark'
+                : '以它为参照'}
           <ArrowRight size={13} />
         </button>
         <button
@@ -257,7 +318,7 @@ export default function CompetitorExperience({
           className="cx-text-button"
           onClick={() => onPreview(candidate)}
         >
-          查看依据
+          {isEn ? 'View evidence' : '查看依据'}
           <ArrowUpRight size={12} />
         </button>
       </div>
@@ -267,23 +328,42 @@ export default function CompetitorExperience({
         {primary && (
           <span className="cx-recommended">
             <Sparkles size={12} />
-            推荐参照
+            {isEn ? 'Recommended benchmark' : '推荐参照'}
           </span>
         )}
         {primary && (
           <div className="cx-candidate-heading">
-            <h3>{candidate.name}</h3>
+            <h3 data-i18n-skip="">{candidate.name}</h3>
             {actions}
           </div>
         )}
-        <p className="cx-description">
-          {candidate.analysis?.description || candidate.description}
+        <p
+          className="cx-description"
+          lang={candidateDescription ? inferContentLang(candidateDescription) : undefined}
+        >
+          {candidateDescription}
         </p>
         {evidence && (
           <p className="cx-reason">
-            <strong>推荐依据</strong>
-            {RESEARCH_ENGINE_NAMES[evidence.engine]} 在「{evidence.question}
-            」的回答中提到了它。
+            <strong>{isEn ? 'Why recommended' : '推荐依据'}</strong>
+            {isEn ? (
+              <>
+                {RESEARCH_ENGINE_NAMES[evidence.engine]} mentioned it in the
+                answer to &ldquo;
+                <span lang={inferContentLang(evidence.question)}>
+                  {evidence.question}
+                </span>
+                &rdquo;.
+              </>
+            ) : (
+              <>
+                {RESEARCH_ENGINE_NAMES[evidence.engine]} 在「
+                <span lang={inferContentLang(evidence.question)}>
+                  {evidence.question}
+                </span>
+                」的回答中提到了它。
+              </>
+            )}
           </p>
         )}
         <CompetitorPerformance
@@ -301,16 +381,40 @@ export default function CompetitorExperience({
   return (
     <section
       className={`cx-experience is-${presentation}${showRecommendations ? ' is-choosing' : ' has-target'}`}
-      aria-label={target ? '参照竞品差距分析' : '选择参照竞品'}
+      aria-label={
+        target
+          ? isEn
+            ? 'Benchmark gap analysis'
+            : '参照竞品差距分析'
+          : isEn
+            ? 'Choose benchmark competitor'
+            : '选择参照竞品'
+      }
     >
       <header className="cx-heading">
         <div>
           <h2>
-            {showRecommendations
-              ? target
-                ? '更换参照竞品'
-                : '是否选择您的参照竞品？'
-              : `与 ${target?.name} 的差距`}
+            {showRecommendations ? (
+              target ? (
+                isEn ? (
+                  'Change benchmark competitor'
+                ) : (
+                  '更换参照竞品'
+                )
+              ) : isEn ? (
+                'Choose a benchmark competitor?'
+              ) : (
+                '是否选择您的参照竞品？'
+              )
+            ) : isEn ? (
+              <>
+                Gap vs <span data-i18n-skip="">{target?.name}</span>
+              </>
+            ) : (
+              <>
+                与 <span data-i18n-skip="">{target?.name}</span> 的差距
+              </>
+            )}
           </h2>
         </div>
         {target && (
@@ -319,7 +423,13 @@ export default function CompetitorExperience({
             className="cx-text-button"
             onClick={() => setChangingTarget(changing ? null : targetKey)}
           >
-            {changing ? '返回差距分析' : '换一个参照'}
+            {changing
+              ? isEn
+                ? 'Back to gap analysis'
+                : '返回差距分析'
+              : isEn
+                ? 'Change benchmark'
+                : '换一个参照'}
             <ArrowRight size={13} />
           </button>
         )}
@@ -328,7 +438,11 @@ export default function CompetitorExperience({
       {showRecommendations ? (
         <>
           {!recommendations.length && data.analysis?.summary && (
-            <p className="cx-summary" aria-label="AI 推荐总结">
+            <p
+              className="cx-summary"
+              aria-label={isEn ? 'AI recommendation summary' : 'AI 推荐总结'}
+              lang={inferContentLang(data.analysis.summary)}
+            >
               {data.analysis.summary}
             </p>
           )}
@@ -337,7 +451,9 @@ export default function CompetitorExperience({
             !needsAnalysis &&
             !recommendations.length && (
               <p className="cx-empty">
-                当前搜索依据还不足以推荐参照竞品。完成更多问题搜索后可重新分析。
+                {isEn
+                  ? 'Not enough search evidence yet to recommend a benchmark competitor. Collect more answers and run analysis again.'
+                  : '当前搜索依据还不足以推荐参照竞品。完成更多问题搜索后可重新分析。'}
               </p>
             )}
           {!!recommendations.length && (
@@ -354,10 +470,10 @@ export default function CompetitorExperience({
                       <summary>
                         <span>
                           <small>0{index + 2}</small>
-                          <strong>{candidate.name}</strong>
+                          <strong data-i18n-skip="">{candidate.name}</strong>
                         </span>
                         <span>
-                          了解
+                          {isEn ? 'Details' : '了解'}
                           <ChevronDown size={13} />
                         </span>
                       </summary>
@@ -374,7 +490,7 @@ export default function CompetitorExperience({
               className="cx-text-button cx-open"
               onClick={onOpen}
             >
-              查看推荐详情与依据
+              {isEn ? 'View recommendation details & evidence' : '查看推荐详情与依据'}
               <ArrowRight size={13} />
             </button>
           )}
@@ -390,27 +506,35 @@ export default function CompetitorExperience({
           />
           <details className="cx-learning cx-analysis-details">
             <summary>
-              参照介绍与分析记录 <ChevronDown size={13} />
+              {isEn ? 'Benchmark profile & analysis log' : '参照介绍与分析记录'}{' '}
+              <ChevronDown size={13} />
             </summary>
             {selectedCandidate?.analysis?.description && (
-              <p>{selectedCandidate.analysis.description}</p>
+              <p lang={inferContentLang(selectedCandidate.analysis.description)}>
+                {selectedCandidate.analysis.description}
+              </p>
             )}
             {!!selectedCandidate?.analysis?.strengths.length && (
               <ul>
                 {selectedCandidate.analysis.strengths.map((strength, index) => (
-                  <li key={index}>{strength}</li>
+                  <li key={index} lang={inferContentLang(strength)}>
+                    {strength}
+                  </li>
                 ))}
               </ul>
             )}
             {!!selectedCandidate?.analysis?.limitations.length && (
               <details className="cx-learning">
                 <summary>
-                  分析边界 <ChevronDown size={12} />
+                  {isEn ? 'Analysis scope & limits' : '分析边界'}{' '}
+                  <ChevronDown size={12} />
                 </summary>
                 <ul>
                   {selectedCandidate.analysis.limitations.map(
                     (limitation, index) => (
-                      <li key={index}>{limitation}</li>
+                      <li key={index} lang={inferContentLang(limitation)}>
+                        {limitation}
+                      </li>
                     ),
                   )}
                 </ul>

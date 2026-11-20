@@ -4,10 +4,17 @@ import type { QuestionGenerationProgress } from '@/lib/geo/question-types';
 export async function readQuestionGenerationStream(
   response: Response,
   onProgress: (progress: QuestionGenerationProgress) => void,
+  lang: 'en' | 'zh' = 'zh',
 ): Promise<GeoState> {
+  const isEn = lang === 'en';
   if (!response.ok || !response.body) {
     const failure = await response.json().catch(() => ({}));
-    const err = new Error(failure.error || '生成未开始，请重试。') as Error & { code?: string };
+    const err = new Error(
+      failure.error ||
+        (isEn
+          ? 'Question generation did not start. Please try again.'
+          : '生成未开始，请重试。'),
+    ) as Error & { code?: string };
     if (typeof failure.code === 'string') err.code = failure.code;
     throw err;
   }
@@ -19,7 +26,12 @@ export async function readQuestionGenerationStream(
     if (!line.trim()) return;
     const event = JSON.parse(line);
     if (event.type === 'error') {
-      const err = new Error(event.error || '生成未完成，请重试。') as Error & { code?: string };
+      const err = new Error(
+        event.error ||
+          (isEn
+            ? 'Question generation did not finish. Please try again.'
+            : '生成未完成，请重试。'),
+      ) as Error & { code?: string };
       if (typeof event.code === 'string') err.code = event.code;
       throw err;
     }
@@ -38,7 +50,13 @@ export async function readQuestionGenerationStream(
       if (done) break;
     }
     consume(pending);
-    if (!result) throw new Error('连接已中断，尚未收到保存结果。请重新打开页面查看后再重试。');
+    if (!result) {
+      throw new Error(
+        isEn
+          ? 'Connection interrupted before the saved result arrived. Reload the page and retry.'
+          : '连接已中断，尚未收到保存结果。请重新打开页面查看后再重试。',
+      );
+    }
     return result;
   } finally {
     reader.releaseLock();

@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { identifyAiReferral } from '@/lib/geo/ai-referrals';
 import type { ConversionSnapshot } from '@/lib/geo/conversion-types';
 import type { TrafficRange } from '@/lib/geo/traffic-types';
+import { useUiLanguage } from './UiLanguageContext';
 import './conversion-panel.css';
 
 type RequestState = {
@@ -19,27 +20,10 @@ type ConversionPanelProps = {
   requestKey: string;
 };
 
-const numberFormat = new Intl.NumberFormat('zh-CN');
-const rateFormat = new Intl.NumberFormat('zh-CN', {
-  style: 'percent',
-  maximumFractionDigits: 1,
-});
-const timeFormat = new Intl.DateTimeFormat('zh-CN', {
-  timeZone: 'UTC',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
-
-function formatRate(value: number | null | undefined) {
-  return value == null ? '—' : rateFormat.format(value);
-}
-
-function sourceLabel(source: string) {
-  if (!source || source === 'unknown') return '来源未提供';
+function sourceLabel(source: string, isEn: boolean) {
+  if (!source || source === 'unknown') {
+    return isEn ? 'Unknown source' : '来源未提供';
+  }
   return source.startsWith('utm:') ? `UTM · ${source.slice(4)}` : source;
 }
 
@@ -48,6 +32,34 @@ export default function ConversionPanel({
   range,
   requestKey,
 }: ConversionPanelProps) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
+  const locale = isEn ? 'en-US' : 'zh-CN';
+  const numberFormat = useMemo(() => new Intl.NumberFormat(locale), [locale]);
+  const rateFormat = useMemo(
+    () =>
+      new Intl.NumberFormat(locale, {
+        style: 'percent',
+        maximumFractionDigits: 1,
+      }),
+    [locale],
+  );
+  const timeFormat = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        timeZone: 'UTC',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }),
+    [locale],
+  );
+  const formatRate = (value: number | null | undefined) =>
+    value == null ? '—' : rateFormat.format(value);
+
   const [result, setResult] = useState<RequestState | null>(null);
   const current = result?.key === requestKey ? result : null;
   const snapshot = current?.snapshot;
@@ -55,7 +67,10 @@ export default function ConversionPanel({
   const error =
     current?.error ||
     (snapshot?.status === 'error'
-      ? snapshot.error?.message || '转化统计暂时无法读取，请刷新重试。'
+      ? snapshot.error?.message ||
+        (isEn
+          ? 'Could not load conversion stats. Refresh and try again.'
+          : '转化统计暂时无法读取，请刷新重试。')
       : '');
   const measured = snapshot?.status === 'ready';
   const summary = measured ? snapshot.summary : null;
@@ -73,10 +88,21 @@ export default function ConversionPanel({
       cache: 'no-store',
     })
       .then(async (response) => {
-        if (!response.ok) throw new Error('转化统计暂时无法读取，请刷新重试。');
+        if (!response.ok) {
+          throw new Error(
+            isEn
+              ? 'Could not load conversion stats. Refresh and try again.'
+              : '转化统计暂时无法读取，请刷新重试。',
+          );
+        }
         const value: ConversionSnapshot = await response.json();
-        if (value.projectId !== projectId)
-          throw new Error('返回的转化数据与当前项目不符，请刷新重试。');
+        if (value.projectId !== projectId) {
+          throw new Error(
+            isEn
+              ? 'Returned conversion data does not match the current project. Refresh and try again.'
+              : '返回的转化数据与当前项目不符，请刷新重试。',
+          );
+        }
         if (!controller.signal.aborted)
           setResult({ key: requestKey, snapshot: value, error: '' });
       })
@@ -86,25 +112,39 @@ export default function ConversionPanel({
             key: requestKey,
             snapshot: null,
             error:
-              cause instanceof Error && cause.message.includes('当前项目')
+              cause instanceof Error &&
+              (cause.message.includes('当前项目') ||
+                cause.message.includes('current project'))
                 ? cause.message
-                : '转化统计暂时无法读取，请刷新重试。',
+                : isEn
+                  ? 'Could not load conversion stats. Refresh and try again.'
+                  : '转化统计暂时无法读取，请刷新重试。',
           });
       });
     return () => controller.abort();
-  }, [projectId, range, requestKey]);
+  }, [projectId, range, requestKey, isEn]);
 
   const emptyMessage = loading
-    ? '正在读取转化统计…'
+    ? isEn
+      ? 'Loading conversion stats…'
+      : '正在读取转化统计…'
     : error
       ? error
       : snapshot?.status === 'not_configured'
-        ? '此项目尚未接入 Umami。'
+        ? isEn
+          ? 'Umami is not connected for this project yet.'
+          : '此项目尚未接入 Umami。'
         : snapshot?.status === 'unsupported'
-          ? '此统计服务暂不支持文章漏斗。'
+          ? isEn
+            ? 'This analytics provider does not support article funnels yet.'
+            : '此统计服务暂不支持文章漏斗。'
           : snapshot?.status === 'empty'
-            ? '尚无文章事件'
-            : '暂无可用的来源与落地页记录';
+            ? isEn
+              ? 'No article events yet'
+              : '尚无文章事件'
+            : isEn
+              ? 'No referrer and landing-page records yet'
+              : '暂无可用的来源与落地页记录';
 
   return (
     <>
@@ -114,29 +154,39 @@ export default function ConversionPanel({
         aria-busy={loading}
       >
         <header className="tc-heading">
-          <h2 id="tc-heading">文章转化</h2>
-          <span>{snapshot?.windowMinutes || 30} 分钟内 · 访客数</span>
+          <h2 id="tc-heading">
+            {isEn ? 'Article conversions' : '文章转化'}
+          </h2>
+          <span>
+            {isEn
+              ? `Within ${snapshot?.windowMinutes || 30} min · Visitors`
+              : `${snapshot?.windowMinutes || 30} 分钟内 · 访客数`}
+          </span>
         </header>
 
         <div
           className="tc-funnel"
-          aria-label="打开文章到点击 GitHub 的转化漏斗"
+          aria-label={
+            isEn
+              ? 'Article-to-GitHub conversion funnel'
+              : '打开文章到点击 GitHub 的转化漏斗'
+          }
         >
           <dl className="tc-step">
-            <dt>打开文章</dt>
+            <dt>{isEn ? 'Opened article' : '打开文章'}</dt>
             <dd>
               {summary ? numberFormat.format(summary.articleVisitors) : '—'}
             </dd>
           </dl>
           <ArrowRight className="tc-arrow" size={18} aria-hidden="true" />
           <dl className="tc-step">
-            <dt>点击 GitHub</dt>
+            <dt>{isEn ? 'Clicked GitHub' : '点击 GitHub'}</dt>
             <dd>
               {summary ? numberFormat.format(summary.githubVisitors) : '—'}
             </dd>
           </dl>
           <dl className="tc-rate">
-            <dt>转化率</dt>
+            <dt>{isEn ? 'Conversion rate' : '转化率'}</dt>
             <dd>{formatRate(summary?.conversionRate)}</dd>
           </dl>
         </div>
@@ -148,11 +198,17 @@ export default function ConversionPanel({
         aria-busy={loading}
       >
         <header className="tc-details-heading">
-          <h2 id="tc-journeys-heading">来源与落地页</h2>
+          <h2 id="tc-journeys-heading">
+            {isEn ? 'Referrers & landing pages' : '来源与落地页'}
+          </h2>
         </header>
 
         <div className="tc-table-wrap">
-          <table aria-label="来源与落地页转化">
+          <table
+            aria-label={
+              isEn ? 'Referrer and landing page conversions' : '来源与落地页转化'
+            }
+          >
             <colgroup>
               <col className="tc-source-col" />
               <col className="tc-page-col" />
@@ -162,11 +218,11 @@ export default function ConversionPanel({
             </colgroup>
             <thead>
               <tr>
-                <th scope="col">来源</th>
-                <th scope="col">落地页</th>
-                <th scope="col">打开文章</th>
-                <th scope="col">点击 GitHub</th>
-                <th scope="col">转化率</th>
+                <th scope="col">{isEn ? 'Source' : '来源'}</th>
+                <th scope="col">{isEn ? 'Landing page' : '落地页'}</th>
+                <th scope="col">{isEn ? 'Opened article' : '打开文章'}</th>
+                <th scope="col">{isEn ? 'Clicked GitHub' : '点击 GitHub'}</th>
+                <th scope="col">{isEn ? 'Conversion' : '转化率'}</th>
               </tr>
             </thead>
             <tbody>
@@ -180,25 +236,37 @@ export default function ConversionPanel({
                     ])}
                   >
                     <td>
-                      {sourceLabel(journey.source)}
+                      <span data-i18n-skip="">
+                        {sourceLabel(journey.source, isEn)}
+                      </span>
                       {!journey.source.startsWith('utm:') &&
                         identifyAiReferral(journey.source) && (
                           <span
                             className="tp-ai-referral"
-                            title="根据来源域名识别"
+                            title={
+                              isEn
+                                ? 'Matched by referrer domain'
+                                : '根据来源域名识别'
+                            }
                           >
-                            AI 引荐
+                            {isEn ? 'AI referral' : 'AI 引荐'}
                           </span>
                         )}
                     </td>
                     <td>
-                      <span className="tc-path">{journey.landingPage}</span>
+                      <span className="tc-path" data-i18n-skip="">
+                        {journey.landingPage}
+                      </span>
                       {journey.entryScope === 'page' && (
                         <span
                           className="tc-page-scope"
-                          title="浏览器存储不可用，仅记录当前页面的来源与路径，无法延续标签页入口。"
+                          title={
+                            isEn
+                              ? 'Browser storage was unavailable; only the current page entry was recorded.'
+                              : '浏览器存储不可用，仅记录当前页面的来源与路径，无法延续标签页入口。'
+                          }
                         >
-                          当前页
+                          {isEn ? 'Current page' : '当前页'}
                         </span>
                       )}
                     </td>
@@ -228,37 +296,41 @@ export default function ConversionPanel({
             snapshot.grouping.invalidValues > 0) && (
             <p className="tc-coverage">
               {snapshot.grouping.truncated &&
-                `按文章事件次数展示前 ${snapshot.limit} 组。`}
+                (isEn
+                  ? `Showing top ${snapshot.limit} groups by article events.`
+                  : `按文章事件次数展示前 ${snapshot.limit} 组。`)}
               {snapshot.grouping.invalidValues > 0 &&
-                `另有 ${numberFormat.format(snapshot.grouping.invalidValues)} 组入口记录无法识别，未列入表格。`}
+                (isEn
+                  ? ` ${numberFormat.format(snapshot.grouping.invalidValues)} unrecognized entry groups were omitted.`
+                  : `另有 ${numberFormat.format(snapshot.grouping.invalidValues)} 组入口记录无法识别，未列入表格。`)}
             </p>
           )}
 
         <details className="tc-definition">
-          <summary>统计口径</summary>
+          <summary>{isEn ? 'Methodology' : '统计口径'}</summary>
           <div>
             <p>
-              Umami 按月内匿名访客去重；点击 GitHub 仅统计先打开文章、再于 30
-              分钟内点击的访客。转化率为这两步访客数之比，历史 PV
-              不作分母。打开文章不代表读完，点击 GitHub 不代表安装。
+              {isEn
+                ? 'Umami deduplicates anonymous visitors per month. GitHub clicks count only visitors who opened an article first and clicked GitHub within 30 minutes.'
+                : 'Umami 按月内匿名访客去重；点击 GitHub 仅统计先打开文章、再于 30 分钟内点击的访客。转化率为这两步访客数之比，历史 PV 不作分母。打开文章不代表读完，点击 GitHub 不代表安装。'}
             </p>
             <p>
-              来源与落地页取浏览器标签页的入口，连续 30 分钟没有打开页面或点击
-              GitHub 后重置；新的外部来源、有效 UTM
-              或来源缺失也会重新记录入口。“当前页”表示浏览器存储不可用，只能记录当前页面。每行两步均匹配同一入口组合，同一访客可出现在多行，行数值不可相加。
+              {isEn
+                ? 'Referrer and landing page capture the tab entry and reset after 30 minutes of inactivity or on a new external source/UTM. Rows cannot be summed across a single visitor.'
+                : '来源与落地页取浏览器标签页的入口，连续 30 分钟没有打开页面或点击 GitHub 后重置；新的外部来源、有效 UTM 或来源缺失也会重新记录入口。“当前页”表示浏览器存储不可用，只能记录当前页面。每行两步均匹配同一入口组合，同一访客可出现在多行，行数值不可相加。'}
             </p>
             <p>
-              来源优先使用 已支持的 UTM
-              标签，其次为外部来源域名；来源未提供不等于直接访问。表格按打开文章事件次数选取前{' '}
-              {snapshot?.limit || 10} 组，不代表所有来源。
+              {isEn
+                ? `Supported UTM tags take precedence over external referrer domains; unknown source does not imply direct traffic. Table shows top ${snapshot?.limit || 10} groups.`
+                : `来源优先使用已支持的 UTM 标签，其次为外部来源域名；来源未提供不等于直接访问。表格按打开文章事件次数选取前 ${snapshot?.limit || 10} 组，不代表所有来源。`}
             </p>
             {updatedAt && (
               <p>
-                转化更新于{' '}
+                {isEn ? 'Conversions updated ' : '转化更新于 '}
                 <time dateTime={snapshot?.fetchedAt || undefined}>
                   {updatedAt}
                 </time>
-                （UTC）。
+                {isEn ? ' (UTC).' : '（UTC）。'}
               </p>
             )}
           </div>

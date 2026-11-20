@@ -1,26 +1,7 @@
 {
   "version": 1,
   "rules": {
-    "unpaired-zh": {
-      "src/components/geo/ClaimReviewPanel.tsx": 35,
-      "src/components/geo/CompetitorCandidates.tsx": 55,
-      "src/components/geo/CompetitorExperience.tsx": 40,
-      "src/components/geo/CompetitorGapJourney.tsx": 47,
-      "src/components/geo/CompetitorPerformance.tsx": 29,
-      "src/components/geo/ContentEvidence.tsx": 5,
-      "src/components/geo/ConversionPanel.tsx": 35,
-      "src/components/geo/DeliverableArticleView.tsx": 11,
-      "src/components/geo/OptimizationHeroCard.tsx": 23,
-      "src/components/geo/OptimizationStudio.tsx": 3,
-      "src/components/geo/OverviewCompetitorCard.tsx": 20,
-      "src/components/geo/question-generation-stream.ts": 3,
-      "src/components/geo/QuestionAssessmentDetails.tsx": 23,
-      "src/components/geo/QuestionDetailVisual.tsx": 3,
-      "src/components/geo/ResearchChart.tsx": 12,
-      "src/components/geo/ResearchPanel.tsx": 57,
-      "src/components/geo/TrafficPanel.tsx": 35,
-      "src/components/geo/VisibilityPanel.tsx": 53
-    },
+    "unpaired-zh": {},
     "unpaired-zh-server": {
       "src/app/api/geo/browser-observations/route.ts": 4,
       "src/app/api/geo/chatgpt/route.ts": 7,
@@ -86,27 +67,14 @@
       "src/lib/geo/traffic.ts": 5
     },
     "html-lang": {},
-    "fixed-locale": {
-      "src/components/geo/ClaimReviewPanel.tsx": 1,
-      "src/components/geo/CompetitorExperience.tsx": 1,
-      "src/components/geo/CompetitorPerformance.tsx": 1,
-      "src/components/geo/ConversionPanel.tsx": 3,
-      "src/components/geo/DeliverableArticleView.tsx": 1,
-      "src/components/geo/OptimizationStudio.tsx": 1,
-      "src/components/geo/OverviewCompetitorCard.tsx": 1,
-      "src/components/geo/TrafficPanel.tsx": 3,
-      "src/components/geo/VisibilityPanel.tsx": 1
-    },
-    "manual-plural": {
-      "src/components/geo/ObservedCompetitorView.tsx": 1,
-      "src/components/geo/OptimizationStudio.tsx": 2
-    },
+    "fixed-locale": {},
+    "manual-plural": {},
     "deprecated-term": {
       "src/components/geo/ObservedCompetitorView.tsx": 3,
       "src/components/geo/OptimizationHeroCard.tsx": 10,
       "src/components/geo/OptimizationStudio.tsx": 3,
       "src/components/geo/OutreachActionCards.tsx": 2,
-      "src/components/geo/PageAuditSection.tsx": 12,
+      "src/components/geo/PageAuditSection.tsx": 11,
       "src/lib/geo/i18n.ts": 15
     }
   }

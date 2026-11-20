@@ -51,6 +51,21 @@ export function inferContentLang(
   return text && /[\p{Script=Han}]/u.test(text) ? 'zh' : 'en';
 }
 
+const pluralRulesCache: Record<GeoLanguage, Intl.PluralRules> = {
+  en: new Intl.PluralRules('en-US'),
+  zh: new Intl.PluralRules('zh-CN'),
+};
+
+export function plural(
+  lang: GeoLanguage,
+  n: number,
+  forms: { one: string; other: string },
+): string {
+  const category = (pluralRulesCache[lang] ?? pluralRulesCache.en).select(n);
+  const template = category === 'one' ? forms.one : forms.other;
+  return template.replaceAll('{n}', String(n));
+}
+
 const zhMessages = {
   'term.overview': '概览',
   'term.buyerQuestions': '买家问题',
@@ -336,7 +351,7 @@ const zhMessages = {
   'actionPlan.repoTopicsLabel': 'Topics 标签（英文逗号分隔）',
   'actionPlan.readerDrawerClose': '关闭',
   'actionPlan.historyDrawerTitle': '已上线记录',
-  'actionPlan.historyDrawerDesc': '所有已推送的仓库文档、Awesome 榜单 PR 与社区发文都会自动记在这里，作为原题重测的对照基线。',
+  'actionPlan.historyDrawerDesc': '所有已推送的仓库文档、开源榜单 PR 与社区发文都会自动记在这里，作为原题重测的对照基线。',
   'actionPlan.historyEmpty': '还没有已上线的记录；在右侧点过一次「确认推送」或「确认提交 PR」后会自动记录到这里。',
   'actionPlan.viewSnapshotBtn': '查看当时改稿',
   'actionPlan.openLiveLinkBtn': '查看线上地址',

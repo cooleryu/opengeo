@@ -17,7 +17,7 @@
 
 [读取与前端派生](#读取与前端派生) · [保存材料核查](#保存材料核查) · [从资产开始改进 / 核查](#从资产开始改进--核查)
 
-本节核对正式组件 `ContentPanel`，入口 `/?project=<id>&view=assets`。
+本节核对自有内容目录、来源归属与材料核查接口（当前入口已合并至 `/?project=<id>&view=tasks`）。
 
 ## 读取与前端派生
 
@@ -31,7 +31,7 @@
 | 当前缺口 | 由本批研究题 `gaps[]` 生成 `ContentGovernanceItem[]`，ID 为 `<project>:<batch>:<question>:gap:<index>` | 前端分类 `content/evidence/capability/investigate`；历史 `GeoState.gaps` 单独保留，不合入当前缺口。 |
 | 核查记录 | 后端 `GeoState.governanceRecords?: AssetGovernanceRecord[]` | 前端按当前项目、批次及 gapId 找记录；任务关联、依据、状态是真实持久化字段。 |
 
-来源：[ContentPanel.tsx:698](../../../../src/components/geo/ContentPanel.tsx#L698)、[content-assets.ts:17](../../../../src/lib/geo/content-assets.ts#L17)、[content-assets.ts:424](../../../../src/lib/geo/content-assets.ts#L424)、[types.ts:75](../../../../src/lib/geo/types.ts#L75)。
+来源：[content-assets.ts:17](../../../../src/lib/geo/content-assets.ts#L17)、[content-assets.ts:424](../../../../src/lib/geo/content-assets.ts#L424)、[types.ts:75](../../../../src/lib/geo/types.ts#L75)。
 
 筛选参数 `assetTab,assetQuery,assetType,assetGapFilter,assetLevel,assetDomain,assetLimit,assetId,assetUrl,assetGap,assetDetail,assetEngine,assetQuestion,assetProject`，及共享 `language,engine,batch,observationIndex` 是前端地址状态，**不是后端过滤参数**。目录初始展示 24 项，更多项从已加载数据展开，没有服务端分页；支持的来源平台筛选为 ChatGPT/Google。
 
@@ -58,7 +58,7 @@
 
 仅未实施且 `researchContext.gapId` 与当前缺口匹配的关联任务会同步 `assetGovernance` 并清除 `researchGapReview`；添加依据或结论还会写 `reviewContextUpdatedAt`，将旧方案降回草稿、`proposal_ready`，后续必须复检。上述需同步的关联任务正在运行时拒绝保存；此分支捕获并包装错误为 `GeoError` 默认 400，因此内部忙碌 409 实际会被转为 400。全部为本地写入，不抓取依据链接，不自动认定材料属实。
 
-来源：[store.ts:411](../../../../src/lib/geo/store.ts#L411)、[asset-governance.ts:5](../../../../src/lib/geo/asset-governance.ts#L5)、[AssetGovernancePanel.tsx:84](../../../../src/components/geo/AssetGovernancePanel.tsx#L84)。
+来源：[store.ts:411](../../../../src/lib/geo/store.ts#L411)、[asset-governance.ts:5](../../../../src/lib/geo/asset-governance.ts#L5)。
 
 ## 从资产开始改进 / 核查
 

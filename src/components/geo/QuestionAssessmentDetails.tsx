@@ -1,5 +1,9 @@
+'use client';
+
 import type { QuestionCandidate } from '@/lib/geo/question-types';
 import type { GeoAsset } from '@/lib/geo/types';
+import { inferContentLang } from '@/lib/geo/i18n';
+import { useUiLanguage } from './UiLanguageContext';
 import './question-assessment.css';
 
 export function hasQuestionAssessment(candidate: QuestionCandidate) {
@@ -11,27 +15,27 @@ export function hasQuestionAssessment(candidate: QuestionCandidate) {
 }
 
 const worthLabels = {
-  yes: '值得争取',
-  uncertain: '尚不确定',
-  no: '不值得争取',
+  yes: { en: 'Worth pursuing', zh: '值得争取' },
+  uncertain: { en: 'Uncertain', zh: '尚不确定' },
+  no: { en: 'Not worth pursuing', zh: '不值得争取' },
 };
 const supportLabels = {
-  supported: '现有内容或能力可以满足',
-  partial: '可以部分满足',
-  unverified: '尚未核实',
-  missing: '已确认缺失',
+  supported: { en: 'Supported by current docs/features', zh: '现有内容或能力可以满足' },
+  partial: { en: 'Partially supported', zh: '可以部分满足' },
+  unverified: { en: 'Not verified yet', zh: '尚未核实' },
+  missing: { en: 'Confirmed missing', zh: '已确认缺失' },
 };
 const demandLabels = {
-  'user-provided': '用户给定',
-  'public-observation': '公开观测',
-  inferred: '推导',
-  unknown: '尚未核实',
+  'user-provided': { en: 'User-provided', zh: '用户给定' },
+  'public-observation': { en: 'Public observation', zh: '公开观测' },
+  inferred: { en: 'Inferred', zh: '推导' },
+  unknown: { en: 'Not verified', zh: '尚未核实' },
 };
 const gapLabels = {
-  content: '内容',
-  evidence: '证据',
-  capability: '能力',
-  investigation: '调查',
+  content: { en: 'Content', zh: '内容' },
+  evidence: { en: 'Evidence', zh: '证据' },
+  capability: { en: 'Capability', zh: '能力' },
+  investigation: { en: 'Investigation', zh: '调查' },
 };
 
 export default function QuestionAssessmentDetails({
@@ -41,6 +45,9 @@ export default function QuestionAssessmentDetails({
   candidate: QuestionCandidate;
   assets: GeoAsset[];
 }) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
+  const langKey = isEn ? 'en' : 'zh';
   const assessment = hasQuestionAssessment(candidate)
     ? candidate.review.assessment
     : undefined;
@@ -48,43 +55,57 @@ export default function QuestionAssessmentDetails({
   if (!assessment) {
     return (
       <p className="qa-assessment-note">
-        尚未进行 AI 双判断；现有记录不代表已分别核查争取价值与当前承接情况。
+        {isEn
+          ? 'No AI dual-assessment yet; existing records do not confirm separate value and coverage checks.'
+          : '尚未进行 AI 双判断；现有记录不代表已分别核查争取价值与当前承接情况。'}
       </p>
     );
   }
 
   return (
-    <section className="qa-assessment" aria-label="AI 双判断结果">
-      <h4>AI 双判断</h4>
+    <section
+      className="qa-assessment"
+      aria-label={isEn ? 'AI dual assessment' : 'AI 双判断结果'}
+    >
+      <h4>{isEn ? 'AI dual assessment' : 'AI 双判断'}</h4>
       <dl>
         <div>
-          <dt>是否值得争取</dt>
+          <dt>{isEn ? 'Worth pursuing' : '是否值得争取'}</dt>
           <dd>
-            <strong>{worthLabels[assessment.worthPursuing.verdict]}</strong>
-            <p>{assessment.worthPursuing.reason}</p>
+            <strong>{worthLabels[assessment.worthPursuing.verdict][langKey]}</strong>
+            <p lang={inferContentLang(assessment.worthPursuing.reason)}>
+              {assessment.worthPursuing.reason}
+            </p>
           </dd>
         </div>
         <div>
-          <dt>目前能回答到哪里</dt>
+          <dt>{isEn ? 'Current coverage' : '目前能回答到哪里'}</dt>
           <dd>
-            <strong>{supportLabels[assessment.currentSupport.level]}</strong>
-            <p>{assessment.currentSupport.reason}</p>
+            <strong>{supportLabels[assessment.currentSupport.level][langKey]}</strong>
+            <p lang={inferContentLang(assessment.currentSupport.reason)}>
+              {assessment.currentSupport.reason}
+            </p>
           </dd>
         </div>
         <div>
           <dt>
-            需求依据 · {demandLabels[assessment.worthPursuing.demandBasis]}
+            {isEn ? 'Demand basis · ' : '需求依据 · '}
+            {demandLabels[assessment.worthPursuing.demandBasis][langKey]}
           </dt>
-          <dd>{assessment.worthPursuing.basis}</dd>
+          <dd lang={inferContentLang(assessment.worthPursuing.basis)}>
+            {assessment.worthPursuing.basis}
+          </dd>
         </div>
       </dl>
       {assessment.evidence.length > 0 && (
         <div className="qa-assessment-evidence">
-          <h4>判断引用的原文</h4>
+          <h4>{isEn ? 'Cited excerpts' : '判断引用的原文'}</h4>
           {assessment.evidence.map((evidence, index) => (
             <figure key={`${evidence.assetId}-${index}`}>
-              <blockquote>{evidence.quote}</blockquote>
-              <figcaption>
+              <blockquote lang={inferContentLang(evidence.quote)}>
+                {evidence.quote}
+              </blockquote>
+              <figcaption data-i18n-skip="">
                 {assets.find((asset) => asset.id === evidence.assetId)?.title ??
                   evidence.assetId}
               </figcaption>
@@ -94,11 +115,15 @@ export default function QuestionAssessmentDetails({
       )}
       {assessment.gaps.length > 0 && (
         <div className="qa-assessment-gaps">
-          <h4>当前缺口</h4>
+          <h4>{isEn ? 'Open gaps' : '当前缺口'}</h4>
           <ul>
             {assessment.gaps.map((gap, index) => (
               <li key={index}>
-                {gapLabels[gap.kind]}：{gap.description}
+                {gapLabels[gap.kind][langKey]}
+                {isEn ? ': ' : '：'}
+                <span lang={inferContentLang(gap.description)}>
+                  {gap.description}
+                </span>
               </li>
             ))}
           </ul>

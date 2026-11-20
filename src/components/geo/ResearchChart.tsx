@@ -6,6 +6,7 @@ import {
   RESEARCH_ENGINE_NAMES as names,
   RESEARCH_ENGINE_COLORS as colors,
 } from '@/lib/geo/research-engines';
+import { useUiLanguage } from './UiLanguageContext';
 
 export default function ResearchChart({
   rows,
@@ -20,6 +21,8 @@ export default function ResearchChart({
   byPlatform?: boolean;
   onOpen: (engine: ResearchRow['engine']) => void;
 }) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const entries = RESEARCH_ENGINES.filter((engine) =>
     rows.some((row) => row.engine === engine),
   ).map((engine) => ({
@@ -32,11 +35,13 @@ export default function ResearchChart({
         className={
           'rw-chart-panel rw-composition' + (compact ? ' compact' : '')
         }
-        aria-label="最新记录的官方来源分布"
+        aria-label={
+          isEn ? 'Latest official source breakdown' : '最新记录的官方来源分布'
+        }
       >
         <header className="rw-section-heading">
-          <h2>官方来源分布</h2>
-          <span>各题最新记录</span>
+          <h2>{isEn ? 'Official source breakdown' : '官方来源分布'}</h2>
+          <span>{isEn ? 'Latest per prompt' : '各题最新记录'}</span>
         </header>
         <div className="rw-composition-grid">
           {entries.map(({ engine, stats }) => (
@@ -44,7 +49,11 @@ export default function ResearchChart({
               className="rw-composition-entry"
               key={engine}
               onClick={() => onOpen(engine)}
-              aria-label={`${names[engine]}：${stats.found}/${stats.completed} 条找到官方来源，查看记录`}
+              aria-label={
+                isEn
+                  ? `${names[engine]}: ${stats.found}/${stats.completed} with official source, inspect records`
+                  : `${names[engine]}：${stats.found}/${stats.completed} 条找到官方来源，查看记录`
+              }
             >
               <span className="rw-composition-ring">
                 <svg viewBox="0 0 120 120" aria-hidden="true">
@@ -77,15 +86,18 @@ export default function ResearchChart({
                 <b>{names[engine]}</b>
                 <span>
                   <i style={{ background: colors[engine] }} />
-                  找到官方来源<strong>{stats.found}</strong>
+                  {isEn ? 'Official source found' : '找到官方来源'}
+                  <strong>{stats.found}</strong>
                 </span>
                 <span>
                   <i />
-                  本次未见<strong>{stats.completed - stats.found}</strong>
+                  {isEn ? 'Not seen' : '本次未见'}
+                  <strong>{stats.completed - stats.found}</strong>
                 </span>
                 {stats.unmeasured > 0 && (
                   <span>
-                    未测<strong>{stats.unmeasured}</strong>
+                    {isEn ? 'Not run' : '未测'}
+                    <strong>{stats.unmeasured}</strong>
                   </span>
                 )}
               </span>
@@ -97,11 +109,19 @@ export default function ResearchChart({
   return (
     <section
       className={'rw-chart-panel' + (compact ? ' compact' : '')}
-      aria-label="官方来源发现率图表"
+      aria-label={isEn ? 'Official source discovery chart' : '官方来源发现率图表'}
     >
       <header className="rw-section-heading">
-        <h2>{byPlatform ? '按入口划分的发现率' : '官方来源发现率'}</h2>
-        <span>各题最新记录</span>
+        <h2>
+          {byPlatform
+            ? isEn
+              ? 'Discovery rate by platform'
+              : '按入口划分的发现率'
+            : isEn
+              ? 'Official source discovery rate'
+              : '官方来源发现率'}
+        </h2>
+        <span>{isEn ? 'Latest per prompt' : '各题最新记录'}</span>
       </header>
       <svg
         viewBox="0 0 500 245"
@@ -112,10 +132,12 @@ export default function ResearchChart({
               names[engine] +
               ' ' +
               (stats.rate === null
-                ? '未测'
+                ? isEn
+                  ? 'Not run'
+                  : '未测'
                 : Number(stats.rate.toFixed(1)) + '%'),
           )
-          .join('，')}
+          .join(isEn ? ', ' : '，')}
       >
         {[0, 25, 50, 75, 100].map((value) => (
           <g key={value}>

@@ -8,6 +8,7 @@ import type {
   CompetitorComparison,
   CompetitorRow,
 } from '@/lib/geo/competitor-types';
+import { inferContentLang } from '@/lib/geo/i18n';
 import type { ResearchEngine } from '@/lib/geo/research-types';
 import { RESEARCH_ENGINE_NAMES } from '@/lib/geo/research-engines';
 import { comparableCompetitorMention } from '@/lib/geo/competitor-presentation';
@@ -17,6 +18,7 @@ import {
   type CompetitorQuestionOpportunity,
 } from '@/lib/geo/competitor-question-gaps';
 import CompetitorPerformance from './CompetitorPerformance';
+import { useUiLanguage } from './UiLanguageContext';
 import './competitor-gap-journey.css';
 
 type Props = {
@@ -28,10 +30,19 @@ type Props = {
 };
 
 const percent = (value: number) => `${Number(value.toFixed(1))}%`;
-const change = (value: number, positive: string, negative: string) =>
+const change = (
+  value: number,
+  positive: string,
+  negative: string,
+  isEn: boolean,
+) =>
   value === 0
-    ? '持平'
-    : `${value > 0 ? positive : negative} ${Number(Math.abs(value).toFixed(1))} 个百分点`;
+    ? isEn
+      ? 'Flat'
+      : '持平'
+    : isEn
+      ? `${value > 0 ? positive : negative} ${Number(Math.abs(value).toFixed(1))} pp`
+      : `${value > 0 ? positive : negative} ${Number(Math.abs(value).toFixed(1))} 个百分点`;
 
 function answerExcerpt(excerpt: string, names: string[]) {
   const heading = excerpt.search(/\s#{1,6}\s/);
@@ -51,13 +62,15 @@ export default function CompetitorGapJourney({
   engine,
   onPreview,
 }: Props) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const [focused, setFocused] = useState<{
     context: string;
     questionId: string;
   } | null>(null);
   const candidate = data.selectedCandidate;
   const target = data.target!;
-  const ownName = comparison?.own.name || '我们';
+  const ownName = comparison?.own.name || (isEn ? 'Us' : '我们');
   const candidateId = candidate?.id || data.selection?.candidateId;
   const context = `${data.projectId}:${data.batch?.id}:${candidateId || target.updatedAt}:${language}:${engine}`;
   const gaps = getCompetitorQuestionGaps(comparison, candidate, {
@@ -124,40 +137,55 @@ export default function CompetitorGapJourney({
     <div className="cj-journey">
       <details className="cj-metrics">
         <summary>
-          <span className="cj-context-label">同题提及</span>
+          <span className="cj-context-label">
+            {isEn ? 'Same-question mentions' : '同题提及'}
+          </span>
           {mention && measured ? (
             <>
               <span>
-                {ownName}{' '}
+                <span data-i18n-skip="">{ownName}</span>{' '}
                 <strong>
                   {mention.own.yes}/{mention.own.completed}
                 </strong>{' '}
-                <small>（{percent(mention.own.rate!)}）</small>
+                <small>({percent(mention.own.rate!)})</small>
               </span>
               <span>
-                {target.name}{' '}
+                <span data-i18n-skip="">{target.name}</span>{' '}
                 <strong>
                   {mention.target.yes}/{mention.target.completed}
                 </strong>{' '}
-                <small>（{percent(mention.target.rate!)}）</small>
+                <small>({percent(mention.target.rate!)})</small>
               </span>
               <span className="cj-context-scope">
-                {language === 'zh' ? '中文' : '英文'} ·{' '}
+                {language === 'zh'
+                  ? isEn
+                    ? 'Chinese'
+                    : '中文'
+                  : isEn
+                    ? 'English'
+                    : '英文'}{' '}
+                ·{' '}
                 {measured.engine === 'all'
-                  ? '全部平台'
+                  ? isEn
+                    ? 'All platforms'
+                    : '全部平台'
                   : RESEARCH_ENGINE_NAMES[measured.engine]}
               </span>
             </>
           ) : (
-            <span>查看已保存的实测数据</span>
+            <span>
+              {isEn ? 'View saved measured data' : '查看已保存的实测数据'}
+            </span>
           )}
           <span className="cj-metrics-open">
-            全部指标 <ChevronDown size={12} />
+            {isEn ? 'All metrics' : '全部指标'} <ChevronDown size={12} />
           </span>
         </summary>
         {mention && mention.own.rate === mention.target.rate && (
           <p className="cj-metrics-note">
-            整体提及率相同，出现的问题可能不同。下面逐题查看差距。
+            {isEn
+              ? 'Overall mention rates match, but the specific questions may differ. Inspect gaps per question below.'
+              : '整体提及率相同，出现的问题可能不同。下面逐题查看差距。'}
           </p>
         )}
         <CompetitorPerformance
@@ -172,9 +200,13 @@ export default function CompetitorGapJourney({
       {active ? (
         <div className={`cj-layout${gaps.length > 1 ? ' has-questions' : ''}`}>
           {gaps.length > 1 && (
-            <nav className="cj-questions" aria-label="漏题列表">
+            <nav
+              className="cj-questions"
+              aria-label={isEn ? 'Missed questions list' : '漏题列表'}
+            >
               <h3>
-                漏在哪道题 <span>{gaps.length}</span>
+                {isEn ? 'Missed questions' : '漏在哪道题'}{' '}
+                <span>{gaps.length}</span>
               </h3>
               {gaps.map((gap, index) => (
                 <button
@@ -189,7 +221,9 @@ export default function CompetitorGapJourney({
                 >
                   <span>{String(index + 1).padStart(2, '0')}</span>
                   <span>
-                    {gap.question}
+                    <span lang={inferContentLang(gap.question)}>
+                      {gap.question}
+                    </span>
                     <small>
                       {gap.answers
                         .map(({ row }) => RESEARCH_ENGINE_NAMES[row.engine])
@@ -204,20 +238,45 @@ export default function CompetitorGapJourney({
           <article
             className="cj-question"
             key={`${context}:${active.questionId}`}
-            aria-label="当前漏题与改进"
+            aria-label={
+              isEn ? 'Current missed question & improvements' : '当前漏题与改进'
+            }
           >
             <header className="cj-question-heading">
-              <span className="cj-eyebrow">漏在哪道题</span>
-              <h3>{active.question}</h3>
+              <span className="cj-eyebrow">
+                {isEn ? 'Missed question' : '漏在哪道题'}
+              </span>
+              <h3 lang={inferContentLang(active.question)}>
+                {active.question}
+              </h3>
               <p>
-                {[
-                  ...new Set(
-                    active.answers.map(
-                      ({ row }) => RESEARCH_ENGINE_NAMES[row.engine],
-                    ),
-                  ),
-                ].join('、')}{' '}
-                的回答提到了 <strong>{target.name}</strong>，未提到 {ownName}。
+                {isEn ? (
+                  <>
+                    {[
+                      ...new Set(
+                        active.answers.map(
+                          ({ row }) => RESEARCH_ENGINE_NAMES[row.engine],
+                        ),
+                      ),
+                    ].join(', ')}{' '}
+                    mentioned <strong data-i18n-skip="">{target.name}</strong>{' '}
+                    but did not mention{' '}
+                    <span data-i18n-skip="">{ownName}</span>.
+                  </>
+                ) : (
+                  <>
+                    {[
+                      ...new Set(
+                        active.answers.map(
+                          ({ row }) => RESEARCH_ENGINE_NAMES[row.engine],
+                        ),
+                      ),
+                    ].join('、')}{' '}
+                    的回答提到了{' '}
+                    <strong data-i18n-skip="">{target.name}</strong>，未提到{' '}
+                    <span data-i18n-skip="">{ownName}</span>。
+                  </>
+                )}
               </p>
             </header>
             {active.answers.map(({ row, opportunities }) => (
@@ -228,43 +287,77 @@ export default function CompetitorGapJourney({
                 {active.answers.length > 1 && (
                   <p className="cj-platform">
                     {RESEARCH_ENGINE_NAMES[row.engine]} ·{' '}
-                    {row.language === 'zh' ? '中文' : '英文'}
+                    {row.language === 'zh'
+                      ? isEn
+                        ? 'Chinese'
+                        : '中文'
+                      : isEn
+                        ? 'English'
+                        : '英文'}
                   </p>
                 )}
                 <section
                   className="cj-evidence"
-                  aria-label={`${RESEARCH_ENGINE_NAMES[row.engine]} 原回答依据`}
+                  aria-label={
+                    isEn
+                      ? `${RESEARCH_ENGINE_NAMES[row.engine]} answer evidence`
+                      : `${RESEARCH_ENGINE_NAMES[row.engine]} 原回答依据`
+                  }
                 >
                   <div className="cj-section-heading">
-                    <h4>原回答依据</h4>
+                    <h4>{isEn ? 'Answer evidence' : '原回答依据'}</h4>
                     <a href={questionHref(row)} className="cx-text-button">
-                      查看完整回答 <ArrowUpRight size={13} />
+                      {isEn ? 'View full answer' : '查看完整回答'}{' '}
+                      <ArrowUpRight size={13} />
                     </a>
                   </div>
                   <p className="cj-answer-meta">
                     {RESEARCH_ENGINE_NAMES[row.engine]} ·{' '}
-                    {row.language === 'zh' ? '中文' : '英文'}
+                    {row.language === 'zh'
+                      ? isEn
+                        ? 'Chinese'
+                        : '中文'
+                      : isEn
+                        ? 'English'
+                        : '英文'}
                     {(row.collectedAt || row.recordedAt).match(
                       /^\d{4}-\d{2}-\d{2}/,
                     )?.[0] &&
-                      ` · 记录于 ${(row.collectedAt || row.recordedAt).slice(0, 10)}`}
+                      (isEn
+                        ? ` · Recorded ${(row.collectedAt || row.recordedAt).slice(0, 10)}`
+                        : ` · 记录于 ${(row.collectedAt || row.recordedAt).slice(0, 10)}`)}
                   </p>
                   {row.targetMention.excerpts.length ? (
                     [...new Set(row.targetMention.excerpts)]
                       .slice(0, 2)
                       .map((excerpt, index) => (
-                        <blockquote key={index}>
+                        <blockquote
+                          key={index}
+                          lang={row.language || inferContentLang(excerpt)}
+                        >
                           {answerExcerpt(excerpt, row.targetMention.names)}
                         </blockquote>
                       ))
                   ) : (
                     <p className="cj-note">
-                      打开完整回答，查看 {target.name} 被提及时的上下文。
+                      {isEn ? (
+                        <>
+                          Open the full answer to see the context where{' '}
+                          <span data-i18n-skip="">{target.name}</span> was
+                          mentioned.
+                        </>
+                      ) : (
+                        <>
+                          打开完整回答，查看{' '}
+                          <span data-i18n-skip="">{target.name}</span>{' '}
+                          被提及时的上下文。
+                        </>
+                      )}
                     </p>
                   )}
                   {row.sources.some((source) => source.target) && (
                     <div className="cj-sources">
-                      <span>相关来源</span>
+                      <span>{isEn ? 'Related sources' : '相关来源'}</span>
                       {row.sources
                         .filter((source) => source.target)
                         .slice(0, 3)
@@ -274,6 +367,7 @@ export default function CompetitorGapJourney({
                             href={source.url}
                             target="_blank"
                             rel="noreferrer"
+                            data-i18n-skip=""
                           >
                             {source.title || source.url}{' '}
                             <ArrowUpRight size={11} />
@@ -284,29 +378,51 @@ export default function CompetitorGapJourney({
                 </section>
                 <section
                   className="cj-actions"
-                  aria-label={`${RESEARCH_ENGINE_NAMES[row.engine]} 具体改进`}
+                  aria-label={
+                    isEn
+                      ? `${RESEARCH_ENGINE_NAMES[row.engine]} recommended actions`
+                      : `${RESEARCH_ENGINE_NAMES[row.engine]} 具体改进`
+                  }
                 >
                   <div className="cj-section-heading">
-                    <h4>具体改什么</h4>
-                    {opportunities.length > 0 && <span>AI 建议</span>}
+                    <h4>{isEn ? 'What to change' : '具体改什么'}</h4>
+                    {opportunities.length > 0 && (
+                      <span>{isEn ? 'AI suggestion' : 'AI 建议'}</span>
+                    )}
                   </div>
                   {opportunities.length ? (
                     opportunities.map((opportunity, index) => (
                       <div className="cj-action-item" key={index}>
-                        <p className="cj-action-text">{opportunity.action}</p>
+                        <p
+                          className="cj-action-text"
+                          lang={inferContentLang(opportunity.action)}
+                        >
+                          {opportunity.action}
+                        </p>
                         <details className="cj-action-reason">
                           <summary>
-                            建议依据 <ChevronDown size={12} />
+                            {isEn ? 'Supporting evidence' : '建议依据'}{' '}
+                            <ChevronDown size={12} />
                           </summary>
-                          <p>{opportunity.observed}</p>
+                          <p lang={inferContentLang(opportunity.observed)}>
+                            {opportunity.observed}
+                          </p>
                           {opportunity.hypothesis && (
-                            <p>原因假设：{opportunity.hypothesis}</p>
+                            <p>
+                              {isEn ? 'Hypothesis: ' : '原因假设：'}
+                              <span
+                                lang={inferContentLang(opportunity.hypothesis)}
+                              >
+                                {opportunity.hypothesis}
+                              </span>
+                            </p>
                           )}
                         </details>
                         <div className="cj-action-footer">
                           <p>
-                            完成改进后，用这道题在{' '}
-                            {RESEARCH_ENGINE_NAMES[row.engine]} 同条件复测。
+                            {isEn
+                              ? `After publishing, retest this question on ${RESEARCH_ENGINE_NAMES[row.engine]} under the same conditions.`
+                              : `完成改进后，用这道题在 ${RESEARCH_ENGINE_NAMES[row.engine]} 同条件复测。`}
                           </p>
                           <button
                             type="button"
@@ -314,16 +430,22 @@ export default function CompetitorGapJourney({
                             disabled={!candidateId}
                             onClick={() => improve(opportunity)}
                           >
-                            制定改进方案 <ArrowRight size={14} />
+                            {isEn ? 'Plan improvement' : '制定改进方案'}{' '}
+                            <ArrowRight size={14} />
                           </button>
                         </div>
                       </div>
                     ))
                   ) : (
                     <div className="cj-no-action">
-                      <p>先看这条回答推荐了哪些能力，再确定要补充的内容。</p>
+                      <p>
+                        {isEn
+                          ? 'Inspect what capabilities this answer highlights, then decide what to add.'
+                          : '先看这条回答推荐了哪些能力，再确定要补充的内容。'}
+                      </p>
                       <a href={questionHref(row)} className="cx-text-button">
-                        到问题页分析 <ArrowRight size={13} />
+                        {isEn ? 'Analyze on Questions page' : '到问题页分析'}{' '}
+                        <ArrowRight size={13} />
                       </a>
                     </div>
                   )}
@@ -334,53 +456,104 @@ export default function CompetitorGapJourney({
         </div>
       ) : (
         <section className="cj-no-gaps">
-          <h3>当前没有已确认的漏题</h3>
-          <p>查看同题回答，了解 {target.name} 被怎样介绍。</p>
+          <h3>
+            {isEn ? 'No confirmed missed questions yet' : '当前没有已确认的漏题'}
+          </h3>
+          <p>
+            {isEn ? (
+              <>
+                Review answers to the same questions to see how{' '}
+                <span data-i18n-skip="">{target.name}</span> is described.
+              </>
+            ) : (
+              <>
+                查看同题回答，了解 <span data-i18n-skip="">{target.name}</span>{' '}
+                被怎样介绍。
+              </>
+            )}
+          </p>
           <a href={questionHref()} className="cx-text-button">
-            查看问题与回答 <ArrowRight size={13} />
+            {isEn ? 'View questions & answers' : '查看问题与回答'}{' '}
+            <ArrowRight size={13} />
           </a>
         </section>
       )}
 
       <section
         className={`cj-followup${hasProgress ? ' has-results' : ''}`}
-        aria-label="复测结果"
+        aria-label={isEn ? 'Retest results' : '复测结果'}
       >
         <div className="cj-section-heading">
-          <h3>复测结果</h3>
+          <h3>{isEn ? 'Retest results' : '复测结果'}</h3>
         </div>
         {hasProgress ? (
           results.map(({ questionId, question, progress }) => (
             <article className="cj-followup-question" key={questionId}>
-              <h4>{question}</h4>
+              <h4 lang={inferContentLang(question)}>{question}</h4>
               <dl>
                 {progress.ownChange !== null && (
                   <div>
-                    <dt>自身表现</dt>
-                    <dd>{change(progress.ownChange, '提升', '下降')}</dd>
+                    <dt>{isEn ? 'Our performance' : '自身表现'}</dt>
+                    <dd>
+                      {change(
+                        progress.ownChange,
+                        isEn ? 'Up' : '提升',
+                        isEn ? 'Down' : '下降',
+                        isEn,
+                      )}
+                    </dd>
                   </div>
                 )}
                 {progress.gapChange !== null && (
                   <div>
-                    <dt>与 {target.name} 的差距</dt>
-                    <dd>{change(progress.gapChange, '缩小', '扩大')}</dd>
+                    <dt>
+                      {isEn ? (
+                        <>
+                          Gap vs <span data-i18n-skip="">{target.name}</span>
+                        </>
+                      ) : (
+                        <>
+                          与 <span data-i18n-skip="">{target.name}</span> 的差距
+                        </>
+                      )}
+                    </dt>
+                    <dd>
+                      {change(
+                        progress.gapChange,
+                        isEn ? 'Narrowed' : '缩小',
+                        isEn ? 'Widened' : '扩大',
+                        isEn,
+                      )}
+                    </dd>
                   </div>
                 )}
               </dl>
             </article>
           ))
         ) : (
-          <p>尚无可比复测结果。完成改进后，查看自身表现和与参照的差距变化。</p>
+          <p>
+            {isEn
+              ? 'No comparable retest results yet. After publishing improvements, check how your mention rate and gap changed.'
+              : '尚无可比复测结果。完成改进后，查看自身表现和与参照的差距变化。'}
+          </p>
         )}
         {tracked.length > 0 && (
           <details className="cj-followup-details">
             <summary>
-              复测条件 <ChevronDown size={12} />
+              {isEn ? 'Retest conditions' : '复测条件'}{' '}
+              <ChevronDown size={12} />
             </summary>
             {tracked.map(({ questionId, question, progress }) => (
               <p key={questionId}>
-                {tracked.length > 1 && `${question}：`}
-                {progress.reason}
+                {tracked.length > 1 && (
+                  <span lang={inferContentLang(question)}>
+                    {question}
+                    {isEn ? ': ' : '：'}
+                  </span>
+                )}
+                <span lang={inferContentLang(progress.reason)}>
+                  {progress.reason}
+                </span>
               </p>
             ))}
           </details>
@@ -393,7 +566,8 @@ export default function CompetitorGapJourney({
             className="cx-text-button"
             onClick={() => onPreview(candidate)}
           >
-            查看全部对照依据 <ArrowUpRight size={12} />
+            {isEn ? 'View all comparison evidence' : '查看全部对照依据'}{' '}
+            <ArrowUpRight size={12} />
           </button>
         </div>
       )}

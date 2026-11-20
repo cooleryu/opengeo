@@ -659,9 +659,13 @@ function OpenGeoAppInner() {
         }),
       });
       const result = action === 'generate_questions' && res.headers.get('content-type')?.includes('application/x-ndjson')
-        ? await readQuestionGenerationStream(res, (progress) => {
-            if (projectRef.current === actionProject) setQuestionGenerationProgress(progress);
-          })
+        ? await readQuestionGenerationStream(
+            res,
+            (progress) => {
+              if (projectRef.current === actionProject) setQuestionGenerationProgress(progress);
+            },
+            uiLanguage,
+          )
         : await res.json();
       if (!res.ok) {
         const err = new Error(

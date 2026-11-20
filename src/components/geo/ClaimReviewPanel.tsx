@@ -7,8 +7,10 @@ import type {
   ResearchObservation,
   ResearchQuestion,
 } from '@/lib/geo/research-types';
+import { inferContentLang } from '@/lib/geo/i18n';
 import { contentWebUrl } from './ContentEvidence';
 import GeoSelect from './GeoSelect';
+import { useUiLanguage } from './UiLanguageContext';
 import './claim-review.css';
 
 export type ClaimReviewInput = Pick<
@@ -27,9 +29,9 @@ export type ClaimReviewInput = Pick<
 >;
 
 const conclusions = {
-  supported: '有依据支持',
-  contradicted: '与依据不符',
-  uncertain: '尚不能确认',
+  supported: { en: 'Supported', zh: '有依据支持' },
+  contradicted: { en: 'Contradicted', zh: '与依据不符' },
+  uncertain: { en: 'Uncertain', zh: '尚不能确认' },
 } as const;
 
 export default function ClaimReviewPanel({
@@ -49,6 +51,10 @@ export default function ClaimReviewPanel({
   records: ClaimReviewRecord[];
   onSave: (payload: ClaimReviewInput) => Promise<void>;
 }) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
+  const langKey = isEn ? 'en' : 'zh';
+  const locale = isEn ? 'en-US' : 'zh-CN';
   const selectPortal = useRef<HTMLDetailsElement>(null);
   const reviews = records.filter(
     (entry) =>
@@ -90,9 +96,16 @@ export default function ClaimReviewPanel({
   return (
     <details className="cr-review" ref={selectPortal}>
       <summary>
-        <span>说法核查</span>
+        <span>{isEn ? 'Claim check' : '说法核查'}</span>
         <small>
-          人工核查 · {reviews.length ? `${reviews.length} 条` : '尚无记录'}
+          {isEn ? 'Manual check · ' : '人工核查 · '}
+          {reviews.length
+            ? isEn
+              ? `${reviews.length} logged`
+              : `${reviews.length} 条`
+            : isEn
+              ? 'None yet'
+              : '尚无记录'}
         </small>
       </summary>
       <div className="cr-body">
@@ -102,23 +115,31 @@ export default function ClaimReviewPanel({
               <article key={review.id}>
                 <header>
                   <span className={'cr-conclusion ' + review.conclusion}>
-                    {conclusions[review.conclusion]}
+                    {conclusions[review.conclusion][langKey]}
                   </span>
                   <time>
-                    {new Date(review.reviewedAt).toLocaleDateString('zh-CN')}
+                    {new Date(review.reviewedAt).toLocaleDateString(locale, {
+                      timeZone: 'UTC',
+                    })}
                   </time>
                 </header>
-                <blockquote>{review.quote}</blockquote>
+                <blockquote lang={inferContentLang(review.quote)}>
+                  {review.quote}
+                </blockquote>
                 <details className="cr-record-evidence">
-                  <summary>事实与依据</summary>
+                  <summary>{isEn ? 'Facts & evidence' : '事实与依据'}</summary>
                   <dl>
                     <div>
-                      <dt>项目事实</dt>
-                      <dd>{review.fact}</dd>
+                      <dt>{isEn ? 'Product fact' : '项目事实'}</dt>
+                      <dd lang={inferContentLang(review.fact)}>
+                        {review.fact}
+                      </dd>
                     </div>
                     <div>
-                      <dt>适用边界</dt>
-                      <dd>{review.scope}</dd>
+                      <dt>{isEn ? 'Scope & limits' : '适用边界'}</dt>
+                      <dd lang={inferContentLang(review.scope)}>
+                        {review.scope}
+                      </dd>
                     </div>
                   </dl>
                   {contentWebUrl(review.evidenceUrl) && (
@@ -127,9 +148,11 @@ export default function ClaimReviewPanel({
                       target="_blank"
                       rel="noreferrer"
                     >
-                      核查依据
+                      {isEn ? 'Source link' : '核查依据'}
                       <ArrowUpRight size={12} />
-                      <span>{new URL(review.evidenceUrl).hostname}</span>
+                      <span data-i18n-skip="">
+                        {new URL(review.evidenceUrl).hostname}
+                      </span>
                     </a>
                   )}
                 </details>
@@ -146,13 +169,13 @@ export default function ClaimReviewPanel({
             }}
           >
             <Plus size={14} />
-            登记人工核查
+            {isEn ? 'Log manual check' : '登记人工核查'}
           </button>
         )}
         {saved && (
           <p className="cr-saved" role="status">
             <Check size={13} />
-            核查记录已保存
+            {isEn ? 'Review saved' : '核查记录已保存'}
           </p>
         )}
         {editing && (
@@ -160,11 +183,19 @@ export default function ClaimReviewPanel({
             onSubmit={async (event) => {
               event.preventDefault();
               if (!quote.trim() || !fact.trim() || !scope.trim()) {
-                setError('请补全原话、项目事实和适用边界。');
+                setError(
+                  isEn
+                    ? 'Fill in the quote, product fact, and scope.'
+                    : '请补全原话、项目事实和适用边界。',
+                );
                 return;
               }
               if (!contentWebUrl(evidenceUrl.trim())) {
-                setError('请填写可打开的 http 或 https 核查依据链接。');
+                setError(
+                  isEn
+                    ? 'Enter a valid http or https evidence URL.'
+                    : '请填写可打开的 http 或 https 核查依据链接。',
+                );
                 return;
               }
               setBusy(true);
@@ -195,7 +226,9 @@ export default function ClaimReviewPanel({
                 setError(
                   cause instanceof Error
                     ? cause.message
-                    : '核查记录未保存，请重试。',
+                    : isEn
+                      ? 'Could not save review. Please try again.'
+                      : '核查记录未保存，请重试。',
                 );
               } finally {
                 setBusy(false);
@@ -203,31 +236,39 @@ export default function ClaimReviewPanel({
             }}
           >
             <label>
-              回答原话
+              {isEn ? 'Answer quote' : '回答原话'}
               <textarea
-                aria-label="核查的回答原话"
+                aria-label={isEn ? 'Answer quote to verify' : '核查的回答原话'}
                 rows={2}
                 required
-                placeholder="从已打开的回答原文中摘录完整语句"
+                placeholder={
+                  isEn
+                    ? 'Copy the exact sentence from the opened answer'
+                    : '从已打开的回答原文中摘录完整语句'
+                }
                 value={quote}
                 onChange={(event) => setQuote(event.target.value)}
               />
             </label>
             <label>
-              项目事实
+              {isEn ? 'Product fact' : '项目事实'}
               <textarea
-                aria-label="核查的项目事实"
+                aria-label={isEn ? 'Verified product fact' : '核查的项目事实'}
                 rows={2}
                 required
-                placeholder="依据材料能够确认什么"
+                placeholder={
+                  isEn
+                    ? 'What does your supporting evidence confirm?'
+                    : '依据材料能够确认什么'
+                }
                 value={fact}
                 onChange={(event) => setFact(event.target.value)}
               />
             </label>
             <label>
-              核查依据
+              {isEn ? 'Evidence link' : '核查依据'}
               <input
-                aria-label="核查依据链接"
+                aria-label={isEn ? 'Evidence URL' : '核查依据链接'}
                 type="url"
                 required
                 placeholder="https://…"
@@ -237,41 +278,54 @@ export default function ClaimReviewPanel({
             </label>
             <div className="cr-form-row">
               <label>
-                人工判断
+                {isEn ? 'Verdict' : '人工判断'}
                 <GeoSelect
-                  label="人工核查判断"
+                  label={isEn ? 'Manual check verdict' : '人工核查判断'}
                   value={conclusion}
                   onChange={setConclusion}
                   portalTarget={selectPortal}
                   options={[
-                    { value: 'uncertain', label: '尚不能确认' },
-                    { value: 'supported', label: '有依据支持' },
-                    { value: 'contradicted', label: '与依据不符' },
+                    { value: 'uncertain', label: conclusions.uncertain[langKey] },
+                    { value: 'supported', label: conclusions.supported[langKey] },
+                    {
+                      value: 'contradicted',
+                      label: conclusions.contradicted[langKey],
+                    },
                   ]}
                 />
               </label>
             </div>
             <label>
-              适用边界
+              {isEn ? 'Scope & limits' : '适用边界'}
               <textarea
-                aria-label="核查适用边界"
+                aria-label={isEn ? 'Verification scope' : '核查适用边界'}
                 rows={2}
                 required
-                placeholder="版本、时间、适用条件或仍待核实之处"
+                placeholder={
+                  isEn
+                    ? 'Version, date, conditions, or open items'
+                    : '版本、时间、适用条件或仍待核实之处'
+                }
                 value={scope}
                 onChange={(event) => setScope(event.target.value)}
               />
             </label>
             <div className="cr-form-actions">
               <button type="submit" disabled={busy}>
-                {busy ? '保存中…' : '保存人工核查'}
+                {busy
+                  ? isEn
+                    ? 'Saving…'
+                    : '保存中…'
+                  : isEn
+                    ? 'Save review'
+                    : '保存人工核查'}
               </button>
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => setEditing(false)}
               >
-                取消
+                {isEn ? 'Cancel' : '取消'}
               </button>
             </div>
             {error && (

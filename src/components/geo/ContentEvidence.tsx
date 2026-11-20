@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Markdown from 'markdown-to-jsx';
 import { ChevronDown, FileText } from 'lucide-react';
+import { useUiLanguage } from './UiLanguageContext';
 
 export function contentWebUrl(value: string | null | undefined) {
   if (!value) return null;
@@ -28,6 +29,8 @@ export default function ContentEvidence({
   path: string;
   label?: string;
 }) {
+  const { uiLanguage } = useUiLanguage();
+  const isEn = uiLanguage === 'en';
   const [document, setDocument] = useState<{
     content: string;
     format: string;
@@ -49,11 +52,25 @@ export default function ContentEvidence({
         signal: controller.signal,
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || '这份材料暂时无法读取');
+      if (!response.ok) {
+        throw new Error(
+          result.error ||
+            (isEn
+              ? 'This source file is unavailable right now.'
+              : '这份材料暂时无法读取'),
+        );
+      }
       setDocument(result);
     } catch (cause) {
-      if (!controller.signal.aborted)
-        setError(cause instanceof Error ? cause.message : '读取失败');
+      if (!controller.signal.aborted) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : isEn
+              ? 'Failed to load'
+              : '读取失败',
+        );
+      }
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
@@ -68,15 +85,22 @@ export default function ContentEvidence({
     >
       <summary>
         <FileText size={15} />
-        <span>{label || '查看原始材料'}</span>
+        <span>{label || (isEn ? 'View source file' : '查看原始材料')}</span>
         <ChevronDown size={14} />
       </summary>
       <div className="ka-evidence-body">
         <small className="ka-path">{path}</small>
-        {loading && <p role="status">正在读取已保存的材料…</p>}
+        {loading && (
+          <p role="status">
+            {isEn ? 'Loading saved source…' : '正在读取已保存的材料…'}
+          </p>
+        )}
         {error && (
           <p role="alert">
-            {error} <button onClick={() => void load()}>重试</button>
+            {error}{' '}
+            <button onClick={() => void load()}>
+              {isEn ? 'Retry' : '重试'}
+            </button>
           </p>
         )}
         {document &&

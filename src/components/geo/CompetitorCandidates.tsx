@@ -27,6 +27,7 @@ import {
   isCompetitorAnswerRow,
   latestCompetitorRows,
 } from '@/lib/geo/competitor-metrics';
+import { inferContentLang, plural } from '@/lib/geo/i18n';
 import GeoSelect from './GeoSelect';
 import CompetitorExperience from './CompetitorExperience';
 import CompetitorPerformance from './CompetitorPerformance';
@@ -46,12 +47,18 @@ type Props = {
   onOpen?: () => void;
 };
 
-function matchLabel(match: CompetitorMatch) {
+function matchLabel(match: CompetitorMatch, isEn: boolean) {
   return match.status === 'matched'
-    ? '已提及'
+    ? isEn
+      ? 'Mentioned'
+      : '已提及'
     : match.status === 'not_seen'
-      ? '未提及'
-      : '待核实';
+      ? isEn
+        ? 'Not mentioned'
+        : '未提及'
+      : isEn
+        ? 'Needs check'
+        : '待核实';
 }
 
 function isTarget(
@@ -166,12 +173,20 @@ export default function CompetitorCandidates({
       try {
         const response = await fetch(endpoint(), { signal: controller.signal });
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || '候选读取失败。');
+        if (!response.ok)
+          throw new Error(
+            result.error ||
+              (isEn ? 'Failed to load candidates.' : '候选读取失败。'),
+          );
         if (
           result.projectId !== projectId ||
           (batchId && result.batch?.id !== batchId)
         )
-          throw new Error('返回的项目或批次不匹配，请重新读取。');
+          throw new Error(
+            isEn
+              ? 'Returned project or batch mismatch. Please reload.'
+              : '返回的项目或批次不匹配，请重新读取。',
+          );
         if (!disposed && request === revision.current) {
           setData(result);
           setError('');
@@ -212,10 +227,14 @@ export default function CompetitorCandidates({
         if (!disposed && request === revision.current)
           setError(
             controller.signal.aborted
-              ? '读取超时，请重新读取。'
+              ? isEn
+                ? 'Request timed out. Please reload.'
+                : '读取超时，请重新读取。'
               : cause instanceof Error
                 ? cause.message
-                : '候选读取失败。',
+                : isEn
+                  ? 'Failed to load candidates.'
+                  : '候选读取失败。',
           );
       } finally {
         clearTimeout(timeout);
@@ -245,6 +264,7 @@ export default function CompetitorCandidates({
     analyzing,
     readAttempt,
     analysisContext,
+    isEn,
   ]);
 
   const analyze = useCallback(
@@ -283,20 +303,34 @@ export default function CompetitorCandidates({
         });
         const result = await response.json();
         if (!isCurrent()) return;
-        if (!response.ok) throw new Error(result.error || '竞品分析失败。');
+        if (!response.ok)
+          throw new Error(
+            result.error ||
+              (isEn ? 'Competitor analysis failed.' : '竞品分析失败。'),
+          );
         if (
           result.projectId !== projectId ||
           (batchId && result.batch?.id !== batchId)
         )
-          throw new Error('返回的项目或批次不匹配，请重试。');
+          throw new Error(
+            isEn
+              ? 'Returned project or batch mismatch. Please retry.'
+              : '返回的项目或批次不匹配，请重试。',
+          );
         ++revision.current;
         setData(result);
         if (result.analysis?.status === 'failed')
-          analysisFailure = result.analysis.error || '竞品分析失败。';
+          analysisFailure =
+            result.analysis.error ||
+            (isEn ? 'Competitor analysis failed.' : '竞品分析失败。');
       } catch (cause) {
         if (isCurrent())
           analysisFailure =
-            cause instanceof Error ? cause.message : '竞品分析失败。';
+            cause instanceof Error
+              ? cause.message
+              : isEn
+                ? 'Competitor analysis failed.'
+                : '竞品分析失败。';
       } finally {
         if (submittingAnalysis.current?.request === request)
           submittingAnalysis.current = null;
@@ -316,6 +350,7 @@ export default function CompetitorCandidates({
       analyzing,
       analysisContext,
       data?.analysis.status,
+      isEn,
     ],
   );
 
@@ -357,18 +392,26 @@ export default function CompetitorCandidates({
     fetch(endpoint(selectedId), { signal: controller.signal })
       .then(async (response) => {
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || '对照预览读取失败。');
+        if (!response.ok)
+          throw new Error(
+            result.error ||
+              (isEn ? 'Failed to load comparison preview.' : '对照预览读取失败。'),
+          );
         if (!controller.signal.aborted && result.projectId === projectId)
           setPreview(result);
       })
       .catch((cause) => {
         if (!controller.signal.aborted)
           setPreviewError(
-            cause instanceof Error ? cause.message : '对照预览读取失败。',
+            cause instanceof Error
+              ? cause.message
+              : isEn
+                ? 'Failed to load comparison preview.'
+                : '对照预览读取失败。',
           );
       });
     return () => controller.abort();
-  }, [selectedId, endpoint, projectId]);
+  }, [selectedId, endpoint, projectId, isEn]);
 
   useEffect(() => {
     if (selectedId && !dialog.current?.open) dialog.current?.showModal();
@@ -442,16 +485,26 @@ export default function CompetitorCandidates({
       });
       const result = await response.json();
       if (!isCurrent()) return;
-      if (!response.ok) throw new Error(result.error || '引用核实失败。');
+      if (!response.ok)
+        throw new Error(
+          result.error ||
+            (isEn ? 'Citation verification failed.' : '引用核实失败。'),
+        );
       if (
         result.projectId !== projectId ||
         (batchId && result.batch?.id !== batchId)
       )
-        throw new Error('返回的项目或批次不匹配，请重试。');
+        throw new Error(
+          isEn
+            ? 'Returned project or batch mismatch. Please retry.'
+            : '返回的项目或批次不匹配，请重试。',
+        );
       ++revision.current;
       setData(result);
       setMessage(
-        '已核对保存的引用。缺少完整来源的记录会保留原因，不能算作零。',
+        isEn
+          ? 'Saved citations verified. Records without complete sources keep their reason and are not counted as zero.'
+          : '已核对保存的引用。缺少完整来源的记录会保留原因，不能算作零。',
       );
       window.dispatchEvent(
         new CustomEvent('geo-competitor-changed', { detail: { projectId } }),
@@ -460,10 +513,14 @@ export default function CompetitorCandidates({
       if (isCurrent())
         setError(
           controller.signal.aborted
-            ? '引用读取超时，请重试。'
+            ? isEn
+              ? 'Citation check timed out. Please retry.'
+              : '引用读取超时，请重试。'
             : cause instanceof Error
               ? cause.message
-              : '引用核实失败。',
+              : isEn
+                ? 'Citation verification failed.'
+                : '引用核实失败。',
         );
     } finally {
       clearTimeout(timeout);
@@ -497,17 +554,30 @@ export default function CompetitorCandidates({
       });
       const result = await response.json();
       if (!isCurrent()) return;
-      if (!response.ok) throw new Error(result.error || '保存失败。');
+      if (!response.ok)
+        throw new Error(
+          result.error || (isEn ? 'Failed to save.' : '保存失败。'),
+        );
       if (result.projectId !== projectId)
-        throw new Error('返回的项目不匹配，请重试。');
+        throw new Error(
+          isEn
+            ? 'Returned project mismatch. Please retry.'
+            : '返回的项目不匹配，请重试。',
+        );
       ++revision.current;
       setData(result);
       setMessage(
         action === 'select'
-          ? `已将 ${candidate.name} 设为主要对标。`
+          ? isEn
+            ? `Set ${candidate.name} as primary benchmark.`
+            : `已将 ${candidate.name} 设为主要对标。`
           : action === 'save'
-            ? `已关注 ${candidate.name}。`
-            : `已取消关注 ${candidate.name}。`,
+            ? isEn
+              ? `Saved ${candidate.name}.`
+              : `已关注 ${candidate.name}。`
+            : isEn
+              ? `Removed ${candidate.name} from saved.`
+              : `已取消关注 ${candidate.name}。`,
       );
       window.dispatchEvent(
         new CustomEvent('geo-competitor-changed', { detail: { projectId } }),
@@ -518,7 +588,12 @@ export default function CompetitorCandidates({
       }
     } catch (cause) {
       if (!isCurrent()) return;
-      const detail = cause instanceof Error ? cause.message : '保存失败。';
+      const detail =
+        cause instanceof Error
+          ? cause.message
+          : isEn
+            ? 'Failed to save.'
+            : '保存失败。';
       if (selectedId) setPreviewError(detail);
       else setError(detail);
     } finally {
@@ -618,11 +693,15 @@ export default function CompetitorCandidates({
                   setReadAttempt((value) => value + 1);
                 }}
               >
-                重新读取
+                {isEn ? 'Reload' : '重新读取'}
               </button>
             </div>
           )}
-          {!data && !error && <p className="cc-empty">正在读取竞品分析…</p>}
+          {!data && !error && (
+            <p className="cc-empty">
+              {isEn ? 'Loading competitor analysis…' : '正在读取竞品分析…'}
+            </p>
+          )}
           {data && (
             <CompetitorExperience
               data={data}
@@ -643,7 +722,8 @@ export default function CompetitorCandidates({
           {presentation === 'workspace' && data && (
             <details className="cc-citation-review cx-learning">
               <summary>
-                引用核实 <ChevronDown size={12} />
+                {isEn ? 'Citation verification' : '引用核实'}{' '}
+                <ChevronDown size={12} />
               </summary>
               <button
                 type="button"
@@ -652,8 +732,12 @@ export default function CompetitorCandidates({
                 onClick={() => void auditCitations()}
               >
                 {pending === 'citations'
-                  ? '正在核对已保存引用…'
-                  : '核实已有引用'}
+                  ? isEn
+                    ? 'Verifying saved citations…'
+                    : '正在核对已保存引用…'
+                  : isEn
+                    ? 'Verify saved citations'
+                    : '核实已有引用'}
               </button>
               {message && (
                 <p className="cc-message" role="status">
@@ -724,64 +808,91 @@ export default function CompetitorCandidates({
             </p>
           )}
           <div className="cc-list">
-            {visibleCandidates.map((candidate) => (
-              <article key={candidate.id} className="cc-candidate">
-                <div className="cc-candidate-main">
-                  <div className="cc-candidate-title">
+            {visibleCandidates.map((candidate) => {
+              const candidateSummary =
+                candidate.analysis?.description ||
+                candidate.description ||
+                candidate.reason;
+              const questionCount = new Set(
+                candidate.questions.map((item) => item.questionId),
+              ).size;
+              return (
+                <article key={candidate.id} className="cc-candidate">
+                  <div className="cc-candidate-main">
+                    <div className="cc-candidate-title">
+                      <button
+                        type="button"
+                        onClick={() => openCandidate(candidate)}
+                        data-i18n-skip=""
+                      >
+                        {candidate.name}
+                      </button>
+                      {isTarget(candidate, data?.target) && (
+                        <span className="cc-target">
+                          <Check size={11} />
+                          {isEn ? 'Primary benchmark' : '主要对标'}
+                        </span>
+                      )}
+                    </div>
+                    <p
+                      lang={
+                        candidateSummary
+                          ? inferContentLang(candidateSummary)
+                          : undefined
+                      }
+                    >
+                      {candidateSummary}
+                    </p>
+                    <span className="cc-evidence-count">
+                      {isEn
+                        ? `${plural(uiLanguage, questionCount, {
+                            one: `${questionCount} related question`,
+                            other: `${questionCount} related questions`,
+                          })} · ${plural(uiLanguage, candidate.questions.length, {
+                            one: `${candidate.questions.length} sighting`,
+                            other: `${candidate.questions.length} sightings`,
+                          })}`
+                        : `${questionCount} 道关联问题 · ${candidate.questions.length} 条发现依据`}
+                    </span>
+                  </div>
+                  <div className="cc-actions">
                     <button
                       type="button"
+                      className={`cc-save${candidate.saved ? ' is-saved' : ''}`}
+                      disabled={!!pending}
+                      onClick={() =>
+                        void act(candidate, candidate.saved ? 'unsave' : 'save')
+                      }
+                      aria-label={
+                        isEn
+                          ? `${candidate.saved ? 'Unsave' : 'Save'} ${candidate.name}`
+                          : `${candidate.saved ? '取消关注' : '关注'} ${candidate.name}`
+                      }
+                    >
+                      <Bookmark
+                        size={14}
+                        fill={candidate.saved ? 'currentColor' : 'none'}
+                      />
+                      {candidate.saved
+                        ? isEn
+                          ? 'Saved'
+                          : '已关注'
+                        : isEn
+                          ? 'Save'
+                          : '关注'}
+                    </button>
+                    <button
+                      type="button"
+                      className="cc-button"
                       onClick={() => openCandidate(candidate)}
                     >
-                      {candidate.name}
+                      {isEn ? 'Compare' : '查看对照'}
+                      <ArrowRight size={13} />
                     </button>
-                    {isTarget(candidate, data?.target) && (
-                      <span className="cc-target">
-                        <Check size={11} />
-                        主要对标
-                      </span>
-                    )}
                   </div>
-                  <p>
-                    {candidate.analysis?.description ||
-                      candidate.description ||
-                      candidate.reason}
-                  </p>
-                  <span className="cc-evidence-count">
-                    {
-                      new Set(
-                        candidate.questions.map((item) => item.questionId),
-                      ).size
-                    }{' '}
-                    道关联问题 · {candidate.questions.length} 条发现依据
-                  </span>
-                </div>
-                <div className="cc-actions">
-                  <button
-                    type="button"
-                    className={`cc-save${candidate.saved ? ' is-saved' : ''}`}
-                    disabled={!!pending}
-                    onClick={() =>
-                      void act(candidate, candidate.saved ? 'unsave' : 'save')
-                    }
-                    aria-label={`${candidate.saved ? '取消关注' : '关注'} ${candidate.name}`}
-                  >
-                    <Bookmark
-                      size={14}
-                      fill={candidate.saved ? 'currentColor' : 'none'}
-                    />
-                    {candidate.saved ? '已关注' : '关注'}
-                  </button>
-                  <button
-                    type="button"
-                    className="cc-button"
-                    onClick={() => openCandidate(candidate)}
-                  >
-                    查看对照
-                    <ArrowRight size={13} />
-                  </button>
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         </>
       )}
@@ -825,8 +936,22 @@ export default function CompetitorCandidates({
             <header className="cc-dialog-heading">
               <div>
                 <span>{isEn ? 'Competitor comparison' : '候选对照'}</span>
-                <h2 id={dialogTitle}>{selected.name}</h2>
-                <p>{selected.analysis?.description || selected.description}</p>
+                <h2 id={dialogTitle} data-i18n-skip="">
+                  {selected.name}
+                </h2>
+                <p
+                  lang={
+                    selected.analysis?.description || selected.description
+                      ? inferContentLang(
+                          selected.analysis?.description ||
+                            selected.description ||
+                            '',
+                        )
+                      : undefined
+                  }
+                >
+                  {selected.analysis?.description || selected.description}
+                </p>
               </div>
               <button
                 type="button"
@@ -851,7 +976,13 @@ export default function CompetitorCandidates({
                     size={14}
                     fill={selected.saved ? 'currentColor' : 'none'}
                   />
-                  {selected.saved ? '已关注' : '关注候选'}
+                  {selected.saved
+                    ? isEn
+                      ? 'Saved'
+                      : '已关注'
+                    : isEn
+                      ? 'Save candidate'
+                      : '关注候选'}
                 </button>
                 <button
                   className="cc-button primary"
@@ -860,10 +991,16 @@ export default function CompetitorCandidates({
                   onClick={() => void act(selected, 'select')}
                 >
                   {pending === selected.id
-                    ? '保存中…'
+                    ? isEn
+                      ? 'Saving…'
+                      : '保存中…'
                     : isTarget(selected, data?.target)
-                      ? '当前参照竞品'
-                      : '以它为参照'}
+                      ? isEn
+                        ? 'Current benchmark'
+                        : '当前参照竞品'
+                      : isEn
+                        ? 'Use as benchmark'
+                        : '以它为参照'}
                 </button>
               </div>
               {previewError && (
@@ -876,12 +1013,21 @@ export default function CompetitorCandidates({
                   {message}
                 </p>
               )}
-              <p className="cc-reason">
+              <p
+                className="cc-reason"
+                lang={
+                  selected.analysis?.reason || selected.reason
+                    ? inferContentLang(
+                        selected.analysis?.reason || selected.reason || '',
+                      )
+                    : undefined
+                }
+              >
                 {selected.analysis?.reason || selected.reason}
               </p>
               <div className="cc-preview-filters">
                 <GeoSelect
-                  label="候选预览语言"
+                  label={isEn ? 'Preview language' : '候选预览语言'}
                   value={previewLanguage}
                   onChange={(value) => {
                     setPreviewLanguage(value);
@@ -894,7 +1040,7 @@ export default function CompetitorCandidates({
                   portalTarget={dialog}
                 />
                 <GeoSelect
-                  label="候选预览平台"
+                  label={isEn ? 'Preview platform' : '候选预览平台'}
                   value={previewEngine}
                   onChange={(value) => {
                     setPreviewEngine(value);
@@ -906,7 +1052,11 @@ export default function CompetitorCandidates({
                 <span>{preview?.batch?.date || data?.batch?.date}</span>
               </div>
               {!preview && !previewError && (
-                <p className="cc-empty">正在读取同题对照…</p>
+                <p className="cc-empty">
+                  {isEn
+                    ? 'Loading same-question comparison…'
+                    : '正在读取同题对照…'}
+                </p>
               )}
               {comparison && (
                 <>
@@ -918,38 +1068,72 @@ export default function CompetitorCandidates({
                     engine={previewEngine}
                   />
                   <div className="cc-subheading">
-                    <h3>{hasAnswerRows ? '同题回答记录' : '同题网页记录'}</h3>
-                    <span>{rows.length} 条</span>
+                    <h3>
+                      {hasAnswerRows
+                        ? isEn
+                          ? 'Same-question AI answers'
+                          : '同题回答记录'
+                        : isEn
+                          ? 'Same-question web results'
+                          : '同题网页记录'}
+                    </h3>
+                    <span>
+                      {isEn
+                        ? plural(uiLanguage, rows.length, {
+                            one: `${rows.length} record`,
+                            other: `${rows.length} records`,
+                          })
+                        : `${rows.length} 条`}
+                    </span>
                   </div>
                   {rows.length ? (
                     <div className="cc-records">
                       {rows.map((row) => (
                         <article key={row.id}>
                           <div className="cc-record-title">
-                            <a href={recordHref(row, false)}>{row.question}</a>
+                            <a
+                              href={recordHref(row, false)}
+                              lang={inferContentLang(row.question)}
+                            >
+                              {row.question}
+                            </a>
                             <a
                               className="cc-answer-link"
                               href={recordHref(row, true)}
                             >
                               {isCompetitorAnswerRow(row)
-                                ? '原回答'
-                                : '查看来源'}
+                                ? isEn
+                                  ? 'Full answer'
+                                  : '原回答'
+                                : isEn
+                                  ? 'View source'
+                                  : '查看来源'}
                               <ArrowUpRight size={12} />
                             </a>
                           </div>
                           {hasAnswerRows && (
                             <div className="cc-match-pair">
                               <span className={row.ownMention.status}>
-                                {comparison.own.name}：
-                                {matchLabel(row.ownMention)}
+                                <span data-i18n-skip="">
+                                  {comparison.own.name}
+                                </span>
+                                {isEn ? ': ' : '：'}
+                                {matchLabel(row.ownMention, isEn)}
                               </span>
                               <span className={row.targetMention.status}>
-                                {selected.name}：{matchLabel(row.targetMention)}
+                                <span data-i18n-skip="">{selected.name}</span>
+                                {isEn ? ': ' : '：'}
+                                {matchLabel(row.targetMention, isEn)}
                               </span>
                             </div>
                           )}
                           {row.targetMention.excerpts.length > 0 && (
-                            <blockquote>
+                            <blockquote
+                              lang={
+                                row.language ||
+                                inferContentLang(row.targetMention.excerpts[0])
+                              }
+                            >
                               {row.targetMention.excerpts[0]}
                             </blockquote>
                           )}
@@ -957,28 +1141,44 @@ export default function CompetitorCandidates({
                       ))}
                     </div>
                   ) : (
-                    <p className="cc-empty">当前平台与语言暂无同题记录。</p>
+                    <p className="cc-empty">
+                      {isEn
+                        ? 'No same-question records for this platform and language.'
+                        : '当前平台与语言暂无同题记录。'}
+                    </p>
                   )}
                 </>
               )}
               <details className="cc-evidence" open={!hasAnswerRows}>
-                <summary>候选发现依据 · {evidence.length} 条</summary>
+                <summary>
+                  {isEn
+                    ? `Sightings · ${evidence.length}`
+                    : `候选发现依据 · ${evidence.length} 条`}
+                </summary>
                 {evidence.length ? (
                   evidence.map((item, index) => (
                     <article
                       key={`${item.questionId}:${item.observationIndex}:${index}`}
                     >
-                      <a href={recordHref(item, true)}>
+                      <a
+                        href={recordHref(item, true)}
+                        lang={inferContentLang(item.question)}
+                      >
                         {item.question}
                         <ArrowUpRight size={12} />
                       </a>
-                      <blockquote>{item.excerpt}</blockquote>
+                      <blockquote
+                        lang={item.language || inferContentLang(item.excerpt)}
+                      >
+                        {item.excerpt}
+                      </blockquote>
                       {item.sourceUrl && (
                         <a
                           className="cc-source"
                           href={item.sourceUrl}
                           target="_blank"
                           rel="noreferrer"
+                          data-i18n-skip=""
                         >
                           {item.sourceUrl}
                           <ArrowUpRight size={11} />
@@ -988,17 +1188,31 @@ export default function CompetitorCandidates({
                     </article>
                   ))
                 ) : (
-                  <p className="cc-empty">当前筛选下没有候选发现记录。</p>
+                  <p className="cc-empty">
+                    {isEn
+                      ? 'No sightings match the current filter.'
+                      : '当前筛选下没有候选发现记录。'}
+                  </p>
                 )}
               </details>
               {selected.officialUrls.length > 0 && (
                 <details className="cc-identities">
-                  <summary>名称与官方入口</summary>
+                  <summary>
+                    {isEn ? 'Names & official URLs' : '名称与官方入口'}
+                  </summary>
                   {selected.aliases.length > 0 && (
-                    <p>{selected.aliases.join('、')}</p>
+                    <p data-i18n-skip="">
+                      {selected.aliases.join(isEn ? ', ' : '、')}
+                    </p>
                   )}
                   {selected.officialUrls.map((url) => (
-                    <a href={url} key={url} target="_blank" rel="noreferrer">
+                    <a
+                      href={url}
+                      key={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      data-i18n-skip=""
+                    >
                       {url}
                       <ArrowUpRight size={12} />
                     </a>

@@ -56,7 +56,14 @@ export default function QuestionDetailVisual(props: Props) {
     })
       .then(async (response) => {
         const body = await response.json();
-        if (!response.ok) throw new Error(body.error || '暂时无法读取平台结果');
+        if (!response.ok) {
+          throw new Error(
+            body.error ||
+              (isEn
+                ? 'Could not load platform results right now.'
+                : '暂时无法读取平台结果'),
+          );
+        }
         const result = body.detail as QuestionDetail;
         if (
           result?.version !== 1 ||
@@ -64,8 +71,13 @@ export default function QuestionDetailVisual(props: Props) {
           result.batchId !== batchId ||
           result.questionId !== questionId ||
           result.language !== language
-        )
-          throw new Error('记录范围已变化，请重新打开详情。');
+        ) {
+          throw new Error(
+            isEn
+              ? 'Record scope changed. Reopen the detail panel.'
+              : '记录范围已变化，请重新打开详情。',
+          );
+        }
         if (!controller.signal.aborted) {
           setLoaded({ key: requestKey, detail: result, error: '' });
         }
@@ -75,12 +87,17 @@ export default function QuestionDetailVisual(props: Props) {
           setLoaded({
             key: requestKey,
             detail: null,
-            error: reason instanceof Error ? reason.message : '读取失败',
+            error:
+              reason instanceof Error
+                ? reason.message
+                : isEn
+                  ? 'Failed to load'
+                  : '读取失败',
           });
         }
       });
     return () => controller.abort();
-  }, [projectId, batchId, questionId, language, engine, history, revision, requestKey]);
+  }, [projectId, batchId, questionId, language, engine, history, revision, requestKey, isEn]);
 
   if (error)
     return (

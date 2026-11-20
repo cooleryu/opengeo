@@ -301,7 +301,13 @@ export default function OptimizationHeroCard({
       }
       await loadStatus();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '内容生成中断，请稍后重试。');
+      setError(
+        err instanceof Error
+          ? err.message
+          : isEn
+            ? 'Content generation was interrupted. Please try again.'
+            : '内容生成中断，请稍后重试。',
+      );
     } finally {
       setSubmitting(false);
       setStreamingStatus(null);
@@ -310,10 +316,13 @@ export default function OptimizationHeroCard({
 
   if (loading && !viewModel) {
     return (
-      <section className="ohc-stage is-loading" aria-label="下一步行动加载中">
+      <section
+        className="ohc-stage is-loading"
+        aria-label={isEn ? 'Loading next step' : '下一步行动加载中'}
+      >
         <div className="ohc-loading-row">
           <Loader2 size={16} className="ohc-spin" />
-          <span>正在准备你的下一步建议…</span>
+          <span>{isEn ? 'Preparing your next recommendation…' : '正在准备你的下一步建议…'}</span>
         </div>
       </section>
     );
@@ -337,33 +346,45 @@ export default function OptimizationHeroCard({
           : effectiveStatus === 'reviewing'
             ? 3
             : 2;
+    const liveMessage = latestStep?.message || run?.statusMessage || '';
     return (
-      <section className="ohc-stage is-working" aria-label="正在准备改进内容">
+      <section
+        className="ohc-stage is-working"
+        aria-label={isEn ? 'Preparing improvement drafts' : '正在准备改进内容'}
+      >
         <div className="ohc-working-wrap">
           <div className="ohc-eyebrow is-live">
             <Loader2 size={13} className="ohc-spin" />
-            <span>正在为你准备内容</span>
+            <span>{isEn ? 'Preparing drafts for you' : '正在为你准备内容'}</span>
           </div>
           <h2 className="ohc-headline">
-            正在根据 AI 没提到你的问题，准备配套改进内容
+            {isEn
+              ? 'Drafting improvements for questions where AI skipped your product'
+              : '正在根据 AI 没提到你的问题，准备配套改进内容'}
           </h2>
-          <div className="ohc-live-phases" aria-label="当前进度">
+          <div className="ohc-live-phases" aria-label={isEn ? 'Current progress' : '当前进度'}>
             <span className={activePhase >= 1 ? 'is-active' : ''}>
-              {activePhase > 1 ? <Check size={12} /> : <b>1</b>} 梳理曝光短板
+              {activePhase > 1 ? <Check size={12} /> : <b>1</b>}{' '}
+              {isEn ? 'Review visibility gaps' : '梳理曝光短板'}
             </span>
             <i />
             <span className={activePhase >= 2 ? 'is-active' : ''}>
-              {activePhase > 2 ? <Check size={12} /> : <b>2</b>} 撰写图文正文
+              {activePhase > 2 ? <Check size={12} /> : <b>2</b>}{' '}
+              {isEn ? 'Write draft copy' : '撰写图文正文'}
             </span>
             <i />
             <span className={activePhase >= 3 ? 'is-active' : ''}>
-              <b>3</b> 核对事实与可读性
+              <b>3</b> {isEn ? 'Check facts & readability' : '核对事实与可读性'}
             </span>
           </div>
-          <p className="ohc-live-detail">
-            {latestStep?.message ||
-              run?.statusMessage ||
-              '正在对照真实回答梳理切入角度，完成后会通知你过目…'}
+          <p
+            className="ohc-live-detail"
+            lang={liveMessage ? inferContentLang(liveMessage, run?.outputLanguage) : undefined}
+          >
+            {liveMessage ||
+              (isEn
+                ? 'Comparing real AI answers to pick the best angles; you will be notified once drafts are ready…'
+                : '正在对照真实回答梳理切入角度，完成后会通知你过目…')}
           </p>
         </div>
       </section>
@@ -670,30 +691,28 @@ export default function OptimizationHeroCard({
     stage: 'awaiting' | 'indexing' | 'post_window',
   ): ReactNode => {
     const titleNode = <span data-i18n-skip="">{next.title}</span>;
-    const prefixEn =
-      stage === 'awaiting'
+    const prefix = isEn
+      ? stage === 'awaiting'
         ? 'Docs are live'
         : stage === 'indexing'
           ? 'Recent updates are still indexing'
-          : 'No lift yet';
-    const prefixZh =
-      stage === 'awaiting'
+          : 'No lift yet'
+      : stage === 'awaiting'
         ? '内容已上线'
         : stage === 'indexing'
           ? '最近上线的内容还在收录期内'
           : '暂未新增提及';
 
     if (next.kind === 'awesome_pr') {
-      if (isEn) {
-        return stage === 'awaiting' ? (
+      return isEn ? (
+        stage === 'awaiting' ? (
           <>Docs are live — next, submit your PR to {titleNode}</>
         ) : stage === 'indexing' ? (
           <>Recent updates are still indexing — next, submit a PR to {titleNode}</>
         ) : (
           <>No lift yet — next, submit your PR to {titleNode}</>
-        );
-      }
-      return stage === 'awaiting' ? (
+        )
+      ) : stage === 'awaiting' ? (
         <>内容已上线，趁收录期间先提交「{titleNode}」榜单 PR</>
       ) : stage === 'indexing' ? (
         <>最近上线的内容还在收录期内；这期间先去提交「{titleNode}」PR</>
@@ -704,22 +723,22 @@ export default function OptimizationHeroCard({
 
     if (next.kind === 'repo_meta') {
       return isEn
-        ? `${prefixEn} — next, sync your GitHub repo description & topics`
-        : `${prefixZh}；下一步先补齐 GitHub 仓库简介与标签`;
+        ? `${prefix} — next, sync your GitHub repo description & topics`
+        : `${prefix}；下一步先补齐 GitHub 仓库简介与标签`;
     }
 
     if (next.id.startsWith('post:thread:')) {
       return isEn ? (
-        <>{prefixEn} — next, join cited thread &ldquo;{titleNode}&rdquo;</>
+        <>{prefix} — next, join cited thread &ldquo;{titleNode}&rdquo;</>
       ) : (
-        <>{prefixZh}；下一步可参与高引用讨论「{titleNode}」</>
+        <>{prefix}；下一步可参与高引用讨论「{titleNode}」</>
       );
     }
 
     return isEn ? (
-      <>{prefixEn} — next, share on {titleNode}</>
+      <>{prefix} — next, share on {titleNode}</>
     ) : (
-      <>{prefixZh}；下一步可去「{titleNode}」发布分享</>
+      <>{prefix}；下一步可去「{titleNode}」发布分享</>
     );
   };
 
@@ -1034,17 +1053,20 @@ export default function OptimizationHeroCard({
   // 5. Failed / Paused: 1-click resume
   if (effectiveStatus === 'failed' && run) {
     return (
-      <section className="ohc-stage is-failed" aria-label="本轮内容准备已暂停">
+      <section
+        className="ohc-stage is-failed"
+        aria-label={isEn ? 'Draft preparation paused' : '本轮内容准备已暂停'}
+      >
         <div className="ohc-single-layout">
           <div className="ohc-story">
             <div className="ohc-eyebrow is-warn">
               <RotateCcw size={13} />
-              <span>内容准备中途暂停</span>
+              <span>{isEn ? 'Draft preparation paused' : '内容准备中途暂停'}</span>
             </div>
             <h2 className="ohc-headline">
               {isEn ? 'Your previous draft progress is saved and ready to resume' : '刚才的草稿进度已保留，可以接着继续完成'}
             </h2>
-            <p className="ohc-why">
+            <p className="ohc-why" lang={run.errorMessage ? inferContentLang(run.errorMessage) : undefined}>
               {run.errorMessage || (isEn ? 'Network or model timed out temporarily. Click the button on the right to continue.' : '网络或模型响应暂时超时，不需要重头再来，点击右侧即可接着完成。')}
             </p>
           </div>
@@ -1064,7 +1086,7 @@ export default function OptimizationHeroCard({
                   checked={includeChineseCompanion}
                   onChange={(e) => setIncludeChineseCompanion(e.target.checked)}
                 />
-                <span>同时生成中文对照版</span>
+                <span>{isEn ? 'Also generate Chinese companion' : '同时生成中文对照版'}</span>
               </label>
             )}
           </div>
@@ -1129,7 +1151,7 @@ export default function OptimizationHeroCard({
                   checked={includeChineseCompanion}
                   onChange={(e) => setIncludeChineseCompanion(e.target.checked)}
                 />
-                <span>同时生成中文对照版</span>
+                <span>{isEn ? 'Also generate Chinese companion' : '同时生成中文对照版'}</span>
               </label>
             )}
           </div>

@@ -678,6 +678,8 @@ export default function PageAuditSection({
                     <img
                       src={`/api/geo/project-media?project=${encodeURIComponent(projectId)}&auditShot=${encodeURIComponent(heroShotFinding.screenshotFile)}&v=${encodeURIComponent(activeAudit.updatedAt)}`}
                       alt={heroShotFinding.title}
+                      lang={activeAudit.uiLanguage}
+                      data-i18n-skip=""
                       loading="lazy"
                     />
                   </div>
@@ -689,9 +691,9 @@ export default function PageAuditSection({
                   onClick={() => openInspectModal(heroShotFinding.id)}
                 >
                   <span className="oap-lp-shot-hint">
-                    {heroShotFinding.sectionHeading} · {isEn ? 'Inspect ↗' : '点开细看 ↗'}
+                    <span data-i18n-skip="">{heroShotFinding.sectionHeading}</span> · {isEn ? 'Inspect ↗' : '点开细看 ↗'}
                   </span>
-                  <p>{heroShotFinding.anchorQuote}</p>
+                  <p lang={activeAudit.targetLanguage} data-i18n-skip="">{heroShotFinding.anchorQuote}</p>
                 </button>
               ) : null}
 
@@ -709,7 +711,13 @@ export default function PageAuditSection({
                       <span className="oap-lp-pill-num">
                         {isApplied ? <Check size={11} /> : idx + 1}
                       </span>
-                      <span className="oap-lp-pill-text">{shortPillLabel(finding, isEn)}</span>
+                      <span
+                        className="oap-lp-pill-text"
+                        lang={activeAudit.targetLanguage}
+                        data-i18n-skip=""
+                      >
+                        {shortPillLabel(finding, isEn)}
+                      </span>
                     </button>
                   );
                 })}
@@ -907,7 +915,7 @@ export default function PageAuditSection({
                 <p>
                   {isEn
                     ? 'Scroll once from top to bottom—each spot shows its live page highlight and exact suggested edit.'
-                    : '一页连续审阅：从头滑到底即可看清每处页面实景位置与绿色建议改稿，不用反复切 Tab。'}
+                    : '一页连续审阅：从头滑到底即可看清每处页面实景位置与绿色建议修改，不用反复切换标签页。'}
                 </p>
               </div>
               <div className="oap-modal-head-actions">
@@ -949,7 +957,9 @@ export default function PageAuditSection({
             <div className="oap-modal-body">
               {/* Quiet one-line AI summary strip + optional platform difference disclosure */}
               <div className="oap-modal-summary-bar">
-                <p lang={activeAudit.uiLanguage}>{activeAudit.signalSheet.summary}</p>
+                <p lang={activeAudit.uiLanguage} data-i18n-skip="">
+                  {activeAudit.signalSheet.summary}
+                </p>
                 <button
                   type="button"
                   className="oap-modal-diff-link"
@@ -961,7 +971,7 @@ export default function PageAuditSection({
                       : '收起平台差异'
                     : isEn
                       ? 'ChatGPT vs Google notes'
-                      : '看 GPT / Google 差异'}
+                      : '看 ChatGPT / Google 差异'}
                 </button>
               </div>
 
@@ -969,13 +979,13 @@ export default function PageAuditSection({
                 <div className="oap-modal-signal-grid">
                   <div>
                     <strong>ChatGPT</strong>
-                    <p lang={activeAudit.uiLanguage}>
+                    <p lang={activeAudit.uiLanguage} data-i18n-skip="">
                       {activeAudit.signalSheet.platformDifferences.chatgpt}
                     </p>
                   </div>
                   <div>
                     <strong>Google AI</strong>
-                    <p lang={activeAudit.uiLanguage}>
+                    <p lang={activeAudit.uiLanguage} data-i18n-skip="">
                       {activeAudit.signalSheet.platformDifferences.google}
                     </p>
                   </div>
@@ -1010,10 +1020,15 @@ export default function PageAuditSection({
                             {isApplied ? <Check size={12} /> : idx + 1}
                           </span>
                           <div className="oap-stream-title-group">
-                            <h3 lang={activeAudit.uiLanguage}>{finding.title}</h3>
+                            <h3 lang={activeAudit.uiLanguage} data-i18n-skip="">
+                              {finding.title}
+                            </h3>
                             <div className="oap-stream-meta">
                               <span>
-                                <span lang={activeAudit.uiLanguage}>
+                                <span
+                                  lang={activeAudit.uiLanguage}
+                                  data-i18n-skip=""
+                                >
                                   {finding.sectionHeading}
                                 </span>
                                 {activeAudit.targetKind === 'repo_doc'
@@ -1056,7 +1071,11 @@ export default function PageAuditSection({
                       </div>
 
                       {/* ONE Merged Plain-Language Reason */}
-                      <p className="oap-stream-reason" lang={activeAudit.uiLanguage}>
+                      <p
+                        className="oap-stream-reason"
+                        lang={activeAudit.uiLanguage}
+                        data-i18n-skip=""
+                      >
                         {mergedReason}
                       </p>
 
@@ -1076,11 +1095,13 @@ export default function PageAuditSection({
                           <img
                             src={`/api/geo/project-media?project=${encodeURIComponent(projectId)}&auditShot=${encodeURIComponent(finding.screenshotFile)}&v=${encodeURIComponent(activeAudit.updatedAt)}`}
                             alt={finding.title}
+                            lang={activeAudit.uiLanguage}
+                            data-i18n-skip=""
                             loading="lazy"
                           />
                         </figure>
                       ) : (
-                        <div className="oap-stream-excerpt" lang={activeAudit.targetLanguage}>
+                        <div className="oap-stream-excerpt" lang={activeAudit.targetLanguage} data-i18n-skip="">
                           <pre>{renderHighlightedExcerpt(finding.sectionExcerpt, finding.anchorQuote)}</pre>
                         </div>
                       )}
@@ -1118,19 +1139,21 @@ export default function PageAuditSection({
                           <p
                             className="oap-stream-suggestion-summary"
                             lang={activeAudit.uiLanguage}
+                            data-i18n-skip=""
                           >
                             {preview.plainSummary}
                           </p>
                           <div
                             className="oap-stream-suggestion-render"
                             lang={activeAudit.targetLanguage}
+                            data-i18n-skip=""
                           >
                             <Markdown options={{ forceBlock: true }}>
                               {preview.afterExcerpt}
                             </Markdown>
                           </div>
                           <details className="oap-diff-disclosure">
-                            <summary>{isEn ? 'Technical Diff' : '查看技术 Diff'}</summary>
+                            <summary>{isEn ? 'Technical Diff' : '查看技术对比'}</summary>
                             <pre className="oap-diff-pre">
                               {preview.unifiedDiff.split('\n').map((line, i) => {
                                 const cls =
@@ -1154,7 +1177,9 @@ export default function PageAuditSection({
                         <div className="oap-stream-draft-cta">
                           <p>
                             <strong>{isEn ? 'Suggested edit: ' : '建议改法：'}</strong>
-                            {finding.suggestedDirection}
+                            <span lang={activeAudit.uiLanguage} data-i18n-skip="">
+                              {finding.suggestedDirection}
+                            </span>
                           </p>
                           {!isApplied && (
                             <button

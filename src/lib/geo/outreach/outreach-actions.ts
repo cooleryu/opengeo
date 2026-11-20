@@ -1012,7 +1012,7 @@ export function listOutreachActions(
     title: isEn ? 'Hacker News · Show HN Post' : 'Hacker News · Show HN 发布帖',
     subtitle: isEn
       ? 'Share a factual launch note anchored in your measured results.'
-      : '克制不夸大的技术发布口吻，基于真实实测数据生成发布稿并在已登录的 Ego Lite 打开。',
+      : '克制不夸大的技术发布口吻，基于真实实测数据生成发布稿并在浏览器中打开。',
     targetUrl: 'https://news.ycombinator.com/submit',
     status: showHnSaved?.status ?? 'prepared',
     postDraft: showHnSaved?.postDraft ?? buildDefaultShowHnDraft(project, latestBatch),
