@@ -205,8 +205,8 @@ export default function ModelSettingsCard({
           <h3 id="cs-model-title">
             {onboardingGate
               ? isEn
-                ? 'Connect an AI model first'
-                : '先连接一个 AI 模型'
+                ? 'One last step: connect your own AI model'
+                : '最后一步：连接你自己的 AI 模型'
               : isEn
                 ? 'API model'
                 : 'API 模型'}
@@ -214,8 +214,8 @@ export default function ModelSettingsCard({
           <p>
             {onboardingGate
               ? isEn
-                ? 'Save an API key to analyze your site, generate buyer questions, and draft actions.'
-                : '保存 API Key 后，即可分析你的产品、生成买家问题并起草行动建议。'
+                ? '100% local — OpenGEO never collects your data or uploads your key. Your API key stays on this machine and calls your chosen provider directly.'
+                : '纯本地运行 — OpenGEO 不会收集你的任何信息，也不会上传你的密钥。API Key 仅保存在你的本地电脑，直接调用你选择的服务商。'
               : isEn
                 ? 'Used for buyer questions, analysis, drafts, and independent review.'
                 : '用于问题生成、分析、撰写草稿与独立审核。'}

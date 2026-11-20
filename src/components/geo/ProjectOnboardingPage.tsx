@@ -14,6 +14,7 @@ import {
   Loader2,
   PencilLine,
   Plus,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import type { GeoConnectionSettings } from '@/lib/geo/connection-settings-types';
@@ -66,6 +67,9 @@ function ProjectOnboardingPageInner() {
   const [hasProjects, setHasProjects] = useState(false);
   const [settingsData, setSettingsData] =
     useState<GeoConnectionSettings | null>(null);
+  const [showModelSetup, setShowModelSetup] = useState(false);
+  const [autoAnalyzeOnSave, setAutoAnalyzeOnSave] = useState(false);
+  const modelGateRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [errorCode, setErrorCode] = useState('');
@@ -326,8 +330,18 @@ function ProjectOnboardingPageInner() {
     }
   };
 
-  const create = async (retry = false) => {
-    if (busy || (!retry && modelConfigured === false)) return;
+  const create = async (retry = false, skipModelGate = false) => {
+    if (busy) return;
+    if (!retry && !skipModelGate && modelConfigured === false) {
+      setError('');
+      setErrorCode('');
+      setShowModelSetup(true);
+      setAutoAnalyzeOnSave(true);
+      requestAnimationFrame(() => {
+        modelGateRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+      return;
+    }
     setBusy(true);
     setError('');
     setErrorCode('');
@@ -361,7 +375,17 @@ function ProjectOnboardingPageInner() {
       });
       const payload = await response.json();
       if (!response.ok) {
-        if (typeof payload.code === 'string') setErrorCode(payload.code);
+        if (typeof payload.code === 'string') {
+          setErrorCode(payload.code);
+          if (payload.code === 'model_not_configured' && !retry) {
+            setShowModelSetup(true);
+            setAutoAnalyzeOnSave(true);
+            requestAnimationFrame(() => {
+              modelGateRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            });
+            return;
+          }
+        }
         throw new Error(
           payload.error ||
             (uiLanguage === 'en'
@@ -444,21 +468,6 @@ function ProjectOnboardingPageInner() {
               <h1>{t('onboarding.heading')}</h1>
               <p>{t('onboarding.subheading')}</p>
             </div>
-            {modelConfigured === false && (
-              <div className="og-onboarding-model-gate">
-                <ModelSettingsCard
-                  onboardingGate
-                  initialSettings={settingsData}
-                  onSaved={(next) => {
-                    setSettingsData(next);
-                    if (errorCode === 'model_not_configured') {
-                      setError('');
-                      setErrorCode('');
-                    }
-                  }}
-                />
-              </div>
-            )}
             <form
               className="og-onboarding-form"
               onSubmit={(event) => {
@@ -539,18 +548,28 @@ function ProjectOnboardingPageInner() {
                   )}
                 </p>
               )}
+              {modelConfigured === false && !showModelSetup && url.trim().length > 0 && (
+                <div className="og-onboarding-local-hint" role="note">
+                  <ShieldCheck size={15} aria-hidden="true" />
+                  <span>
+                    {isEn
+                      ? "100% local — OpenGEO never collects your data. Next, you'll add your own AI API key (stored only on this machine) to start analyzing."
+                      : '纯本地运行 — OpenGEO 不会收集你的任何信息。点击开始分析后，只需配置你自己的模型 API Key（仅保存在本机）即可开始。'}
+                  </span>
+                </div>
+              )}
               <div className="og-onboarding-form-footer">
                 <p>
-                  {modelConfigured === false
+                  {modelConfigured === false && showModelSetup
                     ? isEn
-                      ? 'Save an AI model above before analyzing your project.'
-                      : '请先在上方保存 AI 模型配置，再开始分析项目。'
+                      ? 'Save your API key below — analysis will start automatically.'
+                      : '在下方保存你的 API Key 后，系统会自动开始分析。'
                     : t('onboarding.footerHint')}
                 </p>
                 <button
                   className="og-onboarding-primary"
                   type="submit"
-                  disabled={busy || modelConfigured !== true}
+                  disabled={busy}
                 >
                   {busy ? (
                     <>
@@ -566,6 +585,31 @@ function ProjectOnboardingPageInner() {
                 </button>
               </div>
             </form>
+            {modelConfigured === false && showModelSetup && (
+              <div ref={modelGateRef} className="og-onboarding-model-gate">
+                <ModelSettingsCard
+                  onboardingGate
+                  initialSettings={settingsData}
+                  onSaved={(next) => {
+                    setSettingsData(next);
+                    const nowConfigured = Boolean(
+                      next.modelConfigured ?? next.model.configured,
+                    );
+                    if (nowConfigured) {
+                      setShowModelSetup(false);
+                      if (errorCode === 'model_not_configured') {
+                        setError('');
+                        setErrorCode('');
+                      }
+                      if (autoAnalyzeOnSave && url.trim()) {
+                        setAutoAnalyzeOnSave(false);
+                        void create(false, true);
+                      }
+                    }
+                  }}
+                />
+              </div>
+            )}
           </>
         ) : result ? (
           <>

@@ -12,7 +12,25 @@
   box-sizing: border-box;
 }
 .og-onboarding-model-gate {
-  margin-bottom: 20px;
+  margin-top: 20px;
+}
+.og-onboarding-local-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #d9e8dc;
+  background: #f4faf5;
+  color: #2f5a3a;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.og-onboarding-local-hint svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #2e7d47;
 }
 .og-onboarding-topbar {
   height: 68px;
