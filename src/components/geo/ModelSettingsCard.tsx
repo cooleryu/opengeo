@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import type { GeoConnectionSettings } from '@/lib/geo/connection-settings-types';
+import { MODEL_PROVIDER_IDS, MODEL_PROVIDERS, type ModelProviderId } from '@/lib/models/providers';
 import GeoSelect from './GeoSelect';
 import { useUiLanguage } from './UiLanguageContext';
 import './connection-settings.css';
 
 type ModelDraft = {
-  provider: 'gemini' | 'deepseek' | 'openai' | 'custom';
+  provider: ModelProviderId;
   model: string;
   baseURL: string;
   apiKey: string;
@@ -23,14 +24,10 @@ const modelDraft = (model: GeoConnectionSettings['model']): ModelDraft => ({
   apiKey: '',
 });
 
-const presets = {
-  gemini: {
-    model: 'gemini-3.8-flash',
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-  },
-  deepseek: { model: 'deepseek-flash', baseURL: 'https://api.deepseek.com' },
-  openai: { model: '', baseURL: 'https://api.openai.com/v1' },
-};
+const preset = (provider: ModelProviderId) => ({
+  model: MODEL_PROVIDERS[provider].defaultModel ?? '',
+  baseURL: MODEL_PROVIDERS[provider].baseURL,
+});
 
 export type ModelSettingsCardProps = {
   initialSettings?: GeoConnectionSettings | null;
@@ -214,8 +211,8 @@ export default function ModelSettingsCard({
           <p>
             {onboardingGate
               ? isEn
-                ? '100% local — OpenGEO never collects your data or uploads your key. Your API key stays on this machine and calls your chosen provider directly.'
-                : '纯本地运行 — OpenGEO 不会收集你的任何信息，也不会上传你的密钥。API Key 仅保存在你的本地电脑，直接调用你选择的服务商。'
+                ? 'OpenGEO has no cloud service and collects nothing. Your key and data stay on this computer; only the text being analyzed is sent to the AI provider you choose.'
+                : 'OpenGEO 没有云端服务，不收集任何信息。密钥和资料都留在这台电脑上，只有需要分析的文字会发给你选择的 AI 服务商。'
               : isEn
                 ? 'Used for buyer questions, analysis, drafts, and independent review.'
                 : '用于问题生成、分析、撰写草稿与独立审核。'}
@@ -248,22 +245,19 @@ export default function ModelSettingsCard({
                 setModel((previous) => ({
                   ...previous,
                   provider,
-                  ...(provider === 'custom' ? {} : presets[provider]),
+                  ...(provider === 'custom' ? {} : preset(provider)),
                   apiKey: '',
                 }));
                 setModelDirty(true);
                 setTestConfirmation(false);
                 setFeedback({});
               }}
-              options={[
-                { value: 'gemini', label: 'Google Gemini' },
-                { value: 'deepseek', label: 'DeepSeek' },
-                { value: 'openai', label: 'OpenAI / GPT' },
-                {
-                  value: 'custom',
-                  label: isEn ? 'Other compatible API' : '其他兼容接口',
-                },
-              ]}
+              options={MODEL_PROVIDER_IDS.map((value) => ({
+                value,
+                label: value === 'custom'
+                  ? isEn ? 'Other compatible API' : '其他兼容接口'
+                  : MODEL_PROVIDERS[value].label,
+              }))}
             />
           </label>
           <label>

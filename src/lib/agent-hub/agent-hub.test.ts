@@ -4,33 +4,25 @@ import { test } from 'node:test';
 import { z } from 'zod';
 import { answerAuditorAgent } from '../geo/agents/auditor-agent';
 import { createProjectInspectionTools } from '../geo/agents/project-tools';
-import { AgentHub, createOpenAICompatibleTransport, type AgentSpec } from './index';
+import { AgentHub, createModelTransport, type AgentSpec } from './index';
 
-test('OpenAICompatibleTransport automatically falls back on HTTP 503 and preserves extra_content', async () => {
+test('model transport falls back to the next model on HTTP 503 and keeps the SDK turn for round trips', async () => {
   const attemptedModels: string[] = [];
-  const transport = createOpenAICompatibleTransport({
-    provider: 'gemini',
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  const transport = createModelTransport({
+    provider: 'deepseek',
+    baseURL: 'https://api.deepseek.com',
     apiKey: 'synthetic-key',
-    models: ['gemini-3.8-flash', 'gemini-3.6-flash'],
-    fetchImpl: async (_url, init) => {
+    models: ['deepseek-pro', 'deepseek-flash'],
+    fetchImpl: async (_url: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { model: string };
       attemptedModels.push(body.model);
-      if (body.model === 'gemini-3.8-flash') {
+      if (body.model === 'deepseek-pro') {
         return new Response(JSON.stringify({ error: { message: 'overloaded' } }), { status: 503 });
       }
       return new Response(
         JSON.stringify({
-          model: 'gemini-3.6-flash',
-          choices: [
-            {
-              message: {
-                role: 'assistant',
-                content: '{"ok":true}',
-                extra_content: { google: { thought_signature: 'sig-123' } },
-              },
-            },
-          ],
+          model: 'deepseek-flash',
+          choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: '{"ok":true}' } }],
           usage: { prompt_tokens: 12, completion_tokens: 5 },
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -39,9 +31,11 @@ test('OpenAICompatibleTransport automatically falls back on HTTP 503 and preserv
   });
 
   const res = await transport.complete({ messages: [{ role: 'user', content: 'ping' }] });
-  assert.deepEqual(attemptedModels, ['gemini-3.8-flash', 'gemini-3.6-flash']);
-  assert.equal(res.model, 'gemini-3.6-flash');
-  assert.deepEqual(res.message.extra_content, { google: { thought_signature: 'sig-123' } });
+  assert.deepEqual(attemptedModels, ['deepseek-pro', 'deepseek-flash']);
+  assert.equal(res.model, 'deepseek-flash');
+  assert.equal(res.message.content, '{"ok":true}');
+  assert.equal(res.promptTokens, 12);
+  assert.ok(Array.isArray(res.message.sdkMessages));
 });
 
 test('AgentHub executes multi-turn ReAct tool calls and emits plain-Chinese progress logs', async () => {
@@ -58,12 +52,12 @@ test('AgentHub executes multi-turn ReAct tool calls and emits plain-Chinese prog
   };
 
   let callIndex = 0;
-  const transport = createOpenAICompatibleTransport({
+  const transport = createModelTransport({
     provider: 'deepseek',
     baseURL: 'https://api.deepseek.com',
     apiKey: 'synthetic-key',
     models: ['deepseek-chat'],
-    fetchImpl: async (_url, init) => {
+    fetchImpl: async (_url: unknown, init?: RequestInit) => {
       callIndex += 1;
       const body = JSON.parse(String(init?.body));
       if (callIndex === 1) {
@@ -139,7 +133,7 @@ test('Guardrail interceptor blocks unauthorized write tools and cross-project ar
     buildPrompt: () => ({ system: 'call tool', user: 'go' }),
   };
 
-  const transport = createOpenAICompatibleTransport({
+  const transport = createModelTransport({
     provider: 'deepseek',
     baseURL: 'https://api.deepseek.com',
     apiKey: 'synthetic-key',
@@ -171,9 +165,9 @@ test('Guardrail interceptor blocks unauthorized write tools and cross-project ar
 test('Validation aspect catches personal_memory false-positive and forces self-correction to no', async () => {
   const hub = new AgentHub();
   let turn = 0;
-  const transport = createOpenAICompatibleTransport({
-    provider: 'gemini',
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  const transport = createModelTransport({
+    provider: 'custom',
+    baseURL: 'https://example.invalid/v1',
     apiKey: 'synthetic-key',
     models: ['gemini-3.5-flash-lite'],
     fetchImpl: async () => {
@@ -267,14 +261,14 @@ test('AgentHub.mapReduce runs parallel shards with bounded concurrency, preserve
 
   let active = 0;
   let peakActive = 0;
-  const transport = createOpenAICompatibleTransport({
+  const transport = createModelTransport({
     provider: 'deepseek',
     baseURL: 'https://api.deepseek.com',
     apiKey: 'synthetic-key',
     models: ['deepseek-chat'],
-    fetchImpl: async (_url, init) => {
+    fetchImpl: async (_url: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
-      const payload = JSON.parse(body.messages[1].content);
+      const payload = JSON.parse(body.messages.filter((m) => m.role === 'user').at(-1)!.content);
       if ('shard' in payload) {
         active += 1;
         peakActive = Math.max(peakActive, active);

@@ -46,6 +46,7 @@
 ## 原环境配置与兼容边界
 
 没有界面保存值时，OpenGEO 模型仍读取 `OPENGEO_LLM_MODEL`、`OPENGEO_LLM_API_KEY` 与 `OPENGEO_LLM_BASE_URL`。
-模型密钥未保存时可从环境变量回退：Gemini=`GEMINI_API_KEY`；DeepSeek=`DEEPSEEK_API_KEY`（模型 `deepseek-flash`，地址 `https://api.deepseek.com`）；自定义 OpenAI 兼容端点使用 `OPENGEO_LLM_MODEL`、`OPENGEO_LLM_API_KEY`、`OPENGEO_LLM_BASE_URL`。
+模型调用统一经 Vercel AI SDK（`src/lib/models/ai-sdk.ts`），服务商列表在 `src/lib/models/providers.ts`：DeepSeek、OpenAI、Anthropic、Google Gemini、OpenRouter 与其他 OpenAI 兼容接口；模型名称直接填写服务商提供的名称，不维护模型清单。
+模型密钥未保存时可从环境变量回退：DeepSeek=`DEEPSEEK_API_KEY`（模型 `deepseek-flash`，地址 `https://api.deepseek.com`）；OpenAI=`OPENAI_API_KEY`；Anthropic=`ANTHROPIC_API_KEY`；Gemini=`GEMINI_API_KEY`；OpenRouter=`OPENROUTER_API_KEY`；自定义 OpenAI 兼容端点使用 `OPENGEO_LLM_MODEL`、`OPENGEO_LLM_API_KEY`、`OPENGEO_LLM_BASE_URL`。
 GeoState 中的 `settings.collectionProviders`、`liveSearchConfigured` 不再返回搜索 API 密钥状态。
 新设置写入执行同源检查，但本次没有实现远程多用户鉴权，不能推断已具备多用户隔离。

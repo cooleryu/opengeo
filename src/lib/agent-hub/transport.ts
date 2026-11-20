@@ -1,3 +1,4 @@
+import { APICallError, generateText, jsonSchema, NoObjectGeneratedError, Output, type JSONSchema7, type ModelMessage, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { getChatGPTStatus } from '../geo/chatgpt-auth';
 import {
@@ -5,10 +6,12 @@ import {
   GeoSettingsError,
   shouldUseChatGPTSubscription,
 } from '../geo/connection-settings';
-import type { LLMCompletionRequest, LLMCompletionResult, LLMTransport } from './types';
+import { createLanguageModel } from '../models/ai-sdk';
+import type { ModelProviderId } from '../models/providers';
+import type { ChatMessage, LLMCompletionRequest, LLMCompletionResult, LLMTransport, ToolCallRequest } from './types';
 
-export interface OpenAICompatibleConfig {
-  provider: string;
+export interface ModelTransportConfig {
+  provider: ModelProviderId;
   baseURL: string;
   apiKey: string;
   models: string[];
@@ -18,20 +21,46 @@ export interface OpenAICompatibleConfig {
 
 const FALLBACK_CODES = new Set([400, 404, 408, 429, 500, 502, 503, 504]);
 const cleanEnv = (v?: string) => (v ? v.trim().replace(/^["']|["']$/g, '') : '');
+/** Assistant turns carry the AI SDK's own copy so reasoning and provider signatures (e.g. Gemini) round-trip. */
+const SDK_MESSAGES = 'sdkMessages';
 
-export function createOpenAICompatibleTransport(config: OpenAICompatibleConfig): LLMTransport {
+function parseArguments(text: string): unknown {
+  try { return JSON.parse(text || '{}'); } catch { return {}; }
+}
+
+function toSdkMessages(messages: ChatMessage[]): ModelMessage[] {
+  const toolNames = new Map<string, string>();
+  const out: ModelMessage[] = [];
+  for (const message of messages) {
+    if (message.role === 'system' || message.role === 'user') {
+      out.push({ role: message.role, content: message.content });
+    } else if (message.role === 'assistant') {
+      for (const call of message.tool_calls ?? []) toolNames.set(call.id, call.function.name);
+      const saved = message[SDK_MESSAGES];
+      if (Array.isArray(saved)) { out.push(...(saved as ModelMessage[])); continue; }
+      out.push({ role: 'assistant', content: [
+        ...(message.content ? [{ type: 'text' as const, text: message.content }] : []),
+        ...(message.tool_calls ?? []).map((call) => ({ type: 'tool-call' as const, toolCallId: call.id, toolName: call.function.name, input: parseArguments(call.function.arguments) })),
+      ] });
+    } else if (message.role === 'tool') {
+      out.push({ role: 'tool', content: [{ type: 'tool-result', toolCallId: message.tool_call_id,
+        toolName: toolNames.get(message.tool_call_id) ?? 'unknown', output: { type: 'text', value: message.content } }] });
+    }
+  }
+  return out;
+}
+
+export function createModelTransport(config: ModelTransportConfig): LLMTransport {
   const models = [...new Set(config.models.filter(Boolean))];
   if (!config.apiKey || !config.baseURL || !models.length) throw new GeoSettingsError('模型连接缺少 API 地址、模型名称或密钥。');
-  const base = config.baseURL.replace(/\/+$/, '');
-  const url = base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
-  const fetcher = config.fetchImpl ?? fetch;
   const timeoutMs = config.timeoutMs ?? 120_000;
 
   return {
     provider: config.provider,
     async complete(req: LLMCompletionRequest): Promise<LLMCompletionResult> {
-      const tools = req.tools?.length
-        ? req.tools.map((t) => ({ type: 'function' as const, function: { name: t.name, description: t.description, parameters: z.toJSONSchema(t.parameters) } }))
+      // The hub validates tool arguments itself, so the SDK only forwards the JSON Schema.
+      const tools: ToolSet | undefined = req.tools?.length
+        ? Object.fromEntries(req.tools.map((t) => [t.name, { description: t.description, inputSchema: jsonSchema(z.toJSONSchema(t.parameters, { unrepresentable: 'any' }) as JSONSchema7) }]))
         : undefined;
 
       for (let idx = 0; idx < models.length; idx += 1) {
@@ -43,38 +72,48 @@ export function createOpenAICompatibleTransport(config: OpenAICompatibleConfig):
         req.signal?.addEventListener('abort', onAbort, { once: true });
         const start = Date.now();
         try {
-          let res: Response | undefined;
-          for (let netAttempt = 0; netAttempt < 2; netAttempt += 1) {
+          const languageModel = createLanguageModel({ provider: config.provider, baseURL: config.baseURL, apiKey: config.apiKey, model }, config.fetchImpl);
+          const call = () => generateText({
+            model: languageModel,
+            messages: toSdkMessages(req.messages),
+            allowSystemInMessages: true,
+            tools,
+            ...(req.jsonMode && !tools ? { output: Output.json() } : {}),
+            temperature: req.temperature,
+            maxOutputTokens: req.maxTokens,
+            maxRetries: 0,
+            abortSignal: controller.signal,
+          });
+          let result: Awaited<ReturnType<typeof call>> | undefined;
+          for (let netAttempt = 0; netAttempt < 2 && !result; netAttempt += 1) {
             try {
-              res = await fetcher(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
-                signal: controller.signal,
-                body: JSON.stringify({
-                  model,
-                  messages: req.messages,
-                  ...(tools ? { tools, tool_choice: 'auto' } : {}),
-                  ...(req.jsonMode && !tools ? { response_format: { type: 'json_object' } } : {}),
-                  ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-                  ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
-                }),
-              });
-              break;
-            } catch (fetchErr) {
-              if (controller.signal.aborted || netAttempt === 1) throw fetchErr;
+              result = await call();
+            } catch (callError) {
+              // Invalid JSON goes back to the hub as text: its correction turn handles it.
+              if (NoObjectGeneratedError.isInstance(callError)) {
+                return { message: { role: 'assistant', content: callError.text ?? '' }, model: callError.response?.modelId || model,
+                  latencyMs: Date.now() - start, promptTokens: callError.usage?.inputTokens, completionTokens: callError.usage?.outputTokens };
+              }
+              const isNetworkError = !APICallError.isInstance(callError) || callError.statusCode === undefined;
+              if (controller.signal.aborted || netAttempt === 1 || !isNetworkError) throw callError;
             }
           }
-          const latencyMs = Date.now() - start;
-          if (!res || !res.ok) {
-            if (res && hasFallback && FALLBACK_CODES.has(res.status)) continue;
-            throw new Error(`模型服务返回 HTTP ${res?.status ?? 'ERR'}（${config.provider}/${model}）。`);
-          }
-          const data = (await res.json()) as { model?: string; choices?: Array<{ message?: LLMCompletionResult['message'] }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
-          const message = data.choices?.[0]?.message;
-          if (!message || message.role !== 'assistant') throw new Error(`模型未返回有效消息（${model}）。`);
-          return { message, model: data.model || model, latencyMs, promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens };
+          if (!result) throw new Error('模型调用失败。');
+          const toolCalls: ToolCallRequest[] = result.toolCalls.map((c) => ({ id: c.toolCallId, type: 'function', function: { name: c.toolName, arguments: JSON.stringify(c.input ?? {}) } }));
+          return {
+            message: { role: 'assistant', content: result.text || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}), [SDK_MESSAGES]: result.response.messages },
+            model: result.response.modelId || model,
+            latencyMs: Date.now() - start,
+            promptTokens: result.usage.inputTokens,
+            completionTokens: result.usage.outputTokens,
+          };
         } catch (error) {
           if (req.signal?.aborted) throw new Error('模型请求已取消。');
+          const status = APICallError.isInstance(error) ? error.statusCode : undefined;
+          if (status !== undefined) {
+            if (hasFallback && FALLBACK_CODES.has(status)) continue;
+            throw new Error(`模型服务返回 HTTP ${status}（${config.provider}/${model}）。`);
+          }
           if (hasFallback) continue;
           if (error instanceof Error) {
             const cause = (error as Error & { cause?: { code?: string; message?: string } }).cause;
@@ -101,19 +140,19 @@ export function resolveAgentTransport(role: 'default' | 'fast' = 'default', pref
     const models = role === 'fast'
       ? ['gemini-3.5-flash-lite', 'gemini-3.6-flash']
       : [savedGemini || 'gemini-3.8-flash', 'gemini-3.6-flash'];
-    return createOpenAICompatibleTransport({ provider: 'gemini', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: geminiKey, models });
+    return createModelTransport({ provider: 'gemini', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: geminiKey, models });
   }
   if (preferredProvider === 'deepseek' && deepseekKey) {
     const savedDeepseek = saved.configured && saved.provider === 'deepseek' ? saved.model : '';
     const models = role === 'fast'
       ? ['deepseek-flash']
       : [savedDeepseek || 'deepseek-flash', 'deepseek-flash'];
-    return createOpenAICompatibleTransport({ provider: 'deepseek', baseURL: 'https://api.deepseek.com', apiKey: deepseekKey, models });
+    return createModelTransport({ provider: 'deepseek', baseURL: 'https://api.deepseek.com', apiKey: deepseekKey, models });
   }
   if (saved.configured && saved.apiKey && saved.baseURL) {
     if (saved.source !== 'saved' && saved.provider === 'deepseek' && deepseekKey) return resolveAgentTransport(role, 'deepseek');
     const models = saved.provider === 'gemini' ? [saved.model, 'gemini-3.6-flash'] : saved.provider === 'deepseek' ? [saved.model, 'deepseek-flash'] : [saved.model];
-    return createOpenAICompatibleTransport({ provider: saved.provider, baseURL: saved.baseURL, apiKey: saved.apiKey, models });
+    return createModelTransport({ provider: saved.provider, baseURL: saved.baseURL, apiKey: saved.apiKey, models });
   }
   if (deepseekKey) return resolveAgentTransport(role, 'deepseek');
   if (geminiKey) return resolveAgentTransport(role, 'gemini');

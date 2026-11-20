@@ -1,7 +1,7 @@
-import type OpenAI from 'openai';
 import { z } from 'zod';
+import { createStructuredModel, type ModelConnection } from '@/lib/models/ai-sdk';
 import type { GenerateObjectInput } from '@/lib/models/types';
-import { getGeoModelConnection, loadGeoModel } from './connection-settings';
+import { getGeoModelConnection } from './connection-settings';
 import type { GeoLanguage } from './i18n';
 import {
   buildServerErrorPayload,
@@ -33,29 +33,23 @@ const allowedSections = new Set<string>(['model']);
 const modelResult = z.object({ ok: z.literal(true) }).strict();
 
 /** Configure only this test instance; SDK retries and redirects must not add requests. */
-export function singleRequestModel(model: StructuredModel, fetcher: typeof fetch,
-  signal: AbortSignal, timeoutMs: number): StructuredModel {
-  const instance = model as StructuredModel & { openAIClient?: OpenAI };
-  if (!instance.openAIClient?.withOptions) {
-    throw new ConnectionTestError('connection_test_failed', 409, { reason: 'unsupported', provider: 'model' });
-  }
-  instance.openAIClient = instance.openAIClient.withOptions({
+export function singleRequestModel(connection: ModelConnection, fetcher: typeof fetch, signal: AbortSignal): StructuredModel {
+  return createStructuredModel(connection, {
     maxRetries: 0,
-    timeout: timeoutMs,
+    abortSignal: signal,
     fetch: (url, init) => fetcher(url, {
       ...init,
       redirect: 'error',
       signal: init?.signal ? AbortSignal.any([signal, init.signal]) : signal,
     }),
   });
-  return instance;
 }
 
 const defaultRuntime: ConnectionTestRuntime = {
-  loadModel: async (signal, timeoutMs) => {
+  loadModel: async (signal) => {
     const connection = getGeoModelConnection();
     if (!connection.configured) throw new ConnectionTestError('model_not_configured', 409);
-    return singleRequestModel(await loadGeoModel(), fetch, signal, timeoutMs);
+    return singleRequestModel(connection, fetch, signal);
   },
   fetch: (...args) => fetch(...args),
   timeoutMs: 45_000,
@@ -74,12 +68,13 @@ function testSection(input: unknown): TestSection {
 
 function safeFailure(error: unknown, provider: string, aborted: boolean): ConnectionTestError {
   if (error instanceof ConnectionTestError) return error;
-  const failure = error && typeof error === 'object' ? error as { status?: unknown; name?: unknown } : {};
+  const failure = error && typeof error === 'object' ? error as { status?: unknown; statusCode?: unknown; name?: unknown } : {};
   if (aborted || failure.name === 'AbortError' || failure.name === 'TimeoutError' || failure.name === 'APIConnectionTimeoutError') {
     return new ConnectionTestError('connection_test_failed', 504, { reason: 'timeout', provider });
   }
-  const status = typeof failure.status === 'number' && Number.isInteger(failure.status) && failure.status >= 400 && failure.status <= 599
-    ? failure.status : undefined;
+  const rawStatus = failure.status ?? failure.statusCode;
+  const status = typeof rawStatus === 'number' && Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599
+    ? rawStatus : undefined;
   if (status !== undefined) {
     return new ConnectionTestError('connection_test_failed', 502, { reason: 'http', status, provider });
   }

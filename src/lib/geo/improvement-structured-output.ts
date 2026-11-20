@@ -1,12 +1,12 @@
+import { NoObjectGeneratedError } from 'ai';
 import { z } from 'zod';
 import type { GenerateObjectInput } from '@/lib/models/types';
 
 type StructuredModel = { generateObject<T>(input: GenerateObjectInput): Promise<unknown> };
 
 function isStructureError(error: unknown): boolean {
-  return error instanceof SyntaxError || error instanceof z.ZodError
-    // These wrappers are thrown only by the existing providers' JSON/schema parse blocks.
-    || (error instanceof Error && /^Error parsing response from (?:DeepSeek|OpenAI):/u.test(error.message));
+  // Invalid JSON from the model (AI SDK) or a shape that fails this stage's schema.
+  return error instanceof SyntaxError || error instanceof z.ZodError || NoObjectGeneratedError.isInstance(error);
 }
 
 /** One additional request for the entire planning/review operation, only for invalid JSON/schema. */

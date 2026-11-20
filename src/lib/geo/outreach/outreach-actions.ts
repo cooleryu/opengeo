@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { getChatGPTStatus } from '../chatgpt-auth';
 import ChatGPTModel from '../chatgpt-model';
-import { loadGeoModel, shouldUseChatGPTSubscription } from '../connection-settings';
+import { requireGeoModelConnection, shouldUseChatGPTSubscription } from '../connection-settings';
 import { singleRequestModel } from '../connection-test';
 import type { GeoLanguage } from '../i18n';
 import { OptimizationStateError, parseGitHubRepoSlug } from '../optimization';
@@ -324,7 +324,7 @@ async function generateStructuredJson<T>(
     const subscription = shouldUseChatGPTSubscription(getChatGPTStatus());
     const model = subscription
       ? new ChatGPTModel({ signal: controller.signal, timeoutMs })
-      : singleRequestModel(await loadGeoModel(), fetch, controller.signal, timeoutMs);
+      : singleRequestModel(requireGeoModelConnection(), fetch, controller.signal);
 
     const raw = await model.generateObject({
       schema,

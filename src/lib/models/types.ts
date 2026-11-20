@@ -72,6 +72,8 @@ type GenerateObjectInput = {
   schema: z.ZodTypeAny;
   messages: Message[];
   options?: GenerateOptions;
+  /** Feature-specific clean-up of the parsed JSON, applied before `schema` validation. */
+  prepare?: (raw: unknown) => unknown;
 };
 
 type GenerateObjectOutput<T> = {

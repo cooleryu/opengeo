@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { getGeoModelConnection, loadGeoModel, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
+import { getGeoModelConnection, requireGeoModelConnection, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
 import { singleRequestModel } from './connection-test';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel from './chatgpt-model';
@@ -362,7 +362,7 @@ export async function analyzePreparedCompetitors(prepared: PreparedCompetitorAna
       const timeoutMs = options.timeoutMs ?? (subscription ? parameters.subscriptionTimeoutMs : parameters.apiTimeoutMs);
       if (!model) model = subscription
         ? new ChatGPTModel({ signal: controller.signal, timeoutMs, onMetadata: (metadata) => { modelName = metadata.model; } })
-        : singleRequestModel(await loadGeoModel(), fetch, controller.signal, timeoutMs);
+        : singleRequestModel(requireGeoModelConnection(), fetch, controller.signal);
       if (!subscription && !options.model) modelName = getGeoModelConnection().model;
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => { controller.abort(); reject(new Error('timeout')); }, timeoutMs);

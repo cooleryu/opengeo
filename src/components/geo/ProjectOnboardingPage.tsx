@@ -553,8 +553,8 @@ function ProjectOnboardingPageInner() {
                   <ShieldCheck size={15} aria-hidden="true" />
                   <span>
                     {isEn
-                      ? "100% local — OpenGEO never collects your data. Next, you'll add your own AI API key (stored only on this machine) to start analyzing."
-                      : '纯本地运行 — OpenGEO 不会收集你的任何信息。点击开始分析后，只需配置你自己的模型 API Key（仅保存在本机）即可开始。'}
+                      ? "OpenGEO has no cloud service and collects nothing. Next, add your own AI API key: it stays on this computer, and only the text being analyzed is sent to that AI provider."
+                      : 'OpenGEO 没有云端服务，不收集任何信息。下一步填写你自己的 AI API Key：密钥只保存在本机，只有需要分析的文字会发给该 AI 服务商。'}
                   </span>
                 </div>
               )}

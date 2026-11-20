@@ -67,6 +67,77 @@ function normalizeModelReview(input: z.infer<typeof wireModelReviewSchema>) {
   const { evidence, ...currentSupport } = assessment.currentSupport;
   return modelReviewSchema.parse({ ...input, assessment: { ...assessment, currentSupport, evidence } });
 }
+type JsonRecord = Record<string, unknown>;
+const isRecord = (value: unknown): value is JsonRecord => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const stringIds = (value: unknown) => [...new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [])];
+const idSet = (items: unknown) => new Set(Array.isArray(items) ? items.filter(isRecord).map(item => item.id).filter((id): id is string => typeof id === 'string') : []);
+
+/** Models sometimes repeat evidence under currentSupport as well as assessment; merge it before strict validation. */
+function mergeNestedReviewEvidence(raw: unknown): unknown {
+  if (!isRecord(raw) || !Array.isArray(raw.reviews)) return raw;
+  for (const item of raw.reviews) {
+    const assessment = isRecord(item) && isRecord(item.assessment) ? item.assessment : undefined;
+    const support = assessment && isRecord(assessment.currentSupport) ? assessment.currentSupport : undefined;
+    if (!assessment || !support || !Array.isArray(assessment.evidence) || !Array.isArray(support.evidence)) continue;
+    const key = (entry: unknown) => isRecord(entry) ? `${String(entry.assetId ?? '')}\0${String(entry.quote ?? '')}` : '';
+    const seen = new Set(assessment.evidence.map(key));
+    for (const entry of support.evidence) if (!seen.has(key(entry))) { seen.add(key(entry)); assessment.evidence.push(entry); }
+    delete support.evidence;
+  }
+  return raw;
+}
+
+/** Drops IDs the set review was never shown and keeps one selected candidate per duplicate group, before strict validation. */
+function cleanSetReview(context: unknown) {
+  const ctx = isRecord(context) ? context : {};
+  const candidates = Array.isArray(ctx.candidates) ? ctx.candidates.filter(isRecord) : [];
+  const validCandidateIds = idSet(candidates);
+  const eligibleSelectedIds = new Set(candidates.filter(c => typeof c.id === 'string' && isRecord(c.review)
+    && c.review.decision === 'include' && c.review.status === 'reviewed' && Boolean(c.review.assessment)).map(c => c.id as string));
+  const existingNeedIds = idSet(ctx.needs);
+  const validMaterialIds = idSet(ctx.materials);
+  return (raw: unknown): unknown => {
+    if (!isRecord(raw) || !Array.isArray(raw.selectedIds) || !Array.isArray(raw.coverage)) return raw;
+    const selectedIds = stringIds(raw.selectedIds).filter(id => eligibleSelectedIds.size === 0 || eligibleSelectedIds.has(id));
+    const selected = new Set(selectedIds);
+    const replaced = new Map<string, string>();
+    if (Array.isArray(raw.duplicates)) {
+      const seenGroups = new Set<string>();
+      raw.duplicates = raw.duplicates.filter(isRecord).flatMap(group => {
+        const candidateIds = stringIds(group.candidateIds).filter(id => validCandidateIds.size === 0 || validCandidateIds.has(id));
+        const groupKey = [...candidateIds].sort().join('\0');
+        if (candidateIds.length < 2 || seenGroups.has(groupKey)) return [];
+        seenGroups.add(groupKey);
+        const [kept, ...extras] = candidateIds.filter(id => selected.has(id));
+        for (const extra of extras) { selected.delete(extra); replaced.set(extra, kept); }
+        return [{ ...group, candidateIds }];
+      });
+    }
+    raw.selectedIds = selectedIds.filter(id => selected.has(id));
+    const resolve = (id: string) => {
+      const visited = new Set<string>();
+      while (replaced.has(id) && !visited.has(id)) { visited.add(id); id = replaced.get(id)!; }
+      return id;
+    };
+    for (const item of raw.coverage) {
+      if (!isRecord(item) || !Array.isArray(item.candidateIds)) continue;
+      const ids = [...new Set(stringIds(item.candidateIds).map(resolve))];
+      const inSelected = ids.filter(id => selected.has(id));
+      item.candidateIds = item.status === 'missing' || item.status === 'deferred' ? []
+        : item.status === 'covered' && inSelected.length ? inSelected : ids;
+    }
+    if (Array.isArray(raw.missingAdditionalNeeds)) {
+      const seenNeeds = new Set<string>();
+      raw.missingAdditionalNeeds = raw.missingAdditionalNeeds.filter(isRecord).flatMap(need => {
+        if (typeof need.id !== 'string' || seenNeeds.has(need.id) || existingNeedIds.has(need.id) || need.importance !== 'high') return [];
+        seenNeeds.add(need.id);
+        return [{ ...need, assetIds: stringIds(need.assetIds).filter(id => validMaterialIds.size === 0 || validMaterialIds.has(id)) }];
+      });
+    }
+    return raw;
+  };
+}
+
 const candidateSchema = draftSchema.extend({
   id: z.string().min(1).max(180), origin: z.enum(['existing', 'curated', 'model', 'manual']),
   queryEn: z.string().trim().min(3).max(300).optional(),
@@ -499,7 +570,7 @@ export async function reviewQuestionCandidate(seed: GeoSeed, plan: GeoQuestionPl
   const schema = z.object({ reviews: z.array(wireModelReviewSchema.extend({ id: z.string().min(1).max(180) })).length(1) }).strict();
   const model = await planningModel(runtime, parameters);
   runtime.onProgress?.({ stage: 'reviewing', message: '正在独立审核这道问题的价值和现有依据。' });
-  const result = schema.parse(await model.generateObject({ schema, messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(context) }], options: parameters.review }));
+  const result = schema.parse(await model.generateObject({ schema, messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(context) }], options: parameters.review, prepare: mergeNestedReviewEvidence }));
   const { id, ...wireReview } = result.reviews[0];
   if (id !== candidateId) throw new Error('复评返回的问题 ID 不匹配，题单未保存。');
   const review = normalizeModelReview(wireReview);
@@ -641,6 +712,7 @@ async function completeQuestionFunnel(input: {
       const model = await planningModel(stageRuntime, parameters);
       result = setReviewSchema.parse(await model.generateObject({ schema: setReviewSchema,
         messages: [{ role: 'system', content: setSystem }, { role: 'user', content: JSON.stringify(context) }], options: parameters.review,
+        prepare: cleanSetReview(context),
       }));
     }
     validateSetReview(result, needs, candidates);
@@ -708,7 +780,7 @@ async function completeQuestionFunnel(input: {
       stageRuntime.onProgress?.({ stage: 'reviewing', message: '正在独立审核补充问题的价值和依据。' });
       const model = await planningModel(stageRuntime, parameters);
       const schema = z.object({ reviews: z.array(wireModelReviewSchema.extend({ id: z.string().min(1).max(180) })).length(drafts.length) }).strict();
-      const audit = schema.parse(await model.generateObject({ schema, messages: [{ role: 'system', content: reviewSystem }, { role: 'user', content: JSON.stringify(reviewContext) }], options: parameters.review }));
+      const audit = schema.parse(await model.generateObject({ schema, messages: [{ role: 'system', content: reviewSystem }, { role: 'user', content: JSON.stringify(reviewContext) }], options: parameters.review, prepare: mergeNestedReviewEvidence }));
       const reviews = new Map(audit.reviews.map(review => [review.id, review]));
       if (reviews.size !== drafts.length || drafts.some(candidate => !reviews.has(candidate.id))) throw new Error('补题独立审核未逐项覆盖候选。');
       additions = await validateWithEvidenceRepair(drafts.map(candidate => {
@@ -884,6 +956,7 @@ export async function generateQuestionPlan(seed: GeoSeed, positioning: string, r
       const auditSchema = z.object({ reviews: z.array(wireModelReviewSchema.extend({ id: z.string().min(1).max(180) })).length(batch.length) }).strict();
       const audit = auditSchema.parse(await model.generateObject({ schema: auditSchema,
         messages: [{ role: 'system', content: reviewSystem }, { role: 'user', content: JSON.stringify(context) }], options: parameters.review,
+        prepare: mergeNestedReviewEvidence,
       }));
       const reviews = new Map(audit.reviews.map(review => [review.id, review]));
       if (reviews.size !== batch.length || batch.some(candidate => !reviews.has(candidate.id))) throw new Error('独立审核未逐项覆盖候选，题单未保存。');

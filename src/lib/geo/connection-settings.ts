@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { ModelCallSettings } from '@/lib/models/ai-sdk';
+import { inferModelProvider, isModelProviderId, MODEL_PROVIDERS } from '@/lib/models/providers';
 import type { GenerateObjectInput } from '@/lib/models/types';
 import type { GeoConnectionSettings, GeoModelProvider, GeoSettingsSource, GeoSettingsUpdate } from './connection-settings-types';
 import { translateServerCode, type ServerErrorParams } from './i18n-server';
@@ -24,7 +26,6 @@ export class GeoSettingsError extends Error {
   }
 }
 
-const modelProviders = ['gemini', 'deepseek', 'openai', 'custom'] as const;
 const stringValue = (value: unknown): string =>
   typeof value === 'string' ? value.trim().replace(/^["']|["']$/g, '') : '';
 const dataPath = (file: string) => path.join(process.env.DATA_DIR || process.cwd(), 'data', file);
@@ -38,13 +39,6 @@ function validBaseURL(value: string): string {
 }
 function safeBaseURL(value: string): string {
   try { return validBaseURL(value); } catch { return ''; }
-}
-function inferProvider(baseURL: string): GeoModelProvider {
-  try {
-    const hostname = new URL(baseURL).hostname;
-    if (hostname === 'generativelanguage.googleapis.com') return 'gemini';
-    return hostname === 'api.deepseek.com' ? 'deepseek' : hostname === 'api.openai.com' ? 'openai' : 'custom';
-  } catch { return 'custom'; }
 }
 
 function readSavedSettings(): SavedSettings {
@@ -67,12 +61,12 @@ function resolveModel(saved: SavedSettings): GeoModelConnection {
   const environmentBaseURL = explicitBaseURL
     || (geminiKey ? 'https://generativelanguage.googleapis.com/v1beta/openai' : 'https://api.openai.com/v1');
   const baseURL = safeBaseURL(values?.baseURL ?? environmentBaseURL);
-  const provider = values?.provider ?? inferProvider(baseURL);
+  const provider = values?.provider ?? inferModelProvider(baseURL);
   const explicitModel = stringValue(process.env.OPENGEO_LLM_MODEL);
   const model = values?.model ?? (explicitModel || (provider === 'gemini' && geminiKey ? 'gemini-3.8-flash' : ''));
   const explicitKey = stringValue(process.env.OPENGEO_LLM_API_KEY);
-  const deepseekKey = stringValue(process.env.DEEPSEEK_API_KEY);
-  const envKeyForProvider = explicitKey || (provider === 'gemini' ? geminiKey : provider === 'deepseek' ? deepseekKey : '');
+  const providerEnvKey = MODEL_PROVIDERS[provider]?.envKey;
+  const envKeyForProvider = explicitKey || (providerEnvKey ? stringValue(process.env[providerEnvKey]) : '');
   const apiKey = values?.apiKey ?? envKeyForProvider;
   return { provider, baseURL, model, apiKey, configured: Boolean(model && apiKey && baseURL),
     source: values ? 'saved' : 'environment' };
@@ -112,8 +106,8 @@ function validateUpdate(input: unknown): GeoSettingsUpdate {
       if (trimmed.length > 8192 || /\s/.test(trimmed)) throw new GeoSettingsError('invalid_settings', 400, { field: 'apiKey' });
       normalized.apiKey = trimmed;
     } else if (key === 'provider') {
-      if (!modelProviders.includes(trimmed as GeoModelProvider)) throw new GeoSettingsError('invalid_settings', 400, { field: 'provider' });
-      normalized.provider = trimmed as GeoModelProvider;
+      if (!isModelProviderId(trimmed)) throw new GeoSettingsError('invalid_settings', 400, { field: 'provider' });
+      normalized.provider = trimmed;
     } else if (key === 'baseURL') {
       if (trimmed.length > 2048) throw new GeoSettingsError('invalid_settings', 400, { field: 'baseURL' });
       normalized.baseURL = validBaseURL(trimmed);
@@ -153,9 +147,14 @@ export function saveGeoConnectionSettings(input: unknown): GeoConnectionSettings
 }
 
 /** Resolve every time a new operation starts; no restart or module cache reset. */
-export async function loadGeoModel(): Promise<GeoStructuredModel> {
+export function requireGeoModelConnection(): GeoModelConnection {
   const connection = getGeoModelConnection();
   if (!connection.configured) throw new GeoSettingsError('model_not_configured', 400);
-  const { default: OpenAILLM } = await import('@/lib/models/providers/openai/openaiLLM');
-  return new OpenAILLM({ apiKey: connection.apiKey, model: connection.model, baseURL: connection.baseURL });
+  return connection;
+}
+
+export async function loadGeoModel(settings?: ModelCallSettings): Promise<GeoStructuredModel> {
+  const connection = requireGeoModelConnection();
+  const { createStructuredModel } = await import('@/lib/models/ai-sdk');
+  return createStructuredModel(connection, settings);
 }

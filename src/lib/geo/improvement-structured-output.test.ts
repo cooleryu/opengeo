@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { z } from 'zod';
+import { NoObjectGeneratedError } from 'ai';
 import type { GenerateObjectInput } from '@/lib/models/types';
 import { withOneImprovementStructureRetry } from './improvement-structured-output';
 
@@ -13,7 +14,9 @@ test('reported DeepSeek JSON syntax failure gets exactly one fresh format retry 
   const calls: GenerateObjectInput[] = [];
   const model = withOneImprovementStructureRetry({ async generateObject(input) {
     calls.push(input);
-    if (calls.length === 1) throw new Error("Error parsing response from DeepSeek: SyntaxError: Expected ',' or '}' after property value in JSON at position 1346");
+    if (calls.length === 1) throw new NoObjectGeneratedError({ message: 'No object generated: could not parse the response.',
+      text: '{"summary": "x" "evidencePaths"', cause: new SyntaxError("Expected ',' or '}' after property value in JSON at position 1346"),
+      response: { id: 'r', timestamp: new Date(0), modelId: 'deepseek-flash' }, usage: {} as never, finishReason: 'stop' });
     return valid;
   } });
   assert.deepEqual(await model.generateObject(request), valid);

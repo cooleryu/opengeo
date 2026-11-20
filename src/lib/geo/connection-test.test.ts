@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import OpenAILLM from '../models/providers/openai/openaiLLM';
+import { inferModelProvider } from '../models/providers';
 import {
   handleConnectionTestRequest,
   singleRequestModel,
@@ -107,9 +107,9 @@ test('test deadline aborts the model request and does not retry or return upstre
     request(input('model')),
     runtime({
       timeoutMs: 15,
-      loadModel: async (signal, timeoutMs) =>
+      loadModel: async (signal) =>
         singleRequestModel(
-          new OpenAILLM({ apiKey: syntheticKey, model: 'synthetic-model', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai' }),
+          { provider: inferModelProvider('https://generativelanguage.googleapis.com/v1beta/openai'), apiKey: syntheticKey, model: 'synthetic-model', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai' },
           async (_url, init) => {
             calls++;
             return new Promise<Response>((_resolve, reject) =>
@@ -124,7 +124,6 @@ test('test deadline aborts the model request and does not retry or return upstre
             );
           },
           signal,
-          timeoutMs,
         ),
     }),
   );
@@ -140,15 +139,14 @@ test('test deadline aborts the model request and does not retry or return upstre
 test('the actual OpenAI-compatible SDK wrapper makes one request on 500, with synthetic credentials only', async () => {
   let calls = 0;
   const run = runtime({
-    loadModel: async (signal, timeoutMs) =>
+    loadModel: async (signal) =>
       singleRequestModel(
-        new OpenAILLM({ apiKey: syntheticKey, model: 'synthetic-model', baseURL: 'https://example.invalid/v1' }),
+        { provider: inferModelProvider('https://example.invalid/v1'), apiKey: syntheticKey, model: 'synthetic-model', baseURL: 'https://example.invalid/v1' },
         async () => {
           calls++;
           return Response.json({ error: { message: syntheticKey } }, { status: 500 });
         },
         signal,
-        timeoutMs,
       ),
   });
   const response = await handleConnectionTestRequest(request(input('model')), run);
@@ -162,9 +160,9 @@ test('the actual OpenAI-compatible SDK wrapper makes one request on 500, with sy
 test('the actual structured SDK path parses a small valid JSON result and has a cancellable transport', async () => {
   let calls = 0;
   const run = runtime({
-    loadModel: async (signal, timeoutMs) =>
+    loadModel: async (signal) =>
       singleRequestModel(
-        new OpenAILLM({ apiKey: syntheticKey, model: 'synthetic-model', baseURL: 'https://example.invalid/v1' }),
+        { provider: inferModelProvider('https://example.invalid/v1'), apiKey: syntheticKey, model: 'synthetic-model', baseURL: 'https://example.invalid/v1' },
         async (_url, init) => {
           calls++;
           assert.ok(init?.signal);
@@ -178,7 +176,6 @@ test('the actual structured SDK path parses a small valid JSON result and has a 
           });
         },
         signal,
-        timeoutMs,
       ),
   });
   assert.equal((await testGeoConnection(input('model'), run)).ok, true);
@@ -192,9 +189,9 @@ test('the DeepSeek model adapter is cancelled by the test deadline despite its l
     request(input('model')),
     runtime({
       timeoutMs: 15,
-      loadModel: async (signal, timeoutMs) =>
+      loadModel: async (signal) =>
         singleRequestModel(
-          new OpenAILLM({ apiKey: syntheticKey, model: 'synthetic-model', baseURL: 'https://api.deepseek.com' }),
+          { provider: inferModelProvider('https://api.deepseek.com'), apiKey: syntheticKey, model: 'synthetic-model', baseURL: 'https://api.deepseek.com' },
           async (_url, init) => {
             calls++;
             const body = JSON.parse(String(init?.body));
@@ -212,7 +209,6 @@ test('the DeepSeek model adapter is cancelled by the test deadline despite its l
             );
           },
           signal,
-          timeoutMs,
         ),
     }),
   );

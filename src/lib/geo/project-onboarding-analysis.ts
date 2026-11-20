@@ -3,7 +3,7 @@ import path from 'node:path';
 import { JSDOM } from 'jsdom';
 import { z } from 'zod';
 import { readAgentParameters, readAgentText } from './agent-files';
-import { GeoSettingsError, loadGeoModel, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
+import { GeoSettingsError, requireGeoModelConnection, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
 import { singleRequestModel } from './connection-test';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel from './chatgpt-model';
@@ -212,7 +212,7 @@ function researchModel(parameters: Parameters, injected?: GeoStructuredModel): G
       });
       const call = async () => {
         const model = injected ?? (subscription ? new ChatGPTModel({ signal: controller.signal, timeoutMs })
-          : singleRequestModel(await loadGeoModel(), fetch, controller.signal, timeoutMs));
+          : singleRequestModel(requireGeoModelConnection(), fetch, controller.signal));
         return model.generateObject(input);
       };
       return await Promise.race([call(), timeout]);
@@ -284,7 +284,7 @@ async function understand(record: OnboardingRecord, documents: ReadDocument[], l
     const run = async () => {
       const selected = model ?? (subscription
         ? new ChatGPTModel({ signal: controller.signal, timeoutMs })
-        : singleRequestModel(await loadGeoModel(), fetch, controller.signal, timeoutMs));
+        : singleRequestModel(requireGeoModelConnection(), fetch, controller.signal));
       attempted = true;
       const raw = await selected.generateObject({ schema: resultSchema, messages,
         options: { temperature: parameters.temperature, maxTokens: parameters.maxTokens } });

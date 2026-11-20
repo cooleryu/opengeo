@@ -3,7 +3,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { readAgentParameters, readAgentText } from './agent-files';
-import { loadGeoModel, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
+import { requireGeoModelConnection, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
 import { singleRequestModel } from './connection-test';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel, { type ChatGPTInferenceMetadata } from './chatgpt-model';
@@ -420,7 +420,7 @@ export async function analyzeResearchObservation(
           model = subscription
             ? new ChatGPTModel({ signal: controller.signal, timeoutMs: analysisTimeout,
               onMetadata: (metadata) => { inference = metadata; } })
-            : singleRequestModel(await loadGeoModel(), fetch, controller.signal, analysisTimeout);
+            : singleRequestModel(requireGeoModelConnection(), fetch, controller.signal);
           timer = setTimeout(() => controller.abort(), analysisTimeout);
         }
         attempted = true;

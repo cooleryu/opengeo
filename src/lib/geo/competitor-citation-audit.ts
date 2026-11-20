@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { readAgentParameters, readAgentText } from './agent-files';
-import { loadGeoModel, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
+import { requireGeoModelConnection, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
 import { singleRequestModel } from './connection-test';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel, { type ChatGPTInferenceMetadata } from './chatgpt-model';
@@ -220,7 +220,7 @@ export async function auditCompetitorCitations(
             const timeout = subscription ? parameters.subscriptionTimeoutMs : parameters.apiTimeoutMs;
             model = subscription ? new ChatGPTModel({ signal: controller.signal, timeoutMs: timeout,
               onMetadata: (metadata) => { inference = metadata; } })
-              : singleRequestModel(await loadGeoModel(), fetch, controller.signal, timeout);
+              : singleRequestModel(requireGeoModelConnection(), fetch, controller.signal);
             timer = setTimeout(() => controller.abort(), timeout);
           }
           attempted = true;

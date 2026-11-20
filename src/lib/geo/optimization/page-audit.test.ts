@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { createOpenAICompatibleTransport } from '../../agent-hub';
+import { createModelTransport } from '../../agent-hub';
 import { isAllowedWorkspaceInspectionPath } from '../agents/project-tools';
 import { projectDataDirectory, withGeoProject } from '../projects';
 import {
@@ -126,16 +126,16 @@ test('AgentHub registers all 4 page-audit strategies and runs Map-Reduce cleanly
   assert.ok(defaultAgentHub.get('page-section-auditor'));
   assert.ok(defaultAgentHub.get('section-surgical-patcher'));
 
-  const transport = createOpenAICompatibleTransport({
+  const transport = createModelTransport({
     provider: 'deepseek',
     baseURL: 'https://api.deepseek.com',
     apiKey: 'synthetic-key',
     models: ['deepseek-chat'],
-    fetchImpl: async (_url, init) => {
+    fetchImpl: async (_url: unknown, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
-      const sys = body.messages[0].content;
+      const sys = body.messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
       if (sys.includes('只负责阅读')) {
-        const userPayload = JSON.parse(body.messages[1].content) as { engine: 'chatgpt' | 'google' };
+        const userPayload = JSON.parse(body.messages.filter((m) => m.role === 'user').at(-1)!.content) as { engine: 'chatgpt' | 'google' };
         return new Response(
           JSON.stringify({
             model: 'deepseek-chat',
