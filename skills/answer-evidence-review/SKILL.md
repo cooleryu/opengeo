@@ -33,7 +33,7 @@ description: 审核已采集的 AI 回答是否真正识别目标品牌，以及
 
 正确介绍本项目并澄清它不是某个同名论文，仍是 `yes + matched`；不能因为这段澄清出现了排除项作者或名称就否定整段识别。`excluded` 不限于事先列出的排除项，但必须有具体身份依据。特别地：当 `project` 明确指出了所属仓库所有者或官网（`officialRoots` / `owner`），而回答正文、链接或 `observedSourceHints` 将提到的项目归属为**另一个所有者、作者、GitHub 仓库或不同官网域名**（例如另一作者的 `other-org/sample-tool` 与本项目的 `acme/sample-tool`，即便产品类别接近或同样本地运行），应判定为同名他项目（`mention=no`、`identity=excluded`），绝不判成 `matched`。
 
-`matched`、`personal_memory`、`unrecognized`、`excluded`、`ambiguous` 必须提供逐字 `mentionQuote`，包含项目名或别名以及支持结论的上下文；不能只摘名字。`mentionQuote` 必须一字不差、一换行不改地复制自 `answer.text` 中的连续片段（尤其跨段时必须原样保留 `\n` 或 `\n\n`，不要把换行替换成空格，否则也可优先摘录包含项目名与身份归属的完整单段）。`absent` 的 `mentionQuote` 为空字符串。回答有不同结论时，要考虑全文，不能挑一句“不知道”忽略后面正确的项目介绍。
+`matched`、`personal_memory`、`unrecognized`、`excluded`、`ambiguous` 必须提供逐字 `mentionQuote`，包含项目名或别名以及支持结论的上下文；不能只摘名字。`mentionQuote` 必须一字不差、一换行不改地复制自 `answer.text` 中的连续片段（尤其跨段时必须原样保留 `\n` 或 `\n\n`，不要把换行替换成空格，否则也可优先摘录包含项目名与身份归属的完整单段）。`absent` 的 `mentionQuote` 为空字符串。每个字段都必须输出，不能因为“没有提到”就省略：全文没有项目名或别名时，照样写出 `"identity": "absent"` 和 `"mentionQuote": ""`。回答有不同结论时，要考虑全文，不能挑一句“不知道”忽略后面正确的项目介绍。
 
 对 `excluded`、`ambiguous` 和 `unrecognized`，如果品牌名只在相邻标题中，身份说明或“不知道”的表述在后面的正文中，须连续摘录品牌标题及这段正文，保留原有换行。不能只摘“是什么：它是……”或“我不知道它是什么”，也不能只摘品牌标题。标题出现品牌名、正文明确不认识该项目且全文无其他正确识别时，仍判 `no + unrecognized`，不因标题有名字而算已提及。
 

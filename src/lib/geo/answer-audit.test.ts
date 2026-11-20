@@ -1,5 +1,6 @@
 import './test-fixtures';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -130,6 +131,45 @@ test('a ChatGPT answer that cannot identify the named project saves a confirmed 
   assert.equal(record.citation, 'no');
   assert.equal(record.answerComplete, true);
   assert.ok(record.mentionEvidence.includes(unrecognized));
+});
+
+test('a provider null quote on a negative review means no quote, not a failed review', async () => {
+  const record = await review({ ...negative(), mentionQuote: null }, answer({ text: 'Other tools are listed here.', citations: [] }));
+  assert.equal(record.analysisStatus, 'complete');
+  assert.equal(record.mention, 'no');
+  assert.equal(record.citation, 'no');
+});
+
+test('a negative review that leaves out identity counts as absent only when the name is really absent', async () => {
+  const { identity: _omitted, ...withoutIdentity } = negative();
+  const absent = await review(withoutIdentity, answer({ text: 'Other tools are listed here.', citations: [] }));
+  assert.equal(absent.analysisStatus, 'complete');
+  assert.equal(absent.mention, 'no');
+  const named = await review(withoutIdentity, answer({ text: 'SampleProject is one of the tools listed here.', citations: [] }));
+  assert.equal(named.analysisStatus, 'failed');
+});
+
+test('an answer naming many competitors keeps the first eight instead of failing the review', async () => {
+  const many = Array.from({ length: 11 }, (_, index) => ({ name: `Tool ${index + 1}` }));
+  const record = await review({ ...negative(), recommendedCompetitors: many }, answer({ text: 'Other tools are listed here.', citations: [] }));
+  assert.equal(record.analysisStatus, 'complete');
+  assert.equal(record.recommendedCompetitors?.length, 8);
+});
+
+test('a malformed review reply is asked once more, and a second malformed reply stays unknown', async () => {
+  const item = observation();
+  for (const [replies, status] of [[['bad', negative()], 'complete'], [['bad', 'bad', negative()], 'failed']] as const) {
+    let calls = 0;
+    const model: GeoStructuredModel = { generateObject: async () => {
+      const reply = replies[calls++];
+      if (reply === 'bad') throw new z.ZodError([{ code: 'invalid_value', values: ['absent'], path: ['identity'], message: 'bad' }]);
+      return reply;
+    } };
+    const record = await analyzeResearchObservation(batch(item), 'q1', item, answer({ text: 'Other tools are listed here.', citations: [] }),
+      { model, persist: () => {} });
+    assert.equal(record.analysisStatus, status);
+    assert.equal(calls, 2);
+  }
 });
 
 test('unrecognized identity cannot confirm a mention or omit a verbatim named quote', async () => {

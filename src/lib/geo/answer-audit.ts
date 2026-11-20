@@ -8,6 +8,7 @@ import { singleRequestModel } from './connection-test';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel, { type ChatGPTInferenceMetadata } from './chatgpt-model';
 import { saveAnswerAudit } from './answer-audit-store';
+import { withFailureReason } from './model-failure';
 import type { AnswerAuditRecord, AuditedCompetitor } from './overview-metrics';
 import type { CollectedAnswer } from './providers/types';
 import type { ResearchBatch, ResearchObservation } from './research-types';
@@ -48,6 +49,21 @@ const PERSONAL_MEMORY_CUE =
   /(?:你在做的|你正在做的|你的项目|你提到的|结合你|用于你的|the\s+project\s+you(?:'re|\s+are)\s+building|your\s+project)/iu;
 
 type ModelResult = z.infer<typeof resultSchema>;
+
+// Some providers send null, or leave the field out, when there is nothing to quote. That
+// means "no quote"; a positive verdict without a verbatim quote is still rejected below.
+// Long answers can name more competitors than the side list keeps; that list is extra
+// information, not the verdict, so keep the first ones instead of failing the review.
+function normalizeReply(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const reply = { ...(raw as Record<string, unknown>) };
+  if (reply.mentionQuote === null || reply.mentionQuote === undefined) reply.mentionQuote = '';
+  // "Not mentioned" with no quote and no identity is the absent case; the checks below still
+  // reject it when the answer does contain the project's name.
+  if (reply.identity === undefined && reply.mention === 'no' && reply.mentionQuote === '') reply.identity = 'absent';
+  if (Array.isArray(reply.recommendedCompetitors)) reply.recommendedCompetitors = reply.recommendedCompetitors.slice(0, 8);
+  return reply;
+}
 type Identity = {
   name: string;
   aliases: string[];
@@ -424,9 +440,16 @@ export async function analyzeResearchObservation(
           timer = setTimeout(() => controller.abort(), analysisTimeout);
         }
         attempted = true;
-        const raw = await model.generateObject({ schema: resultSchema, messages,
+        const ask = () => model.generateObject({ schema: resultSchema, messages, prepare: normalizeReply,
           options: { temperature: parameters.temperature, maxTokens: parameters.maxTokens } });
-        const parsed = resultSchema.safeParse(raw);
+        let raw: unknown;
+        try { raw = await ask(); }
+        catch (error) {
+          // A reply in the wrong shape is usually a one-off slip: ask the same model once more, then stop.
+          if (!(error instanceof z.ZodError) || controller.signal.aborted) throw error;
+          raw = await ask();
+        }
+        const parsed = resultSchema.safeParse(normalizeReply(raw));
         if (!parsed.success) {
           audit = unresolved('模型返回缺少必填字段或字段格式不正确，未采用任何结论。', 'failed', 'model');
         } else {
@@ -455,10 +478,10 @@ export async function analyzeResearchObservation(
         }
       }
     }
-  } catch {
-    // Provider exceptions may contain credentials, request URLs, or response bodies.
+  } catch (error) {
+    // Provider exceptions may contain credentials, request URLs, or response bodies: keep only a safe reason.
     audit = unresolved(controller.signal.aborted ? '回答审核超时，未自动重试；结果待核实。'
-      : attempted ? '模型审核调用失败，未自动重试；结果待核实。'
+      : attempted ? withFailureReason('模型审核调用失败；结果待核实。', error)
         : '审核模型不可用或尚未配置，结果待核实。', attempted ? 'failed' : 'needs_review', attempted ? 'model' : 'unavailable');
   } finally {
     if (timer) clearTimeout(timer);

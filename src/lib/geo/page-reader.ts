@@ -6,6 +6,7 @@ import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel from './chatgpt-model';
 import { requireGeoModelConnection, shouldUseChatGPTSubscription, type GeoStructuredModel } from './connection-settings';
 import { singleRequestModel } from './connection-test';
+import { withFailureReason } from './model-failure';
 import { evidenceLocation, withGeoProject } from './projects';
 import { getResearchBatch } from './research-store';
 
@@ -57,6 +58,16 @@ export const readerResultSchema = z.object({
   note: z.string().max(800),
 }).strict();
 export type ReaderResult = z.infer<typeof readerResultSchema>;
+
+// Providers sometimes send null for "nothing here"; read it as empty rather than failing the page.
+export function normalizeReaderReply(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const reply = { ...(raw as Record<string, unknown>) };
+  for (const key of ['answerStart', 'answerEnd', 'model', 'note']) if (reply[key] === null) reply[key] = '';
+  if (reply.sourceLinks === null) reply.sourceLinks = [];
+  if (reply.temporaryChat === null) reply.temporaryChat = 'unknown';
+  return reply;
+}
 
 const parameterSchema = z.object({
   inputLimitBytes: z.number().int().positive(),
@@ -224,15 +235,16 @@ async function askReader(page: PageCapture, injected?: GeoStructuredModel): Prom
     timer = setTimeout(() => controller.abort(), timeoutMs);
   }
   try {
-    const raw = await model.generateObject({ schema: readerResultSchema, messages,
+    const raw = await model.generateObject({ schema: readerResultSchema, messages, prepare: normalizeReaderReply,
       options: { temperature: parameters.temperature, maxTokens: parameters.maxTokens } });
-    const parsed = readerResultSchema.safeParse(raw);
+    const parsed = readerResultSchema.safeParse(normalizeReaderReply(raw));
     if (!parsed.success) throw new PageReadingError('The AI page reader returned an unusable result.', 502);
     return parsed.data;
   } catch (error) {
     if (error instanceof PageReadingError) throw error;
     // Provider errors may carry credentials or request details; report only the outcome.
-    throw new PageReadingError(controller.signal.aborted ? 'The AI page reader timed out.' : 'The AI page reader is unavailable.', 502);
+    throw new PageReadingError(controller.signal.aborted ? 'The AI page reader timed out.'
+      : withFailureReason('The AI page reader failed.', error), 502);
   } finally {
     if (timer) clearTimeout(timer);
   }

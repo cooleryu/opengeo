@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cleanPageText, findSnippet, interpretReading, type PageCapture, type ReaderResult } from './page-reader';
+import { cleanPageText, findSnippet, interpretReading, normalizeReaderReply, readerResultSchema, type PageCapture, type ReaderResult } from './page-reader';
 
 const reader = (overrides: Partial<ReaderResult> = {}): ReaderResult => ({
   pageState: 'answer', answerStart: '', answerEnd: '', sourceLinks: [], model: '', temporaryChat: 'unknown', note: '', ...overrides,
@@ -132,4 +132,11 @@ test('an ending quoted without its closing bracket still keeps it', async () => 
   const outcome = await interpretReading(page, reader({ answerStart: 'Tell me your goal', answerEnd: 'or comparing tools' }), fakeFetch);
   assert.equal(outcome.state, 'answer');
   if (outcome.state === 'answer') assert.equal(outcome.observation.answerText, 'Tell me your goal (setting up checks, or comparing tools)');
+});
+
+test('null fields from the reader model read as empty instead of failing the page', () => {
+  const parsed = readerResultSchema.safeParse(normalizeReaderReply({ pageState: 'answer', answerStart: 'a b c d e f', answerEnd: 'g h i j k l',
+    sourceLinks: null, model: null, temporaryChat: null, note: null }));
+  assert.equal(parsed.success, true);
+  if (parsed.success) assert.deepEqual([parsed.data.model, parsed.data.sourceLinks, parsed.data.temporaryChat], ['', [], 'unknown']);
 });
