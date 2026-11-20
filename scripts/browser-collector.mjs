@@ -1,306 +1,187 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+// The browser only does what a person would: open the site, type the question,
+// wait for the page to settle and copy what is on screen. Deciding what the page
+// shows, where the answer is and which links it cites is the AI page reader's job
+// (src/lib/geo/page-reader.ts), so nothing here depends on one site's layout.
+
 function taggedError(message, code) {
   const error = new Error(message);
   error.code = code;
   return error;
 }
 
-export async function collectBrowserQuestion(task, input) {
-  const jitterPause = (minMs, maxMs) =>
-    new Promise((resolve) => setTimeout(resolve, minMs + Math.floor(Math.random() * Math.max(1, maxMs - minMs + 1))));
-  const directory=path.join(input.root,'data','browser-captures');
-  const captureFile=path.join(directory,`${input.captureId}.json`);
+const ENGINES = {
+  chatgpt: { label: 'ChatGPT', start: () => 'https://chatgpt.com/?temporary-chat=true', requireSignIn: true },
+  google: { label: 'Google', start: (language) => (language === 'en' ? 'https://www.google.com/?hl=en' : 'https://www.google.com/') },
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const jitter = (minMs, maxMs) => sleep(minMs + Math.floor(Math.random() * Math.max(1, maxMs - minMs + 1)));
+
+/** Runs in the page. Copies the main content with a [Ln] mark after each link. */
+export function capturePage() {
+  const visible = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : true);
+  const secretKey = /^(?:authorization|cookie|set-cookie|password|access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret)$/i;
+  // Only the main content: a sidebar can hold the person's own chat titles.
+  const root = document.querySelector('main') || document.querySelector('[role="main"]') || document.body;
+  const links = [];
+  const marks = [];
+  for (const anchor of root.querySelectorAll('a[href]')) {
+    if (links.length >= 400) break;
+    if (!visible(anchor)) continue;
+    let url;
+    try { url = new URL(anchor.href); } catch { continue; }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.href.length > 16000 ||
+      /\s/.test(url.href) || [...url.searchParams.keys()].some((key) => secretKey.test(key))) continue;
+    const n = links.length + 1;
+    const text = (anchor.getAttribute('aria-label') || anchor.innerText || anchor.textContent || '')
+      .replace(/\s+/g, ' ').trim().slice(0, 300);
+    links.push({ n, text, url: url.href });
+    const mark = document.createElement('span');
+    mark.textContent = ` [L${n}]`;
+    anchor.after(mark);
+    marks.push(mark);
+  }
+  let pageText = '';
+  try { pageText = root.innerText || root.textContent || ''; } finally { for (const mark of marks) mark.remove(); }
+  const headerText = [...document.querySelectorAll('header')].filter(visible)
+    .map((header) => header.innerText || '').join('\n').replace(/[ \t]+/g, ' ').trim().slice(0, 600);
+  const signInVisible = [...document.querySelectorAll('a, button, [role="button"]')].some((el) =>
+    visible(el) && /^(log in|sign in|登录)$/i.test((el.innerText || el.textContent || '').trim()));
+  return { pageUrl: document.location.href, title: (document.title || '').slice(0, 300), headerText,
+    pageText: pageText.slice(0, 300000), links, signInVisible };
+}
+
+/** Runs in the page. Tags the largest visible text box so the driver can click it. */
+export function markInputBox() {
+  const visible = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : true);
+  for (const el of document.querySelectorAll('[data-opengeo-input]')) el.removeAttribute('data-opengeo-input');
+  const boxes = [...document.querySelectorAll('textarea, [contenteditable="true"], input[type="search"], input[type="text"], input:not([type])')]
+    .filter((el) => visible(el) && !el.disabled && !el.readOnly && el.getAttribute('aria-hidden') !== 'true');
+  const area = (el) => { const rect = el.getBoundingClientRect(); return rect.width * rect.height; };
+  const box = boxes.sort((a, b) => area(b) - area(a))[0];
+  if (!box) return false;
+  box.setAttribute('data-opengeo-input', '1');
+  return true;
+}
+
+/** Runs in the page. Whether a visible "Log in" / "Sign in" button is showing. */
+export function signInShown() {
+  const visible = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : true);
+  return [...document.querySelectorAll('a, button, [role="button"]')].some((el) =>
+    visible(el) && /^(log in|sign in|登录)$/i.test((el.innerText || el.textContent || '').trim()));
+}
+
+/** Runs in the page. How much main text there is, and whether a Stop/Generating control is showing. */
+export function pageActivity() {
+  const visible = (el) => (typeof el.checkVisibility === 'function' ? el.checkVisibility() : true);
+  const root = document.querySelector('main') || document.querySelector('[role="main"]') || document.body;
+  const busy = [...document.querySelectorAll('button[aria-label], [role="button"][aria-label], [role="progressbar"][aria-label]')]
+    .some((el) => visible(el) && /\bstop\b|停止|generating|生成中/i.test(el.getAttribute('aria-label') || ''));
+  return { length: (root.innerText || root.textContent || '').length, busy };
+}
+
+/** Wait until the page has stopped changing for a while. The AI reader still has the final say. */
+export async function waitForQuietPage(page, { minMs = 8000, quietMs = 6000, maxMs = 180000, pollMs = 2000 } = {}) {
+  const started = Date.now();
+  let last = -1;
+  let quietSince = Date.now();
+  while (Date.now() - started < maxMs) {
+    await sleep(pollMs);
+    const { length, busy } = await page.evaluate(pageActivity);
+    if (busy || length !== last) {
+      last = length;
+      quietSince = Date.now();
+      continue;
+    }
+    if (Date.now() - started >= minMs && Date.now() - quietSince >= quietMs) return true;
+  }
+  return false;
+}
+
+async function askQuestion(page, query, humanPause) {
+  if (!(await page.evaluate(markInputBox))) return false;
+  await page.click('[data-opengeo-input="1"]');
+  if (humanPause) await jitter(500, 1100);
+  await page.keyboard.insertText(query);
+  if (humanPause) await jitter(600, 1300);
+  await page.keyboard.press('Enter');
+  return true;
+}
+
+async function readPage(input, snapshot, attempt) {
+  const response = await fetch(`${input.base}/api/geo/browser-pages`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: input.base },
+    body: JSON.stringify({ projectId: input.projectId, batchId: input.batchId, questionId: input.questionId,
+      captureId: input.captureId, attempt, query: input.query, language: input.language, engine: input.engine, ...snapshot }),
+    signal: AbortSignal.timeout(240000),
+  });
+  const reading = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(`AI 读取页面未完成：${reading.error ?? response.status}`);
+  return reading;
+}
+
+export async function collectBrowserQuestion(task, input, { maxReads = 5, quiet = {} } = {}) {
+  const directory = path.join(input.root, 'data', 'browser-captures');
+  const captureFile = path.join(directory, `${input.captureId}.json`);
   try {
-    const prior=JSON.parse(await fs.readFile(captureFile,'utf8'));
-    if (prior.projectId !== input.projectId || prior.batchId !== input.batchId || prior.questionId !== input.questionId || prior.query !== input.query || prior.engine !== input.engine || prior.language !== input.language) throw new Error('采集编号已对应其他问题。');
-    const replayPayload = input.optimizationRunId
-      ? { ...prior, optimizationRunId: input.optimizationRunId }
-      : prior;
+    const prior = JSON.parse(await fs.readFile(captureFile, 'utf8'));
+    if (prior.projectId !== input.projectId || prior.batchId !== input.batchId || prior.questionId !== input.questionId ||
+      prior.query !== input.query || prior.engine !== input.engine || prior.language !== input.language) throw new Error('采集编号已对应其他问题。');
+    const replayPayload = input.optimizationRunId ? { ...prior, optimizationRunId: input.optimizationRunId } : prior;
     return submitBrowserCapture(input, replayPayload);
-  } catch(error) { if(error.code !== 'ENOENT') throw error; }
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+
+  const engine = ENGINES[input.engine];
+  if (!engine) throw new Error(`不支持的平台：${input.engine}`);
   const page = typeof task.page === 'function' ? task.page('p1') : task;
   console.log('正在浏览器采集这一题…');
-  let result;
-  let conditions;
-  if (input.engine === 'chatgpt') {
-    let turnIndex;
-    const detectChatGPTBlock = async () => page.evaluate(() => {
-      const text = document.body?.innerText || '';
-      const hasTurnstile = Boolean(document.querySelector('iframe[src*="challenges.cloudflare.com"], #cf-turnstile, [data-testid="challenge-stage"]'));
-      const hit = text.match(/too many requests|rate limit|unusual activity|verify you are human|just a moment|something went wrong.*try again later/i);
-      if (hasTurnstile && !hit) return 'Cloudflare challenge';
-      return hit ? hit[0] : '';
-    });
-    if (!input.resume) {
-    const composerSelectors = [
-      '#prompt-textarea',
-      'form [contenteditable="true"].ProseMirror',
-      'form [contenteditable="true"]',
-      '[contenteditable="true"][aria-label*="ChatGPT"]',
-      '[contenteditable="true"][aria-label="询问 ChatGPT"]',
-      'textarea[placeholder*="ChatGPT"]',
-      'textarea[placeholder*="Ask"]',
-    ];
-    const composer = composerSelectors.join(', ');
-    await page.goto('https://chatgpt.com/?temporary-chat=true');
-    const preBlock = await detectChatGPTBlock();
-    if (preBlock) throw taggedError(`ChatGPT 触发风控/限流或人工校验（${preBlock}），已主动熔断停止，请勿高频重试，请在当前页人工确认后点击继续。`, 'NEEDS_HUMAN_HANDOFF');
-    try {
-      await page.waitForSelector(composer, {state:'visible',timeout:30000});
-    } catch (waitError) {
-      const postBlock = await detectChatGPTBlock();
-      if (postBlock) throw taggedError(`ChatGPT 触发风控/限流或人工校验（${postBlock}），已主动熔断停止，请勿高频重试，请在当前页人工确认后点击继续。`, 'NEEDS_HUMAN_HANDOFF');
-      const needsLogin = await page.evaluate(() =>
-        /auth\.openai\.com|\/auth\/login/i.test(globalThis.location?.href ?? '') ||
-        [...document.querySelectorAll('button,a')].some((el) =>
-          el.checkVisibility() && /^(登录|Log in|Sign in|Sign up|免费注册)$/i.test(el.innerText?.trim() ?? ''),
-        ),
-      ).catch(() => false);
-      if (needsLogin) {
-        throw taggedError('ChatGPT 需要先登录账号或完成人工验证，请在打开的浏览器窗口完成后点击继续。', 'NEEDS_HUMAN_HANDOFF');
-      }
-      throw waitError;
+  if (!input.resume) {
+    await page.goto(engine.start(input.language));
+    await sleep(quiet.settleMs ?? (input.humanPause ? 2500 : 1500));
+    if (engine.requireSignIn && (await page.evaluate(signInShown))) {
+      throw taggedError(`${engine.label} 需要先登录账号，请在打开的浏览器窗口登录后点击继续。`, 'NEEDS_HUMAN_HANDOFF');
     }
-    let temporaryChatVerified = false;
-    try {
-      await page.waitForFunction(() => /临时聊天|Temporary Chat|won't appear in history/i.test(document.body.innerText), undefined, {timeout:8000});
-      temporaryChatVerified = true;
-    } catch {
-      const signedOutVisible = await page.evaluate(() =>
-        [...document.querySelectorAll('button,a')].some(
-          (el) => el.checkVisibility() && /^(登录|Log in|Sign in|Sign up|免费注册)$/i.test(el.innerText?.trim() ?? ''),
-        ),
-      ).catch(() => false);
-      if (signedOutVisible) {
-        throw taggedError('ChatGPT 需要先登录账号才能开启临时聊天采集，请在打开的浏览器窗口登录后点击继续。', 'NEEDS_HUMAN_HANDOFF');
-      }
-      throw taggedError('ChatGPT 未进入临时聊天模式（可能有弹窗或人工校验待确认），请在打开的浏览器窗口确认后点击继续。', 'NEEDS_HUMAN_HANDOFF');
-    }
-    const personal = await page.evaluate(() => [...document.querySelectorAll('button')].some(b => b.checkVisibility() && /^(个性化|Personalization)$/i.test(b.innerText.trim())));
-    if (personal) {
-      try {
-        await page.evaluate(() => {
-          const btn = [...document.querySelectorAll('button')].find((b) => b.checkVisibility() && /^(个性化|Personalization)$/i.test(b.innerText?.trim() ?? ''));
-          btn?.click();
-        });
-        await page.waitForFunction(() => [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], button, [role="option"]')].some((el) => el.checkVisibility() && /不个性化|Without memory|Turn off|Off/i.test(el.innerText?.trim() ?? '')), undefined, { timeout: 5000 });
-        await page.evaluate(() => {
-          const item = [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], button, [role="option"]')].find((el) => el.checkVisibility() && /不个性化|Without memory|Turn off|Off/i.test(el.innerText?.trim() ?? ''));
-          item?.click();
-        });
-        await page.waitForFunction(() => /不会使用记忆|without memory/i.test(document.body.innerText) ||
-          [...document.querySelectorAll('button')].some(b => b.checkVisibility() && /^(不个性化|Without memory|Off)$/i.test(b.innerText.trim())), undefined, { timeout: 8000 });
-      } catch {
-        await page.keyboard?.press?.('Escape').catch(() => {});
-      }
-    }
-    conditions=await page.evaluate(readChatGPTConditions,{language:input.language,temporaryChatVerified});
-    turnIndex=await page.evaluate(({query}) => [...document.querySelectorAll('[data-talvt-turn-state]')]
-      .filter(turn => turn.querySelector('[data-user-message-bubble]')?.textContent?.trim() === query).length, {query:input.query});
-    if (input.humanPause) await jitterPause(1200, 2600);
-    const targetComposer = await page.evaluate(({ fullSelector, candidates }) => {
-      const allMatched = [...document.querySelectorAll(fullSelector)];
-      const visibleAll = allMatched.filter((el) => el.checkVisibility());
-      if (allMatched.length <= 1 && visibleAll.length <= 1) return fullSelector;
-      for (const candidate of candidates) {
-        const all = [...document.querySelectorAll(candidate)];
-        if (all.length === 1 && all[0].checkVisibility()) return candidate;
-      }
-      for (const candidate of candidates) {
-        const visible = [...document.querySelectorAll(candidate)].filter((el) => el.checkVisibility());
-        if (visible.length === 1) return candidate;
-        if (visible.length > 1) return `${candidate} >> nth=0`;
-      }
-      return fullSelector;
-    }, { fullSelector: composer, candidates: composerSelectors });
-    await page.fill(targetComposer, input.query);
-    const composerFilled = await page.evaluate((sel) => {
-      const cleanSel = sel.replace(/\s*>>\s*nth=\d+$/, '');
-      const el = [...document.querySelectorAll(cleanSel)].find((node) => node.checkVisibility()) || document.querySelector(cleanSel);
-      if (!el) return false;
-      const val = 'value' in el && typeof el.value === 'string' ? el.value : '';
-      const txt = el.innerText || el.textContent || '';
-      return Boolean((val || txt).trim());
-    }, targetComposer);
-    if (!composerFilled && typeof page.keyboard?.insertText === 'function') {
-      await page.click(targetComposer);
-      await page.keyboard.insertText(input.query);
-    }
-    if (input.humanPause) await jitterPause(700, 1500);
-    const sendCandidates = [
-      'button[data-testid="send-button"]',
-      'button[data-testid="composer-submit-button"]',
-      'button[aria-label="Send prompt"]',
-      'button[aria-label="发送提示"]',
-      'button[aria-label="发送"]',
-      'form button[type="submit"]',
-    ];
-    const sendSelector = sendCandidates.join(', ');
-    await page.waitForFunction((sel) =>
-      [...document.querySelectorAll(sel)].some(
-        (btn) => btn.checkVisibility() && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true',
-      ), sendSelector, { timeout: 8000 });
-    const targetSendSelector = await page.evaluate(({ fullSelector, candidates }) => {
-      const isEnabledVisible = (btn) => btn.checkVisibility() && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true';
-      const allMatched = [...document.querySelectorAll(fullSelector)];
-      const visibleEnabled = allMatched.filter(isEnabledVisible);
-      if (allMatched.length <= 1 && visibleEnabled.length <= 1) return fullSelector;
-      for (const candidate of candidates) {
-        const all = [...document.querySelectorAll(candidate)];
-        if (all.length === 1 && isEnabledVisible(all[0])) return candidate;
-      }
-      for (const candidate of candidates) {
-        const enabled = [...document.querySelectorAll(candidate)].filter(isEnabledVisible);
-        if (enabled.length === 1) return candidate;
-        if (enabled.length > 1) return `${candidate} >> nth=0`;
-      }
-      return fullSelector;
-    }, { fullSelector: sendSelector, candidates: sendCandidates });
-    await page.click(targetSendSelector);
-    if (input.humanPause) await jitterPause(1500, 2500);
-    }
-    if (!(await page.url()).startsWith('https://chatgpt.com/')) throw new Error('当前页面不是 ChatGPT，不能继续采集。');
-    if (input.resume) conditions=await page.evaluate(readChatGPTConditions,{language:input.language,resume:true});
-    console.log('等待当前问题的 ChatGPT 回答完成…');
-    const selectedTurn=await waitForChatGPTAnswer(page,{query:input.query,turnIndex});
-    if (input.humanPause) await jitterPause(900, 1800);
-    result = await page.evaluate(extractChatGPT,selectedTurn);
-  } else {
-    if (!input.resume) {
-      if (input.humanPause) {
-        const homeUrl = input.language === 'en' ? 'https://www.google.com/?hl=en' : 'https://www.google.com/';
-        await page.goto(homeUrl);
-        const homeBlocked = await page.evaluate(() =>
-          Boolean(globalThis.location?.href?.includes('/sorry/'))
-          || Boolean(document.querySelector('iframe[src*="recaptcha"], #captcha-form, form[action*="sorry"]'))
-          || /unusual traffic|异常流量|不是自动程序/.test(document.body?.innerText || ''));
-        if (homeBlocked) throw taggedError('Google 需要人工验证，未写入失败搜索为零值。请在当前页完成验证。', 'NEEDS_HUMAN_HANDOFF');
-        try {
-          const boxSelector = 'textarea[name="q"]';
-          await page.waitForSelector(boxSelector, { state: 'visible', timeout: 15000 });
-          await jitterPause(900, 1800);
-          await page.fill(boxSelector, input.query);
-          await jitterPause(500, 1100);
-          await page.keyboard.press('Enter');
-          await page.waitForURL((url) => url.pathname === '/search' || url.pathname.startsWith('/sorry'), { timeout: 30000 });
-        } catch (navErr) {
-          if (navErr?.code === 'NEEDS_HUMAN_HANDOFF' || /人工验证/.test(navErr?.message ?? '')) throw navErr;
-          await page.goto(`https://www.google.com/search?q=${encodeURIComponent(input.query)}${input.language === 'en' ? '&hl=en' : ''}`);
-        }
-      } else {
-        await page.goto(`https://www.google.com/search?q=${encodeURIComponent(input.query)}${input.language === 'en' ? '&hl=en' : ''}`);
-      }
-    }
-    await page.waitForFunction(() => Boolean(
-      document.querySelector('#search')
-      || globalThis.location?.href?.includes('/sorry/')
-      || document.querySelector('iframe[src*="recaptcha"], #captcha-form, form[action*="sorry"]')
-      || /unusual traffic|异常流量|不是自动程序/i.test(document.body?.innerText || '')
-    ), undefined, {timeout:30000});
-    const blocked = await page.evaluate(() =>
-      Boolean(globalThis.location?.href?.includes('/sorry/'))
-      || Boolean(document.querySelector('iframe[src*="recaptcha"], #captcha-form, form[action*="sorry"]'))
-      || /unusual traffic|异常流量|不是自动程序/.test(document.body?.innerText || ''));
-    if (blocked) throw taggedError('Google 需要人工验证，未写入失败搜索为零值。请在当前页完成验证。', 'NEEDS_HUMAN_HANDOFF');
-    // Unthrottle background tab visibility/paint without stealing OS window focus,
-    // then wait for the observed AI Overview turn to finish.
-    if (typeof page.cdp === 'function') {
-      await page.cdp('Page.bringToFront').catch(() => {});
-      await page.cdp('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {});
-    }
-    await page.waitForFunction(() => {
-      const headings=[...document.querySelectorAll('h1,h2,h3,[role="heading"]')].filter(h=>/^(AI Overview|AI 概览|AI 概述)$/.test(h.textContent?.trim() ?? ''));
-      const heading=headings.find(h=>h.closest('[data-scope-id="turn"]')) ?? headings[0];
-      const isGenerating=(root=document)=>[...root.querySelectorAll('[role="progressbar"]')].some(e=>e.checkVisibility() && /generating|生成/i.test(e.getAttribute('aria-label') ?? ''));
-      if (!heading) return !isGenerating();
-      const turn=heading.closest('[data-scope-id="turn"]');
-      if (!turn || isGenerating(turn) || !turn.querySelector('[data-container-id="main-col"]')?.innerText?.trim()) return false;
-      const state=turn.getAttribute('data-complete');
-      if (state === 'true') return true;
-      if (state !== null) return false;
-      return [...turn.querySelectorAll('button[aria-label], [role="button"][aria-label]')].some(el =>
-        el.checkVisibility() && /^(Good response|Bad response|Copy text|满意|不满意|回答不错|回答不好|复制文本)$/i.test(el.getAttribute('aria-label')?.trim() ?? ''));
-    }, undefined, {timeout:120000});
-    if (input.humanPause) await jitterPause(900, 1800);
-    result = await page.evaluate(extractGoogle,{query:input.query});
-    conditions = {mode:result.entryType === 'web_answer' ? 'ai_overview' : 'web_search',region:'unknown',loginState:'unknown',
-      searchMode:'Google 默认搜索页',resultLanguage:input.language,notes:result.note};
+    if (!(await askQuestion(page, input.query, input.humanPause))) console.log('页面上没有输入框，交给 AI 判断页面状态…');
   }
-  if (!result.answerText?.trim()) throw new Error('没有取得完整的可读回答，未提交空结果。');
-  const payload = {projectId:input.projectId,batchId:input.batchId,questionId:input.questionId,
-    ...(input.optimizationRunId ? {optimizationRunId:input.optimizationRunId} : {}),
-    query:input.query,language:input.language,engine:input.engine,captureId:input.captureId,
-    recordedAt:new Date().toISOString(),pageUrl:await page.url(),entryType:result.entryType,
-    answerText:result.answerText,sources:result.sources,answerComplete:result.answerComplete,
-    ...(result.citations ? {citations:result.citations} : {}),
-    citationsComplete:result.citationsComplete,citationSource:result.citationSource ?? 'none',
-    conditions,raw:{collector:'browser-question',...result}};
-  // Recoverable local copy before sending; normal operation immediately submits
-  // the same capture to the app, rather than ending with a report file.
-  await fs.mkdir(directory,{recursive:true,mode:0o700});
-  await fs.writeFile(captureFile,JSON.stringify(payload,null,2),{mode:0o600,flag:'wx'});
-  return submitBrowserCapture(input, payload);
-}
 
-export function readChatGPTConditions({language,resume=false,temporaryChatVerified=false}) {
-  const controls=[...document.querySelectorAll('button,[role="button"]')]
-    .filter(button => button.checkVisibility() && !button.closest('[data-talvt-turn-state]'));
-  const label=button => `${button.getAttribute('aria-label') ?? ''} ${button.innerText ?? ''}`.trim();
-  const temporary=temporaryChatVerified || controls.some(button =>
-    /临时聊天|temporary chat/i.test(label(button)) &&
-    (button.getAttribute('aria-pressed') === 'true' || /关闭临时聊天|turn off temporary chat/i.test(label(button))));
-  const notPersonalized=controls.some(button =>
-    /^(不个性化|Without memory|Memory off|Off)$/i.test(button.innerText.trim()) ||
-    /不个性化|without memory|memory off/i.test(label(button)));
-  const signedOut=controls.some(button => /^(登录|Log in|Sign in)$/i.test(button.innerText.trim()));
-  const model=controls.find(button =>
-    /选择 ChatGPT 模型|Model selector|Choose.*model/i.test(button.getAttribute('aria-label') ?? '') ||
-    button.getAttribute('data-testid') === 'model-switcher-dropdown-button')?.innerText?.trim() || (language === 'en' ? 'Not shown' : '未显示');
-  return {mode:temporary ? 'temporary_chat' : 'unknown',region:'unknown',loginState:signedOut ? 'signed_out' : 'unknown',model,
-    searchMode:'ChatGPT 网页回答',resultLanguage:language,
-    notes:[resume ? '继续采集；以下仅为当前可见状态，发送时条件未核实。' : '已在发送前核对页面条件。',
-      temporary ? '页面显示临时聊天。' : '是否临时聊天未核实。',
-      notPersonalized ? '页面显示不个性化。' : '是否不个性化未核实。',
-      signedOut ? '页面显示登录入口。' : '登录状态未核实。'].join('')};
-}
-
-export async function waitForChatGPTAnswer(page, {query,turnIndex} = {}) {
-  if (typeof query !== 'string' || !query.trim()) throw new Error('等待 ChatGPT 回答需要原问题。');
-  if (turnIndex === undefined) {
-    turnIndex=await page.evaluate(({query}) => [...document.querySelectorAll('[data-talvt-turn-state]')]
-      .filter(turn => turn.querySelector('[data-user-message-bubble]')?.textContent?.trim() === query).length - 1, {query});
-    if (turnIndex < 0) throw new Error('当前页面没有与原问题匹配的轮次，不能继续采集。');
-  }
-  const selectedTurn={query,turnIndex};
-  for (const [render, timeout] of [[false, 600000], [true, 10000]]) {
-    try {
-      await page.waitForFunction(({render,query,turnIndex}) => {
-        const turn=[...document.querySelectorAll('[data-talvt-turn-state]')]
-          .filter(item => item.querySelector('[data-user-message-bubble]')?.textContent?.trim() === query)[turnIndex];
-        const text=turn?.querySelector('[data-markdown-text-style="assistant-message"]')?.textContent?.trim() ?? '';
-        const generating=Boolean(document.querySelector('button[data-testid="stop-button"], button[aria-label*="Stop" i], button[aria-label*="停止"]'));
-        const failed=Boolean(turn?.querySelector('[data-dil-render-failed]')) ||
-          /^(无法加载此回复|Unable to load this response|Something went wrong)(?:[。.!\s]|$)/i.test(text);
-        return failed || (!generating && turn?.getAttribute('data-talvt-turn-state') === 'complete' && (!render || Boolean(text)));
-      }, {...selectedTurn,render}, {timeout});
-    } catch (error) {
-      if (render && (error.name === 'TimeoutError' || /timed out/i.test(error.message))) {
-        throw new Error('回复已完成，但正文在 10 秒内仍未显示；停止采集，保留当前页面。', {cause:error});
-      }
-      throw error;
+  let lastNote = '';
+  for (let attempt = 1; attempt <= maxReads; attempt += 1) {
+    await waitForQuietPage(page, { ...(attempt === 1 ? { minMs: 8000, maxMs: 180000 } : { minMs: 2000, maxMs: 45000 }), ...quiet });
+    const snapshot = await page.evaluate(capturePage);
+    const reading = await readPage(input, snapshot, attempt);
+    if (reading.state === 'not_finished') {
+      lastNote = reading.message ?? '';
+      console.log('AI 判断回答还没生成完，稍等后再读…');
+      await sleep(quiet.retryMs ?? 8000);
+      continue;
     }
-    const failed=await page.evaluate(({query,turnIndex}) => {
-      const turn=[...document.querySelectorAll('[data-talvt-turn-state]')]
-        .filter(item => item.querySelector('[data-user-message-bubble]')?.textContent?.trim() === query)[turnIndex];
-      const text=turn?.querySelector('[data-markdown-text-style="assistant-message"]')?.textContent?.trim() ?? '';
-      return Boolean(turn?.querySelector('[data-dil-render-failed]')) ||
-        /^(无法加载此回复|Unable to load this response|Something went wrong)(?:[。.!\s]|$)/i.test(text);
-    },selectedTurn);
-    if (failed) throw new Error('ChatGPT 未能显示这条回复，停止等待并保留当前页面。');
+    if (reading.state === 'robot_check') {
+      throw taggedError(`${engine.label} 需要人工验证：请在浏览器窗口里完成“我不是机器人”检查后点击继续。未把这次搜索记为零。`, 'NEEDS_HUMAN_HANDOFF');
+    }
+    if (reading.state === 'login_required') {
+      throw taggedError(`${engine.label} 需要先登录，请在打开的浏览器窗口登录后点击继续。`, 'NEEDS_HUMAN_HANDOFF');
+    }
+    if (reading.state !== 'answer' && reading.state !== 'no_ai_answer') {
+      throw new Error(`没有取得可用回答：${reading.message ?? reading.error ?? '页面状态未知'}`);
+    }
+    const payload = {
+      projectId: input.projectId, batchId: input.batchId, questionId: input.questionId,
+      ...(input.optimizationRunId ? { optimizationRunId: input.optimizationRunId } : {}),
+      query: input.query, language: input.language, engine: input.engine, captureId: input.captureId,
+      recordedAt: new Date().toISOString(), pageUrl: snapshot.pageUrl,
+      ...reading.observation,
+      raw: { collector: 'ai-page-reader', attempt, reader: reading.reader, resolvedLinks: reading.resolvedLinks ?? [] },
+    };
+    if (payload.entryType === 'web_answer' && !payload.answerText?.trim()) throw new Error('没有取得完整的可读回答，未提交空结果。');
+    // Recoverable local copy first; the app then stores it as immutable evidence.
+    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+    await fs.writeFile(captureFile, JSON.stringify(payload, null, 2), { mode: 0o600, flag: 'wx' });
+    return submitBrowserCapture(input, payload);
   }
-  return selectedTurn;
+  throw new Error(`回答一直没有生成完，已停止等待：${lastNote || '页面没有稳定下来。'}`);
 }
 
 export async function submitBrowserCapture(input, payload) {
@@ -321,115 +202,4 @@ export async function submitBrowserCapture(input, payload) {
   if (saved.audit?.analysisStatus === 'failed') throw taggedError('回答已入库，但模型分析失败；判断保留待核实，可重试分析。', 'REVIEW_PENDING');
   if (saved.status === 'needs_review' || saved.audit?.analysisStatus === 'needs_review') throw taggedError('回答已入库，但审核仍待核实；请核对证据后再结束采集。', 'REVIEW_PENDING');
   return saved;
-}
-
-export function extractChatGPT({query,turnIndex,nativeCitationEvidence}) {
-  const matching=[...document.querySelectorAll('[data-talvt-turn-state]')]
-    .filter(turn => turn.querySelector('[data-user-message-bubble]')?.textContent?.trim() === query);
-  const turn=turnIndex === undefined ? matching.at(-1) : matching[turnIndex];
-  if (!turn || turn.getAttribute('data-talvt-turn-state') !== 'complete') throw new Error('ChatGPT 回答尚未完成。');
-  const user=turn.querySelector('[data-user-message-bubble]');
-  if (user?.textContent?.trim() !== query) throw new Error('当前回答与原问题不匹配，停止采集。');
-  const reply=turn.querySelector('[data-markdown-text-style="assistant-message"]');
-  if (!reply) throw new Error('ChatGPT 回答布局已变化，无法确认回答边界；停止采集。');
-  if (turn.querySelector('[data-dil-render-failed]') || /^(无法加载此回复|Unable to load this response|Something went wrong)(?:[。.!\s]|$)/i.test(reply.textContent?.trim() ?? '')) throw new Error('ChatGPT 未能显示这条回复，未将错误提示入库。');
-  if (!reply.textContent?.trim()) throw new Error('回答正文为空，停止采集。');
-  if (nativeCitationEvidence && (nativeCitationEvidence.pageUrl !== document.location.href || nativeCitationEvidence.query !== query)) {
-    throw new Error('原生引用证据与当前页面或问题不匹配，停止采集。');
-  }
-  // Keep this function self-contained: it is also evaluated inside the browser.
-  const safeSource=source=>{
-    if (!source || typeof source.title !== 'string' || source.title.length > 4000 ||
-      typeof source.url !== 'string' || source.url.length > 16000 || /\s/.test(source.url)) return null;
-    try {
-      const u=new URL(source.url);
-      const secretKey=/^(?:authorization|cookie|set-cookie|password|access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret)$/i;
-      if (!['http:','https:'].includes(u.protocol) || u.username || u.password ||
-        /(^|\.)chatgpt\.com$/i.test(u.hostname) || [...u.searchParams.keys()].some(key=>secretKey.test(key))) return null;
-      return {title:source.title.trim() || u.hostname,url:u.href};
-    } catch { return null; }
-  };
-  const unique=items=>[...new Map(items.map(item=>[item.url,item])).values()];
-  const sources=[...reply.querySelectorAll('a[href]')]
-    .filter(a=>!/\s/.test(a.getAttribute('href') ?? ''))
-    .map(a=>safeSource({title:a.textContent?.trim() ?? '',url:a.href})).filter(Boolean);
-  const markers=[...reply.querySelectorAll('[data-d-component="popover-trigger"][role="button"]')]
-    .filter(marker=>marker.checkVisibility() && marker.querySelector('[data-d-component="badge"]'))
-    .map((marker,markerIndex)=>{
-      const label=marker.textContent?.trim() ?? '';
-      const extra=label.match(/\+(\d+)$/);
-      return {markerIndex,label,expectedCount:extra ? Number(extra[1])+1 : 1};
-    });
-  const groups=Array.isArray(nativeCitationEvidence?.groups) ? nativeCitationEvidence.groups : [];
-  const verifiedGroups=[];
-  let citationsComplete=markers.length > 0 && groups.length === markers.length;
-  groups.forEach((group,index)=>{
-    const marker=Number.isSafeInteger(group?.markerIndex) ? markers[group.markerIndex] : null;
-    const duplicate=groups.filter(candidate=>candidate?.markerIndex === group?.markerIndex).length !== 1;
-    if (!marker || duplicate || group.label !== marker.label || group.expectedCount !== marker.expectedCount ||
-      !Number.isSafeInteger(marker.expectedCount) || marker.expectedCount < 1 || !Array.isArray(group.sources)) {
-      citationsComplete=false;
-      return;
-    }
-    const checkedSources=group.sources.map(safeSource).filter(Boolean);
-    if (group.markerIndex !== index || group.sources.length !== marker.expectedCount ||
-      checkedSources.length !== marker.expectedCount || unique(checkedSources).length !== marker.expectedCount) citationsComplete=false;
-    verifiedGroups.push({...marker,sources:checkedSources});
-  });
-  const citations=unique(verifiedGroups.flatMap(group=>group.sources));
-  const citationSource=citations.length ? 'native' : 'unknown';
-  return {entryType:'web_answer',answerText:reply.innerText,sources:unique(sources),citations,
-    answerComplete:true,citationsComplete,citationSource,
-    ...(nativeCitationEvidence ? {nativeCitationEvidence:{pageUrl:document.location.href,query,turnIndex:matching.indexOf(turn),markers,groups:verifiedGroups}} : {}),
-    note:citationsComplete ? '完整回答正文；已逐组核对原生引用标记、来源数量及链接。' :
-      citationSource === 'native' ? '完整回答正文；已保留核实的原生引用，但引用清单尚未核实完整。' :
-        '完整回答正文；正文外链已保留，但未核实原生引用标记，引用判断保留待核实。'};
-}
-
-export function extractGoogle({query}) {
-  const url=new URL(document.location.href);
-  if (!/(^|\.)google\.[a-z.]+$/.test(url.hostname) || url.pathname !== '/search' || url.searchParams.get('udm') === '50') throw new Error('当前页面不是 Google 默认搜索页。');
-  const current=document.querySelector('textarea[name="q"],input[name="q"]')?.value;
-  if (current?.trim() !== query) throw new Error('Google 当前问题与原问题不匹配，停止采集。');
-  // AI Overview's verified turn and main column exclude the organic results.
-  const headings=[...document.querySelectorAll('h1,h2,h3,[role="heading"]')].filter(h=>/^(AI Overview|AI 概览|AI 概述)$/.test(h.textContent?.trim() ?? ''));
-  const heading=headings.find(h=>h.closest('[data-scope-id="turn"]')) ?? headings[0];
-  if (heading) {
-    const turn=heading.closest('[data-scope-id="turn"]');
-    const state=turn?.getAttribute('data-complete') ?? null;
-    const hasFinishedFooter=Boolean(turn) && state === null && [...turn.querySelectorAll('button[aria-label], [role="button"][aria-label]')].some(el =>
-      el.checkVisibility() && /^(Good response|Bad response|Copy text|满意|不满意|回答不错|回答不好|复制文本)$/i.test(el.getAttribute('aria-label')?.trim() ?? ''));
-    if (!turn || (state !== 'true' && !hasFinishedFooter)) throw new Error('Google AI 概览尚未完成，或回答边界已变化。');
-    const body=turn.querySelector('[data-container-id="main-col"]');
-    if (!body?.innerText?.trim()) throw new Error('Google AI 概览正文为空，停止采集。');
-    if ([...turn.querySelectorAll('[role="progressbar"]')].some(e=>e.checkVisibility() && /generating|生成/i.test(e.getAttribute('aria-label') ?? ''))) throw new Error('Google AI 概览仍在生成。');
-    const panel=turn.querySelector('[data-container-id="rhs-col"]');
-    const sourceRegions=[body, panel].filter(Boolean);
-    const links=sourceRegions.flatMap(region=>[...region.querySelectorAll('a[href]')]).flatMap(anchor=>{
-      try {
-        const target=new URL(anchor.href);
-        return ['http:','https:'].includes(target.protocol) && !target.username && !target.password
-          ? [{anchor,target,source:{title:anchor.getAttribute('aria-label') || anchor.textContent?.trim() || target.hostname,url:target.href}}] : [];
-      } catch { return []; }
-    });
-    const isGoogleLink=target=>/(^|\.)google\.[a-z.]+$/i.test(target.hostname);
-    const unique=items=>[...new Map(items.map(item=>[item.url,item])).values()];
-    // Only the observed native source panel establishes citation provenance.
-    // Body links and Google's unresolved hops never become confirmed citations.
-    const citations=unique(links.filter(({anchor,target})=>panel?.contains(anchor) &&
-      panel.checkVisibility() && anchor.checkVisibility() && !isGoogleLink(target)).map(({source})=>source));
-    const unresolvedCitations=unique(links.filter(({target})=>isGoogleLink(target)).map(({source,target})=>({
-      ...source,resolution:'unresolved',
-      reason:/^\/(?:goto|url)(?:\/|$)/.test(target.pathname) ? 'google_redirect' : 'google_internal',
-    })));
-    return {entryType:'web_answer',answerText:body.innerText.trim(),sources:unique(links.map(({source})=>source)),
-      citations,unresolvedCitations,answerComplete:true,citationsComplete:false,citationSource:citations.length ? 'native' : 'unknown',
-      note:'Google 默认搜索页 AI Overview；仅采集独立回答正文。原生引用仅记录来源侧栏中可核对的外站直链；正文链接另存为来源，Google 跳转与其他内链保留原地址待解析，引用清单未确认完整。'};
-  }
-  const search=document.querySelector('#search');
-  if (!search) throw new Error('未找到 Google 搜索结果。');
-  if ([...document.querySelectorAll('[role="progressbar"]')].some(e=>e.checkVisibility() && /generating|生成/i.test(e.getAttribute('aria-label') ?? ''))) throw new Error('Google AI 概览仍在生成。');
-  const sources=[...search.querySelectorAll('a[href]:has(h3)')].map(a=>({title:a.querySelector('h3').innerText,url:a.href}));
-  return {entryType:'web_search',answerText:search.innerText,sources,answerComplete:false,citationsComplete:false,
-    note:'本次默认搜索页未观察到 AI Overview，保存为普通网页结果，不计入 AI 提及率。'};
 }

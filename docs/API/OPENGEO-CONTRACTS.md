@@ -24,6 +24,7 @@
 | `/api/geo/evidence` | GET | [证据读取](opengeo/shared.md#原回答与证据文件) |
 | `/api/geo/research` | GET、POST | [问题监测](opengeo/pages/question-monitoring.md) |
 | `/api/geo/browser-observations` | GET、POST | [浏览器采集入库与自动分析](opengeo/browser-observations.md) |
+| `/api/geo/browser-pages` | POST | [浏览器采集：AI 页面阅读](opengeo/browser-observations.md#页面阅读接口) |
 | `/api/geo/research/tracking` | GET、POST | [每日计划](opengeo/pages/question-monitoring.md#每日问题跟踪) |
 | `/api/geo/overview-version` | GET | [概览刷新](opengeo/pages/overview.md) |
 | `/api/geo/overview-order` | GET、POST | [概览布局](opengeo/pages/overview.md) |

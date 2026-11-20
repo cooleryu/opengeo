@@ -2,11 +2,13 @@
 
 ## 当前接线与验证
 
+2026-11-20 起采集改为“浏览器只做通用动作，AI 读页面”：采集器只打开网站、在页面上最大的输入框输入原问题、等待页面稳定，再复制主内容区的可见文字和链接（每个链接后加 `[L编号]` 标记），不再按 ChatGPT 或 Google 的页面结构写提取规则。页面状态（已回答、仍在生成、机器人验证、需登录、Google 无 AI 概览）、回答起止原文和回答引用的链接编号由 [AI 页面阅读](../../../skills/page-reading/SKILL.md) 判断；回答正文由代码按起止原文从页面逐字截取，AI 不复述正文。Google 的 `google.com/goto` 等跳转链接在审核前跟随到真实网址，自有内容引用因此能在 Google 上核对。实测（品牌题，ChatGPT 与 Google 各一次）：两条都一次读取成功并完成审核，Google 6 条跳转链接全部还原。以下为历史记录。
+
 2026-11-08 恢复后实测：继续读取此前已生成的同一条 ChatGPT 临时聊天回答，未重新提问。正文与 3 组原生引用（去重后 3 个网页）已保存；Astra Max 识别为同名其他项目，语义审核得到 `mention: no`、`citation: no`，并通过证据检查。已打开的概览通过现有轮询自动读到新判断，无需手动刷新。不同采集条件的新观测不能当作优化前后的效果对比。
 
 本次原生引用弹窗由操作者逐组展开核对，提取器校验页面、问题、标记、来源数量与链接后保存分组证据；49 项采集器测试通过。**单题的采集、自动分析、入库与概览读取已验证；命令自动展开所有原生引用弹窗仍未接通。** 以下加载失败记录保留为排查历史，不代表当前仍未恢复。旧 Google 记录的引用完整性仍为未知，未重复搜索。
 
-浏览器采集命令为 `scripts/browser-collect.mjs`，默认通过 Playwright 启动本机 Google Chrome（使用独立本地配置文件 `data/browser-profile`，保留登录态并实时流式输出进度），仅在显式指定 `--driver ego` 时才切回 `ego-browser`。逐题采集后立即调用保存接口，再由已配置模型分析；概览沿用现有版本轮询读取更新。不会因为用户在任意浏览器手动搜索，就自动监听或读取该页面。
+浏览器采集命令为 `scripts/browser-collect.mjs`。已安装 `ego-browser` 时默认使用它；否则通过 Playwright 启动本机 Chrome / Edge / Chromium（独立配置文件 `data/browser-profile`，保留登录态），也可用 `--driver` 指定。逐题采集后立即调用保存接口，再由已配置模型分析；概览沿用现有版本轮询读取更新。不会因为用户在任意浏览器手动搜索，就自动监听或读取该页面。
 
 本地已用一条历史 ChatGPT 真实回答验证自动分析、SQLite 保存、重复提交复用和概览自动读取；补录保留原采集时间。
 
@@ -22,9 +24,15 @@
 node scripts/browser-collect.mjs --project PROJECT_ID --question QUESTION_ID --engine chatgpt
 ```
 
-命令从当前已确认问题读取原问法；采集完成即提交下面的接口，不需要另写报告或手工写数据库。ChatGPT 使用临时聊天且关闭个性化，不保存为历史对话。这不代表服务端绝对零留存；参见 [Temporary Chat 官方说明](https://help.openai.com/en/articles/8914046-temporary-chat-in-chatgpt)。Google 默认搜索页使用 `--engine google`；有 AI 概览时保存 AI 回答，否则只保存网页结果。复用受控浏览器工作区时传 `--space SPACE_ID`；该工作区由调用方负责收尾。采集暂停后，传相同工作区及 `--resume true` 继续读取已生成的回答，不再次提问。
+命令从当前已确认问题读取原问法；采集完成即提交下面的接口，不需要另写报告或手工写数据库。ChatGPT 使用临时聊天（不使用记忆和历史对话），不保存为历史对话。这不代表服务端绝对零留存；参见 [Temporary Chat 官方说明](https://help.openai.com/en/articles/8914046-temporary-chat-in-chatgpt)。Google 默认搜索页使用 `--engine google`；有 AI 概览时保存 AI 回答，否则只保存网页结果。复用受控浏览器工作区时传 `--space SPACE_ID`；该工作区由调用方负责收尾。采集暂停后，传相同工作区及 `--resume true` 继续读取已生成的回答，不再次提问。
 
 已采到的本地正文保存在 Git 忽略的 `data/browser-captures/`。网络中断时，用 `--saved CAPTURE_ID` 直接提交同一条；模型分析确需重试时，再加 `--retry-analysis true`。普通重复提交复用已有判断，不重复调用模型。
+
+## 页面阅读接口
+
+`POST /api/geo/browser-pages` 由采集器每次读页时调用，只判断页面，不入库。请求含 `projectId`、`batchId`、`questionId`、`captureId`、`attempt`、`query`、`language`、`engine`、`pageUrl`、`title`、`headerText`、`pageText`、`links`（`{n, text, url}`）与 `signInVisible`；问题必须逐字匹配已确认原文。只接受本机同源 JSON 请求，上限 2 MiB。
+
+返回 `state`：`answer` 或 `no_ai_answer` 时附 `observation`（即下方入库接口所需的回答字段，`citationSource` 为 `unknown`）、`reader` 与 `resolvedLinks`；`not_finished`、`robot_check`、`login_required`、`error` 时附 `message`，不产生观测，采集器据此稍等再读、交给用户处理或停止。机器人验证与登录不会记为零值。每次读取的页面与判断保存在 `data/geo-evidence/browser-{captureId}/page-{attempt}-{时间}.json`。使用与回答审核相同的已配置模型。
 
 ## 入库接口
 
