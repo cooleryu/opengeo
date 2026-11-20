@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react';
 import {
   Check,
+  Copy,
   ExternalLink,
   GitPullRequest,
+  Globe,
   Loader2,
   MessageSquarePlus,
   Settings2,
@@ -57,6 +59,7 @@ export default function OutreachActionCards({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [busyOp, setBusyOp] = useState<string | null>(null);
   const [awesomeEdits, setAwesomeEdits] = useState<Record<string, AwesomeEditDraft>>({});
+  const [listingEdits, setListingEdits] = useState<Record<string, string>>({});
   const [postEdits, setPostEdits] = useState<Record<string, PostEditDraft>>({});
   const [repoMetaEdit, setRepoMetaEdit] = useState<RepoMetaEditDraft>({
     description: '',
@@ -68,6 +71,7 @@ export default function OutreachActionCards({
 
   useEffect(() => {
     const nextAwesome: Record<string, AwesomeEditDraft> = {};
+    const nextListings: Record<string, string> = {};
     const nextPosts: Record<string, PostEditDraft> = {};
     for (const item of actions) {
       if (item.kind === 'awesome_pr' && item.awesomePrDraft) {
@@ -75,6 +79,9 @@ export default function OutreachActionCards({
           insertedLine: item.awesomePrDraft.insertedLine,
           prTitle: item.awesomePrDraft.prTitle,
         };
+      }
+      if (item.kind === 'directory_listing' && item.listingDraft) {
+        nextListings[item.id] = item.listingDraft.submissionPitch;
       }
       if (item.kind === 'community_post' && item.postDraft) {
         nextPosts[item.id] = {
@@ -91,6 +98,7 @@ export default function OutreachActionCards({
       }
     }
     setAwesomeEdits((prev) => ({ ...nextAwesome, ...prev }));
+    setListingEdits((prev) => ({ ...nextListings, ...prev }));
     setPostEdits((prev) => ({ ...nextPosts, ...prev }));
   }, [actions]);
 
@@ -447,6 +455,176 @@ export default function OutreachActionCards({
           );
         }
 
+        if (item.kind === 'directory_listing') {
+          const listingDraft = item.listingDraft;
+          const pitchText = listingEdits[item.id] ?? listingDraft?.submissionPitch ?? '';
+          const isMarkingListing = markingSentId === item.id;
+          return (
+            <article key={item.id} className="oap-action-card is-ready">
+              <div className="oap-card-top">
+                <div className="oap-badges">
+                  {isTopPriority && (
+                    <span className="oap-priority-pill">
+                      {isEn ? 'Do this next' : '最优先一步'}
+                    </span>
+                  )}
+                  <span className="oap-kind-pill is-awesome">
+                    <Globe size={12} />
+                    {isEn ? 'External directory' : '外部目录收录'}
+                  </span>
+                  {Boolean(item.citedCount) && (
+                    <span className="oap-cited-pill">
+                      {t('actionPlan.citedBadge', { count: item.citedCount ?? 1 })}
+                    </span>
+                  )}
+                </div>
+                <a
+                  href={item.targetUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="oap-ext-link"
+                >
+                  {isEn ? 'Open listing page' : '打开目标目录'} <ExternalLink size={11} />
+                </a>
+              </div>
+
+              <h3>{item.title}</h3>
+              {renderEvidenceBox(item)}
+
+              <div className="oap-inline-fields">
+                <label className="oap-field">
+                  <span>{isEn ? 'Ready-to-paste submission summary' : '收录提交材料（可直接复制）'}</span>
+                  <textarea
+                    rows={4}
+                    value={pitchText}
+                    onChange={(e) =>
+                      setListingEdits((prev) => ({ ...prev, [item.id]: e.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+
+              {isMarkingListing && (
+                <div className="oap-mark-sent-box">
+                  <input
+                    type="url"
+                    value={sentUrlInput}
+                    onChange={(e) => setSentUrlInput(e.target.value)}
+                    placeholder={
+                      isEn
+                        ? 'Required: paste your live listing or submission URL (https://...)'
+                        : '必填：粘贴提交后的目录页或收录凭证链接（https://...）'
+                    }
+                  />
+                  <div className="oap-mark-sent-btns">
+                    <button
+                      type="button"
+                      className="ost-btn-secondary is-sm"
+                      onClick={() => {
+                        setMarkingSentId(null);
+                        setSentUrlInput('');
+                      }}
+                    >
+                      {t('actionPlan.readerDrawerClose')}
+                    </button>
+                    <button
+                      type="button"
+                      className="ost-btn-primary is-sm"
+                      disabled={Boolean(busyId) || !/^https?:\/\/\S+/i.test(sentUrlInput.trim())}
+                      onClick={async () => {
+                        const cleanUrl = sentUrlInput.trim();
+                        if (!/^https?:\/\/\S+/i.test(cleanUrl)) {
+                          onError(
+                            isEn
+                              ? 'Please paste a valid http:// or https:// URL before archiving.'
+                              : '请先填入以 http:// 或 https:// 开头的真实公开链接。',
+                          );
+                          return;
+                        }
+                        const res = await callOutreach(item.id, 'mark', {
+                          action: 'mark_completed',
+                          resultUrl: cleanUrl,
+                        });
+                        if (res) {
+                          setMarkingSentId(null);
+                          setSentUrlInput('');
+                          onNotice(isEn ? 'Archived to Shipped Log.' : '已记入「已上线记录」。');
+                        }
+                      }}
+                    >
+                      <Check size={13} />
+                      <span>{t('actionPlan.markSentBtn')}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="oap-card-actions">
+                <button
+                  type="button"
+                  className="ost-btn-secondary is-sm"
+                  disabled={Boolean(busyId)}
+                  onClick={() => void callOutreach(item.id, 'skip', { action: 'skip' })}
+                >
+                  {t('actionPlan.skipCardBtn')}
+                </button>
+                <button
+                  type="button"
+                  className="ost-btn-secondary is-sm"
+                  onClick={async () => {
+                    await navigator.clipboard?.writeText(pitchText).catch(() => {});
+                    onNotice(isEn ? 'Copied listing details to clipboard.' : '已复制目录提交材料到剪贴板。');
+                  }}
+                >
+                  <Copy size={13} />
+                  <span>{isEn ? 'Copy material' : '复制提交材料'}</span>
+                </button>
+                {!isMarkingListing && (
+                  <button
+                    type="button"
+                    className="ost-btn-secondary is-sm"
+                    disabled={Boolean(busyId)}
+                    onClick={() => {
+                      setMarkingSentId(item.id);
+                      setSentUrlInput('');
+                    }}
+                  >
+                    <Check size={13} />
+                    <span>{t('actionPlan.markSentBtn')}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="ost-btn-primary is-sm"
+                  disabled={Boolean(busyId)}
+                  onClick={async () => {
+                    await navigator.clipboard?.writeText(pitchText).catch(() => {});
+                    const res = await callOutreach(item.id, 'ego', {
+                      action: 'open_ego',
+                      targetUrl: listingDraft?.submitUrl || item.targetUrl,
+                      draftBody: pitchText,
+                    });
+                    if (res) {
+                      onNotice(
+                        isEn
+                          ? 'Copied submission details and opened the directory page in Ego Lite.'
+                          : '已复制材料并在 Ego Lite 打开目标目录页；提交后点击「记为已发」即可入账。',
+                      );
+                    }
+                  }}
+                >
+                  {isBusy && busyOp === 'ego' ? (
+                    <Loader2 size={14} className="ost-spin" />
+                  ) : (
+                    <ExternalLink size={14} />
+                  )}
+                  <span>{isEn ? 'Copy & open directory' : '复制并打开目录页'}</span>
+                </button>
+              </div>
+            </article>
+          );
+        }
+
         // Community / Multi-angle Post Card
         const postDraft = item.postDraft;
         const edit = postEdits[item.id] ?? {
@@ -524,7 +702,11 @@ export default function OutreachActionCards({
                   type="url"
                   value={sentUrlInput}
                   onChange={(e) => setSentUrlInput(e.target.value)}
-                  placeholder={t('actionPlan.publishedUrlPromptLabel')}
+                  placeholder={
+                    isEn
+                      ? 'Required: paste the live post or reply URL (https://...)'
+                      : '必填：粘贴发帖或回复后的真实公开链接（https://...）'
+                  }
                 />
                 <div className="oap-mark-sent-btns">
                   <button
@@ -540,11 +722,20 @@ export default function OutreachActionCards({
                   <button
                     type="button"
                     className="ost-btn-primary is-sm"
-                    disabled={Boolean(busyId)}
+                    disabled={Boolean(busyId) || !/^https?:\/\/\S+/i.test(sentUrlInput.trim())}
                     onClick={async () => {
+                      const cleanUrl = sentUrlInput.trim();
+                      if (!/^https?:\/\/\S+/i.test(cleanUrl)) {
+                        onError(
+                          isEn
+                            ? 'Please paste a valid http:// or https:// URL before archiving.'
+                            : '请先填入以 http:// 或 https:// 开头的真实公开链接。',
+                        );
+                        return;
+                      }
                       const res = await callOutreach(item.id, 'mark', {
                         action: 'mark_completed',
-                        resultUrl: sentUrlInput.trim() || undefined,
+                        resultUrl: cleanUrl,
                       });
                       if (res) {
                         setMarkingSentId(null);
@@ -665,7 +856,7 @@ export default function OutreachActionCards({
         <div className="oap-outreach-subgroup">
           {communityActions.length > 0 && (
             <div className="oap-sub-heading">
-              <span>{isEn ? 'GitHub lists & repo metadata' : 'GitHub 榜单 PR 与仓库元信息'}</span>
+              <span>{isEn ? 'AI-cited lists & external directories' : 'AI 引用的外部清单与目录'}</span>
               <em>{primaryActions.length}</em>
             </div>
           )}

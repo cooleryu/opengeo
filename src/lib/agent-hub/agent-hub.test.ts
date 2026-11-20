@@ -244,3 +244,98 @@ test('Validation aspect catches personal_memory false-positive and forces self-c
   assert.equal(res.output.identity, 'personal_memory');
   assert.equal(res.output.mention, 'no');
 });
+
+test('AgentHub.mapReduce runs parallel shards with bounded concurrency, preserves order, and reduces cleanly', async () => {
+  const hub = new AgentHub();
+
+  const mapSpec: AgentSpec<{ shard: string; delayMs: number }, { shard: string; count: number }> = {
+    id: 'test-mapper',
+    title: '分片阅读员',
+    role: 'fast',
+    outputSchema: z.object({ shard: z.string(), count: z.number().int() }),
+    buildPrompt: (input) => ({ system: 'extract', user: JSON.stringify(input) }),
+  };
+  const reduceSpec: AgentSpec<{ items: Array<{ shard: string; count: number }> }, { total: number; shards: string[] }> = {
+    id: 'test-reducer',
+    title: '信号汇总官',
+    role: 'fast',
+    outputSchema: z.object({ total: z.number().int(), shards: z.array(z.string()) }),
+    buildPrompt: (input) => ({ system: 'reduce', user: JSON.stringify(input) }),
+  };
+
+  hub.register(mapSpec).register(reduceSpec);
+
+  let active = 0;
+  let peakActive = 0;
+  const transport = createOpenAICompatibleTransport({
+    provider: 'deepseek',
+    baseURL: 'https://api.deepseek.com',
+    apiKey: 'synthetic-key',
+    models: ['deepseek-chat'],
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
+      const payload = JSON.parse(body.messages[1].content);
+      if ('shard' in payload) {
+        active += 1;
+        peakActive = Math.max(peakActive, active);
+        await new Promise((r) => setTimeout(r, payload.delayMs));
+        active -= 1;
+        return new Response(
+          JSON.stringify({
+            model: 'deepseek-chat',
+            choices: [{ message: { role: 'assistant', content: JSON.stringify({ shard: payload.shard, count: payload.shard.length }) } }],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+          }),
+          { status: 200 },
+        );
+      }
+      const items = payload.items as Array<{ shard: string; count: number }>;
+      return new Response(
+        JSON.stringify({
+          model: 'deepseek-chat',
+          choices: [
+            {
+              message: {
+                role: 'assistant',
+                content: JSON.stringify({
+                  total: items.reduce((s, i) => s + i.count, 0),
+                  shards: items.map((i) => i.shard),
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 20, completion_tokens: 8 },
+        }),
+        { status: 200 },
+      );
+    },
+  });
+
+  const mr = await hub.mapReduce<
+    { shard: string; delayMs: number },
+    { shard: string; count: number },
+    { items: Array<{ shard: string; count: number }> },
+    { total: number; shards: string[] }
+  >({
+    mapSpec: 'test-mapper',
+    mapInputs: [
+      { shard: 'chatgpt-1', delayMs: 40 },
+      { shard: 'chatgpt-2', delayMs: 10 },
+      { shard: 'google-1', delayMs: 30 },
+      { shard: 'google-2', delayMs: 5 },
+    ],
+    reduceSpec: 'test-reducer',
+    buildReduceInput: (items) => ({ items }),
+    concurrency: 2,
+    shardLabel: (item) => item.shard,
+    projectId: 'sample-project',
+    transport,
+  });
+
+  assert.equal(peakActive, 2);
+  assert.deepEqual(mr.output.shards, ['chatgpt-1', 'chatgpt-2', 'google-1', 'google-2']);
+  assert.equal(mr.output.total, 9 + 9 + 8 + 8);
+  assert.equal(mr.telemetry.promptTokens, 60);
+  assert.equal(mr.telemetry.completionTokens, 28);
+  assert.ok(mr.progress.some((p) => p.message.includes('并发调度 4 个')));
+});

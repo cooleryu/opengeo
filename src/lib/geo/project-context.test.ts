@@ -1,3 +1,4 @@
+import './test-fixtures';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -26,7 +27,7 @@ afterEach(() => {
 });
 
 test('readProjectContext synthesizes without creating files, and writeProjectContext persists maintainer edits', () => {
-  const projectId = resolveGeoProject(undefined);
+  const projectId = resolveGeoProject('sample-project');
   assert.equal(projectContextExists(projectId), false);
 
   const initial = readProjectContext(projectId);

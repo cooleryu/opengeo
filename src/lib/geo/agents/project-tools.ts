@@ -11,7 +11,7 @@ import { evidenceLocation, withGeoProject } from '../projects';
 import { parseGitHubRepoUrl } from '../source-identity';
 import type { GeoAsset, GeoSeed } from '../types';
 
-function readAnswerTextFromFile(fullPath: string): string {
+export function readAnswerTextFromFile(fullPath: string): string {
   const raw = fs.readFileSync(fullPath, 'utf8');
   if (!fullPath.endsWith('.json')) return raw;
   const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -255,6 +255,32 @@ export function localMediaPathExists(
   );
 }
 
+const ALLOWED_WORKSPACE_FILE_RE =
+  /^(?:package\.json|license(?:[.-][a-z0-9._-]+)?|readme(?:[.-][a-z0-9._-]+)?|(?:docs|src)\/.+)$/i;
+
+const BLOCKED_WORKSPACE_SEGMENT_RE =
+  /(?:^|\/)(?:\.env(?:\.|$)|\.git(?:\/|$)|node_modules(?:\/|$)|\.next(?:\/|$)|data(?:\/|$))/i;
+
+const BLOCKED_WORKSPACE_EXT_RE =
+  /\.(?:pem|key|p12|pfx|crt|sqlite|sqlite3|db|png|jpe?g|webp|ico|woff2?|pdf|zip|tar|gz)$/i;
+
+/**
+ * Strict allowlist for AI read-only source inspection so local secrets
+ * (such as data/geo-settings.json or data/chatgpt-private/connection.json)
+ * can never be read or sent to a model provider.
+ */
+export function isAllowedWorkspaceInspectionPath(relativePath: string): boolean {
+  const normalized = relativePath.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
+  if (!normalized || normalized.includes('\0')) return false;
+  const segments = normalized.split('/');
+  if (segments.some((seg) => !seg || seg === '.' || seg === '..' || seg.startsWith('.'))) {
+    return false;
+  }
+  if (BLOCKED_WORKSPACE_SEGMENT_RE.test(normalized)) return false;
+  if (BLOCKED_WORKSPACE_EXT_RE.test(normalized)) return false;
+  return ALLOWED_WORKSPACE_FILE_RE.test(normalized);
+}
+
 /** Provides read-only autonomous inspection tools scoped strictly to `projectId`. */
 export function createProjectInspectionTools(options?: {
   targetLanguage?: 'en' | 'zh';
@@ -438,11 +464,61 @@ export function createProjectInspectionTools(options?: {
     execute: (_args, ctx) => readProjectContext(ctx.projectId),
   };
 
+  const readWorkspaceFileTool: AgentTool<{ relativePath: string }> = {
+    name: 'read_workspace_file',
+    description:
+      '只读查看当前本地代码仓库中的文本文件（如 package.json、LICENSE、README.md、docs/ 或 src/ 下的代码文件），用于核实真实能力、开源协议、脚本命令或技术边界。严禁读取密钥或 .env 文件。',
+    parameters: z.object({
+      relativePath: z
+        .string()
+        .min(1)
+        .max(200)
+        .describe('相对仓库根目录的路径，如 package.json、LICENSE、docs/getting-started.md'),
+    }),
+    readOnly: true,
+    humanLabel: (args) => `正在核对本地源码文件 ${args.relativePath}…`,
+    execute: (args, ctx) => {
+      const seed = loadProjectSeed(ctx.projectId);
+      if (!isSelfWorkspaceRepo(seed)) {
+        return { found: false, message: '当前项目未绑定本机代码工作区，无法直接读取源码文件。' };
+      }
+      const cleanRel = args.relativePath.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+/, '');
+      if (!isAllowedWorkspaceInspectionPath(cleanRel)) {
+        return {
+          found: false,
+          message: '路径不在允许核验的只读白名单范围内（仅允许 package.json、LICENSE*、README*、docs/**、src/**）。',
+        };
+      }
+      const root = path.resolve(process.cwd());
+      const resolved = path.resolve(root, cleanRel);
+      if (!resolved.startsWith(`${root}${path.sep}`) || !fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+        return { found: false, message: `未找到文件：${cleanRel}` };
+      }
+      const realRoot = fs.realpathSync(root);
+      const realTarget = fs.realpathSync(resolved);
+      if (!realTarget.startsWith(`${realRoot}${path.sep}`)) {
+        return { found: false, message: '路径超出工作区根目录，拒绝读取。' };
+      }
+      const realRel = path.relative(realRoot, realTarget).split(path.sep).join('/');
+      if (!isAllowedWorkspaceInspectionPath(realRel)) {
+        return { found: false, message: '符号链接目标不在允许核验的只读白名单范围内。' };
+      }
+      const content = fs.readFileSync(realTarget, 'utf8');
+      return {
+        found: true,
+        relativePath: cleanRel,
+        truncated: content.length > 8_000,
+        content: content.slice(0, 8_000),
+      };
+    },
+  };
+
   return [
     readProjectContextTool,
     listQuestionsTool,
     readObservationTool,
     readOwnedAssetTool,
     listMediaTool,
+    readWorkspaceFileTool,
   ];
 }

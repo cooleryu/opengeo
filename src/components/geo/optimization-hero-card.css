@@ -188,20 +188,20 @@
   height: 38px;
   padding: 0 16px;
   border-radius: 9px;
-  background: #111214;
+  background: #1f6f4a;
   color: #ffffff;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.005em;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 1px 2px rgba(24, 90, 59, 0.16);
   flex-shrink: 0;
   transition: background 0.14s ease, transform 0.12s ease;
 }
 
 .ohc-stage .ohc-cta-primary:hover {
-  background: #27272a;
+  background: #185a3b;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 4px 12px rgba(24, 90, 59, 0.18);
 }
 
 /* Right Column: Static Visual Showcase (Single Paper or Package Card) */

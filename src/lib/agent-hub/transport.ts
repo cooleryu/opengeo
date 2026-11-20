@@ -76,7 +76,12 @@ export function createOpenAICompatibleTransport(config: OpenAICompatibleConfig):
         } catch (error) {
           if (req.signal?.aborted) throw new Error('模型请求已取消。');
           if (hasFallback) continue;
-          throw error instanceof Error ? error : new Error('模型调用失败。');
+          if (error instanceof Error) {
+            const cause = (error as Error & { cause?: { code?: string; message?: string } }).cause;
+            const detail = cause?.code || cause?.message;
+            throw new Error(detail ? `${error.message} (${detail})` : error.message);
+          }
+          throw new Error('模型调用失败。');
         } finally {
           clearTimeout(timer);
           req.signal?.removeEventListener('abort', onAbort);

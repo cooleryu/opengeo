@@ -1,17 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   applyOptimizationDeliverables,
+  applyPageFindingBatch,
+  applyPageFindingPatch,
   buildOptimizationRunViewModel,
   cancelOptimizationRun,
   finalizeOptimizationBrowserRetest,
   generateDeliverableChineseCompanion,
+  listAuditableTargets,
   listOptimizationRuns,
+  markPageAuditFindingsLive,
   OptimizationCancelledError,
   OptimizationStateError,
+  previewPageFindingBatch,
+  previewPageFindingPatch,
   publishRepoDeliverablesToGitHub,
+  readLatestPageAudit,
   resumeOptimizationRun,
   runOptimizationRetest,
+  runPageContentAudit,
   startOptimizationRun,
+  updatePageFindingStatus,
   type CapturedRetestAnswer,
   type DeliverableDecisionInput,
 } from '@/lib/geo/optimization';
@@ -42,20 +51,27 @@ export async function GET(request: NextRequest) {
             targetUrl: nextOutreach.targetUrl,
           }
         : null;
-      const shippedTimestamps = runs
-        .flatMap((r) =>
+      const pageAudit = readLatestPageAudit(projectId);
+      const auditTargets = listAuditableTargets(projectId);
+      const shippedTimestamps = [
+        ...runs.flatMap((r) =>
           r.status === 'failed'
             ? []
             : r.deliverables
                 .filter((d) => d.status === 'applied' && d.appliedRecord?.mode !== 'local_file')
                 .map((d) => d.appliedRecord?.appliedAt || d.updatedAt),
-        )
+        ),
+        ...outreachActions
+          .filter((a) => a.status === 'completed')
+          .map((a) => a.completedAt || a.updatedAt),
+        ...(pageAudit?.shippedRecords ?? []).map((rec) => rec.shippedAt),
+      ]
         .filter((iso): iso is string => Boolean(iso && Number.isFinite(Date.parse(iso))))
         .sort((a, b) => Date.parse(b) - Date.parse(a));
       const latestShippedAt = shippedTimestamps[0] ?? null;
 
       return NextResponse.json(
-        { projectId, viewModel, runs, topNextOutreach, latestShippedAt },
+        { projectId, viewModel, runs, topNextOutreach, latestShippedAt, pageAudit, auditTargets },
         { headers: { 'Cache-Control': 'no-store' } },
       );
     });
@@ -258,6 +274,157 @@ export async function POST(request: NextRequest) {
           viewModel: buildOptimizationRunViewModel(projectId, run.id),
           runs: listOptimizationRuns(projectId),
         });
+      });
+    }
+
+    if (action === 'audit_page') {
+      const assetId = typeof body.assetId === 'string' && body.assetId.trim() ? body.assetId.trim() : undefined;
+      const preferredProvider =
+        body.preferredProvider === 'gemini' || body.preferredProvider === 'deepseek'
+          ? body.preferredProvider
+          : undefined;
+      const captureLiveScreenshots = body.captureLiveScreenshots !== false;
+
+      if (request.headers.get('accept')?.includes('application/x-ndjson')) {
+        let closed = false;
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            const send = (payload: unknown) => {
+              if (!closed) controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+            };
+            void withGeoProject(projectId, async () => {
+              try {
+                const pageAudit = await runPageContentAudit(projectId, {
+                  assetId,
+                  preferredProvider,
+                  captureLiveScreenshots,
+                  signal: request.signal,
+                  onProgress: (step) => send({ type: 'progress', step }),
+                });
+                send({
+                  type: 'result',
+                  pageAudit,
+                  auditTargets: listAuditableTargets(projectId),
+                });
+              } catch (error) {
+                send({
+                  type: 'error',
+                  error: error instanceof Error ? error.message : '页面分块体检失败，请稍后重试。',
+                });
+              } finally {
+                if (!closed) controller.close();
+              }
+            });
+          },
+          cancel() {
+            closed = true;
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'application/x-ndjson; charset=utf-8',
+            'Cache-Control': 'no-store, no-transform',
+            'X-Accel-Buffering': 'no',
+          },
+        });
+      }
+
+      return await withGeoProject(projectId, async () => {
+        const pageAudit = await runPageContentAudit(projectId, {
+          assetId,
+          preferredProvider,
+          captureLiveScreenshots,
+          signal: request.signal,
+        });
+        return NextResponse.json({
+          projectId,
+          pageAudit,
+          auditTargets: listAuditableTargets(projectId),
+        });
+      });
+    }
+
+    if (action === 'preview_finding_patch') {
+      const findingId = typeof body.findingId === 'string' ? body.findingId.trim() : '';
+      const preferredProvider =
+        body.preferredProvider === 'gemini' || body.preferredProvider === 'deepseek'
+          ? body.preferredProvider
+          : undefined;
+      return await withGeoProject(projectId, async () => {
+        const pageAudit = await previewPageFindingPatch(projectId, findingId, {
+          preferredProvider,
+          signal: request.signal,
+        });
+        return NextResponse.json({ projectId, pageAudit });
+      });
+    }
+
+    if (action === 'preview_finding_batch') {
+      const findingIds = Array.isArray(body.findingIds)
+        ? body.findingIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
+        : undefined;
+      const forceRegenerate = body.forceRegenerate === true;
+      const preferredProvider =
+        body.preferredProvider === 'gemini' || body.preferredProvider === 'deepseek'
+          ? body.preferredProvider
+          : undefined;
+      return await withGeoProject(projectId, async () => {
+        const pageAudit = await previewPageFindingBatch(projectId, findingIds, {
+          forceRegenerate,
+          preferredProvider,
+          signal: request.signal,
+        });
+        return NextResponse.json({ projectId, pageAudit });
+      });
+    }
+
+    if (action === 'apply_finding_batch') {
+      const findingIds = Array.isArray(body.findingIds)
+        ? body.findingIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
+        : [];
+      return withGeoProject(projectId, () => {
+        const result = applyPageFindingBatch(projectId, findingIds);
+        return NextResponse.json({
+          projectId,
+          pageAudit: result.audit,
+          appliedIds: result.appliedIds,
+          errors: result.errors,
+          writtenPath: result.writtenPath,
+        });
+      });
+    }
+
+    if (action === 'mark_findings_live') {
+      const findingIds = Array.isArray(body.findingIds)
+        ? body.findingIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim()))
+        : [];
+      const liveUrl = typeof body.liveUrl === 'string' ? body.liveUrl : '';
+      const note = typeof body.note === 'string' ? body.note : undefined;
+      return withGeoProject(projectId, () => {
+        const result = markPageAuditFindingsLive(projectId, findingIds, { liveUrl, note });
+        return NextResponse.json({
+          projectId,
+          pageAudit: result.audit,
+          shippedRecord: result.shippedRecord,
+        });
+      });
+    }
+
+    if (action === 'apply_finding_patch') {
+      const findingId = typeof body.findingId === 'string' ? body.findingId.trim() : '';
+      return withGeoProject(projectId, () => {
+        const { audit: pageAudit, writtenPath } = applyPageFindingPatch(projectId, findingId);
+        return NextResponse.json({ projectId, pageAudit, writtenPath });
+      });
+    }
+
+    if (action === 'dismiss_finding') {
+      const findingId = typeof body.findingId === 'string' ? body.findingId.trim() : '';
+      const status = body.status === 'open' ? 'open' : 'dismissed';
+      return withGeoProject(projectId, () => {
+        const pageAudit = updatePageFindingStatus(projectId, findingId, status);
+        return NextResponse.json({ projectId, pageAudit });
       });
     }
 

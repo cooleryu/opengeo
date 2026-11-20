@@ -1160,8 +1160,8 @@ export default function ProjectOverview({
       const subline =
         brandSplit.total > 0 && brandSplit.yes === 0
           ? isEn
-            ? `The gap is presence: 0/${discoverySplit.total} non-branded buyer prompts mentioned you, and even direct "${brandLabel}" searches missed. Start with the AI-cited lists below.`
-            : `核心瓶颈是「缺席」：${discoverySplit.total} 道非品牌拉新题全部未提及，连直接搜「${brandLabel}」也未认出。优先抢占下方 AI 高频引用的外部榜单。`
+            ? `The gap is presence: 0/${discoverySplit.total} non-branded answers mentioned you, and even direct "${brandLabel}" searches missed. Start with the AI-cited lists below.`
+            : `核心瓶颈是「缺席」：${discoverySplit.total} 次非品牌拉新回答全部未提及，连直接搜「${brandLabel}」也未认出。优先抢占下方 AI 高频引用的外部榜单。`
           : isEn
             ? `The gap is presence: 0/${mention.completed} measured answers name you yet. Start by getting listed on the AI-cited sources below.`
             : `核心瓶颈是「缺席」：${mention.completed} 次实测回答暂未出现你的名字，建议优先拿下下方 AI 正在引用的外部榜单与对比页。`;
@@ -1205,7 +1205,7 @@ export default function ProjectOverview({
   })();
 
   const gapKindLabel = (kind: OverviewGapSourceKind): string => {
-    if (kind === 'awesome') return isEn ? 'Awesome List' : 'Awesome 榜单';
+    if (kind === 'awesome') return isEn ? 'Open-source directory' : '开源导航清单';
     if (kind === 'community') return isEn ? 'Community' : '社区讨论';
     if (kind === 'roundup') return isEn ? 'Listicle' : '横评指南';
     return isEn ? 'Competitor' : '竞品来源';
@@ -1757,129 +1757,7 @@ export default function ProjectOverview({
         </>
       )}
 
-      {/* Layer 3: Peec Gap analysis -> URLs Compact Top-5 External Gap Table */}
-      {overviewGapSources.length > 0 && (
-        <section
-          className="pov-gap-card"
-          aria-label={isEn ? 'External sources AI cites instead of you' : 'AI 正在引用的外部页面'}
-        >
-          <div className="pov-section-bar">
-            <div className="pov-section-title pov-gap-title-wrap">
-              <h2>
-                {isEn
-                  ? 'External sources AI cites instead of you'
-                  : 'AI 正在抄作业的外部缺口页面'}
-              </h2>
-              <span className="pov-gap-sub">
-                {isEn
-                  ? 'Top third-party lists, threads, and competitors appearing in answers where you are missing'
-                  : '你在这些被 AI 真实引用的外部榜单与页面中目前缺席，优先从最前面突破'}
-              </span>
-            </div>
-            <div className="pov-section-tools">
-              <button
-                type="button"
-                className="pov-inline-link"
-                onClick={() => void onPlan?.()}
-              >
-                {isEn ? 'Open Action Plan' : '查看全部优化方案'} <ArrowRight size={13} />
-              </button>
-            </div>
-          </div>
-
-          <div className="pov-gap-table-wrap">
-            <table className="pov-gap-table">
-              <thead>
-                <tr>
-                  <th scope="col">{isEn ? 'Source URL / Repo' : '页面 / 仓库'}</th>
-                  <th scope="col">{isEn ? 'Type' : '类型'}</th>
-                  <th scope="col">{isEn ? 'Engines' : '引用平台'}</th>
-                  <th scope="col" className="is-num">
-                    {isEn ? 'Prompts' : '出现题数'}
-                  </th>
-                  <th scope="col" className="is-action">
-                    {isEn ? 'Next move' : '一步动作'}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {overviewGapSources.map((src) => (
-                  <tr key={src.key}>
-                    <td>
-                      <a
-                        href={src.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="pov-gap-source-link"
-                      >
-                        <strong>{src.title}</strong>
-                        <span>{src.subtitle}</span>
-                      </a>
-                    </td>
-                    <td>
-                      <span className={`pov-gap-badge is-${src.kind}`}>
-                        {gapKindLabel(src.kind)}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="pov-gap-engines">
-                        {src.engines.map((eng) => (
-                          <span
-                            key={eng}
-                            className="pov-gap-engine-dot"
-                            title={getPlatformName(eng, isEn)}
-                          >
-                            <ResearchEngineIcon engine={eng} />
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="is-num">
-                      <span className="pov-gap-count">
-                        {src.questionCount}
-                        {isEn ? 'q' : ' 题'}
-                      </span>
-                    </td>
-                    <td className="is-action">
-                      {src.actionHint === 'submit_pr' ? (
-                        <button
-                          type="button"
-                          className="pov-gap-action-btn is-primary"
-                          onClick={() => void onPlan?.()}
-                        >
-                          <GitPullRequest size={12} />
-                          <span>{isEn ? 'Submit PR' : '去提 PR'}</span>
-                        </button>
-                      ) : src.actionHint === 'community_draft' ? (
-                        <button
-                          type="button"
-                          className="pov-gap-action-btn"
-                          onClick={() => void onPlan?.()}
-                        >
-                          <MessageSquarePlus size={12} />
-                          <span>{isEn ? 'Draft note' : '去发声'}</span>
-                        </button>
-                      ) : (
-                        <a
-                          href={src.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="pov-gap-action-btn"
-                        >
-                          <span>{isEn ? 'Inspect' : '查看'}</span>
-                          <ExternalLink size={11} />
-                        </a>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* Row 3: Top-3 Collapsible Priority Questions + Colorful Platform Tile Matrix */}
+      {/* Layer 3: Top-3 Collapsible Priority Questions + Colorful Platform Tile Matrix (Above the Fold) */}
       <section
         className="pov-questions"
         ref={questionSectionRef}
@@ -2121,6 +1999,149 @@ export default function ProjectOverview({
           </>
         )}
       </section>
+
+      {/* Layer 4: External Pages AI Cites Without You (Plain-Language Listing Opportunities) */}
+      {overviewGapSources.length > 0 && (
+        <section
+          className="pov-gap-card"
+          aria-labelledby="pov-gap-heading"
+        >
+          <div className="pov-section-bar">
+            <div className="pov-section-title pov-gap-title-wrap">
+              <h2 id="pov-gap-heading">
+                {isEn
+                  ? 'External pages AI cites without you'
+                  : 'AI 引用但尚未收录你的外部页面'}
+              </h2>
+              <span className="pov-gap-sub">
+                {isEn
+                  ? 'Already cited by AI answers — submit a listing PR to open-source directories or join cited discussions'
+                  : '这些外部清单与讨论帖已被 AI 回答直接引用——可向开源导航清单提 PR 申请收录，或参与社区讨论'}
+              </span>
+            </div>
+            <div className="pov-section-tools">
+              <button
+                type="button"
+                className="pov-inline-link"
+                onClick={() => void onPlan?.()}
+              >
+                {isEn ? 'Open Action Plan' : '查看全部优化方案'} <ArrowRight size={13} />
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="pov-gap-table-wrap"
+            tabIndex={0}
+            role="region"
+            aria-labelledby="pov-gap-heading"
+          >
+            <table
+              className="pov-gap-table"
+              style={
+                {
+                  '--col-type': JSON.stringify(isEn ? 'Type' : '类型'),
+                  '--col-engines': JSON.stringify(isEn ? 'Engines' : '引用平台'),
+                  '--col-prompts': JSON.stringify(isEn ? 'Prompts' : '出现题数'),
+                  '--col-action': JSON.stringify(isEn ? 'Next move' : '推荐动作'),
+                } as React.CSSProperties
+              }
+            >
+              <thead>
+                <tr>
+                  <th scope="col">{isEn ? 'Source URL / Repo' : '页面 / 仓库'}</th>
+                  <th scope="col">{isEn ? 'Type' : '类型'}</th>
+                  <th scope="col">{isEn ? 'Engines' : '引用平台'}</th>
+                  <th scope="col" className="is-num">
+                    {isEn ? 'Prompts' : '出现题数'}
+                  </th>
+                  <th scope="col" className="is-action">
+                    {isEn ? 'Next move' : '推荐动作'}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {overviewGapSources.map((src) => (
+                  <tr key={src.key}>
+                    <th scope="row">
+                      <a
+                        href={src.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="pov-gap-source-link"
+                      >
+                        <strong>{src.title}</strong>
+                        <span>
+                          {src.subtitle === 'web'
+                            ? isEn
+                              ? 'Cited web page'
+                              : 'AI 引用网页'
+                            : src.subtitle}
+                        </span>
+                      </a>
+                    </th>
+                    <td>
+                      <span className={`pov-gap-badge is-${src.kind}`}>
+                        {gapKindLabel(src.kind)}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="pov-gap-engines">
+                        {src.engines.map((eng) => (
+                          <span
+                            key={eng}
+                            className="pov-gap-engine-dot"
+                            title={getPlatformName(eng, isEn)}
+                          >
+                            <ResearchEngineIcon engine={eng} />
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="is-num">
+                      <span className="pov-gap-count">
+                        {src.questionCount}
+                        {isEn ? 'q' : ' 题'}
+                      </span>
+                    </td>
+                    <td className="is-action">
+                      {src.actionHint === 'submit_pr' ? (
+                        <button
+                          type="button"
+                          className="pov-gap-action-btn is-primary"
+                          onClick={() => void onPlan?.()}
+                        >
+                          <GitPullRequest size={12} />
+                          <span>{isEn ? 'Submit listing PR' : '提 PR 申请收录'}</span>
+                        </button>
+                      ) : src.actionHint === 'community_draft' ? (
+                        <button
+                          type="button"
+                          className="pov-gap-action-btn"
+                          onClick={() => void onPlan?.()}
+                        >
+                          <MessageSquarePlus size={12} />
+                          <span>{isEn ? 'Draft note' : '去发声'}</span>
+                        </button>
+                      ) : (
+                        <a
+                          href={src.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="pov-gap-action-btn"
+                        >
+                          <span>{isEn ? 'Inspect' : '查看'}</span>
+                          <ExternalLink size={11} />
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

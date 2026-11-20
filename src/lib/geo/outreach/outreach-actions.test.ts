@@ -7,9 +7,13 @@ import { afterEach, beforeEach, test } from 'node:test';
 import { DEFAULT_PROJECT_ID } from '../projects';
 import type { ResearchBatch } from '../research-types';
 import {
+  buildDefaultDirectoryListingDraft,
   buildDefaultShowHnDraft,
+  classifyCitedExternalPage,
   deriveRecommendedTopics,
   isRelevantCitedThread,
+  listOutreachActions,
+  markOutreachStatusAction,
   parseAwesomeInsertion,
   sanitizeAwesomePrDraft,
 } from './outreach-actions';
@@ -361,4 +365,79 @@ test('deriveRecommendedTopics and isRelevantCitedThread stay scoped to non-GEO p
     ),
     false,
   );
+});
+
+test('classifyCitedExternalPage cleanly separates SaaS directories from community discussions', () => {
+  assert.equal(
+    classifyCitedExternalPage({
+      url: 'https://www.g2.com/categories/invoicing',
+      title: 'Best Invoicing Software 2026',
+    }),
+    'directory_listing',
+  );
+  assert.equal(
+    classifyCitedExternalPage({
+      url: 'https://glama.ai/mcp/best/seo',
+      title: 'Best SEO MCP Servers',
+    }),
+    'directory_listing',
+  );
+  assert.equal(
+    classifyCitedExternalPage({
+      url: 'https://marketmcp.vercel.app/best/seo',
+      title: 'SEO MCP Directory',
+    }),
+    'directory_listing',
+  );
+  assert.equal(
+    classifyCitedExternalPage({
+      url: 'https://www.reddit.com/r/SaaS/comments/abc/best_invoicing_tools',
+      title: 'Best invoicing tools for agencies - Reddit',
+    }),
+    'community_post',
+  );
+  assert.equal(
+    classifyCitedExternalPage({
+      url: 'https://news.ycombinator.com/item?id=12345',
+      title: 'Ask HN: Best accounting tools',
+    }),
+    'community_post',
+  );
+
+  const draft = buildDefaultDirectoryListingDraft(
+    {
+      name: 'Acme Invoice',
+      description: 'Automated recurring invoicing and Stripe reconciliation for small studios.',
+      repositoryUrl: '',
+      siteUrl: 'https://acme-invoice.example',
+    },
+    {
+      title: 'Best Invoicing Software',
+      url: 'https://www.g2.com/categories/invoicing',
+      host: 'g2.com',
+    },
+  );
+  assert.equal(draft.productUrl, 'https://acme-invoice.example');
+  assert.match(draft.submissionPitch, /Acme Invoice/);
+  assert.match(draft.submissionPitch, /g2\.com/);
+});
+
+test('markOutreachStatusAction requires a real public URL on completion and never falls back to cited targetUrl', () => {
+  const actions = listOutreachActions(DEFAULT_PROJECT_ID, 'zh');
+  const candidate = actions.find((a) => a.status !== 'completed');
+  assert.ok(candidate, 'expected at least one generated outreach action');
+
+  // Blank URL must be rejected instead of silently storing targetUrl as fake proof
+  assert.throws(
+    () => markOutreachStatusAction(DEFAULT_PROJECT_ID, candidate.id, 'completed', {}),
+    /真实公开链接/,
+  );
+
+  // Valid live proof URL succeeds and persists resultUrl + completedAt
+  const completed = markOutreachStatusAction(DEFAULT_PROJECT_ID, candidate.id, 'completed', {
+    resultUrl: 'https://www.g2.com/products/acme-invoice/reviews',
+  });
+  assert.equal(completed.status, 'completed');
+  assert.equal(completed.resultUrl, 'https://www.g2.com/products/acme-invoice/reviews');
+  assert.ok(completed.completedAt);
 });

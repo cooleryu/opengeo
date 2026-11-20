@@ -3,3 +3,4 @@ export * from './agents';
 export * from './repository';
 export * from './engine';
 export * from './git-publisher';
+export * from './page-audit';

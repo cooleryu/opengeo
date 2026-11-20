@@ -3,7 +3,7 @@ import path from 'node:path';
 import { projectDataDirectory, withGeoProject } from '../projects';
 import type { ResearchEngine } from '../research-types';
 
-export type OutreachActionKind = 'repo_meta' | 'awesome_pr' | 'community_post';
+export type OutreachActionKind = 'repo_meta' | 'awesome_pr' | 'directory_listing' | 'community_post';
 export type OutreachActionStatus = 'suggested' | 'prepared' | 'completed' | 'skipped';
 
 export interface RepoMetaDraft {
@@ -28,6 +28,14 @@ export interface AwesomePrDraft {
   prBody: string;
 }
 
+export interface DirectoryListingDraft {
+  directoryName: string;
+  submitUrl: string;
+  oneLiner: string;
+  submissionPitch: string;
+  productUrl: string;
+}
+
 export interface CommunityPostDraft {
   channelLabel: string;
   submitUrl: string;
@@ -47,6 +55,7 @@ export interface OutreachActionRecord {
   status: OutreachActionStatus;
   repoMetaDraft?: RepoMetaDraft;
   awesomePrDraft?: AwesomePrDraft;
+  listingDraft?: DirectoryListingDraft;
   postDraft?: CommunityPostDraft;
   resultUrl?: string;
   note?: string;

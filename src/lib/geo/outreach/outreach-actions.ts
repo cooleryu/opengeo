@@ -25,9 +25,72 @@ import {
   upsertOutreachRecord,
   type AwesomePrDraft,
   type CommunityPostDraft,
+  type DirectoryListingDraft,
   type OutreachActionRecord,
   type RepoMetaDraft,
 } from './outreach-store';
+
+const COMMUNITY_FORUM_HOST_RE =
+  /(?:^|\.)(?:reddit\.com|news\.ycombinator\.com|quora\.com|stackoverflow\.com|stackexchange\.com|indiehackers\.com|v2ex\.com|zhihu\.com|dev\.to|medium\.com|substack\.com|youtube\.com|x\.com|twitter\.com|linkedin\.com)$/i;
+
+const KNOWN_DIRECTORY_HOST_RE =
+  /(?:^|\.)(?:g2\.com|capterra\.com|getapp\.com|trustradius\.com|producthunt\.com|alternativeto\.net|sourceforge\.net|saasworthy\.com|softwaresuggest\.com|glama\.ai|smithery\.ai|mcp\.so|pulsemcp\.com|marketmcp\.vercel\.app|theresanaiforthat\.com|futurepedia\.io|toolify\.ai|aitoolsdirectory\.com|openalternative\.co|selfh\.st|libhunt\.com|stackshare\.io|slant\.co|crozdesk\.com|softwareadvice\.com|betalist\.com)$/i;
+
+const DIRECTORY_URL_OR_TITLE_RE =
+  /(?:\/(?:best|top|alternatives|directory|catalog|marketplace|mcp\/best|tools|compare)\b|\b(?:best|top\s+\d+|alternatives\s+to|directory|catalog|marketplace|open[- ]source\s+\w+\s+list)\b)/i;
+
+/**
+ * Project-agnostic classifier distinguishing high-leverage external directories / tool lists
+ * (which belong in Main Pack 2 alongside GitHub Awesome PRs) from community threads / posts
+ * (which belong in the quiet optional strip).
+ */
+export function classifyCitedExternalPage(page: {
+  url: string;
+  title: string;
+  host?: string;
+}): 'directory_listing' | 'community_post' {
+  let host = (page.host || '').trim().toLowerCase().replace(/^www\./, '');
+  if (!host) {
+    try {
+      host = new URL(page.url).hostname.toLowerCase().replace(/^www\./, '');
+    } catch {
+      host = '';
+    }
+  }
+  if (COMMUNITY_FORUM_HOST_RE.test(host)) return 'community_post';
+  if (/\breddit\b|(?:^|[\s·/])r\/[a-z0-9_]+|hacker news/i.test(page.title)) {
+    return 'community_post';
+  }
+  if (KNOWN_DIRECTORY_HOST_RE.test(host)) return 'directory_listing';
+  if (DIRECTORY_URL_OR_TITLE_RE.test(`${page.url} ${page.title}`)) {
+    return 'directory_listing';
+  }
+  return 'community_post';
+}
+
+export function buildDefaultDirectoryListingDraft(
+  project: Pick<GeoProject, 'name' | 'description' | 'repositoryUrl' | 'siteUrl'>,
+  page: { title: string; url: string; host?: string },
+): DirectoryListingDraft {
+  const productUrl = (project.siteUrl || project.repositoryUrl || '').trim();
+  const rawSummary = (project.description || '').replace(/\s+/g, ' ').trim();
+  const oneLiner = rawSummary
+    ? rawSummary.slice(0, 140)
+    : `${project.name} (${productUrl || 'official site'})`;
+  const directoryName = page.host || page.title;
+  return {
+    directoryName,
+    submitUrl: page.url,
+    productUrl,
+    oneLiner,
+    submissionPitch: [
+      `Product: ${project.name}`,
+      ...(productUrl ? [`URL: ${productUrl}`] : []),
+      `Summary: ${oneLiner}`,
+      `Note: Submitting ${project.name} for listing consideration on ${directoryName}. Happy to provide any additional screenshots or verification details.`,
+    ].join('\n'),
+  };
+}
 
 const HAS_CJK_RE = /[\u3400-\u9fff]/;
 const NOISE_THREAD_PAGE_RE =
@@ -964,11 +1027,11 @@ export function listOutreachActions(
     records.push(devtoSaved);
   }
 
-  // 4. Cited External Threads / Articles matching current project topics & prompts
+  // 4. Cited External Directories / Tool Lists (universal Main Pack 2 for SaaS & repos) + Community Threads
   const citedPages = extractOutreachCitedPages(
     latestBatch,
     { repositoryUrl: project.repositoryUrl ?? '', siteUrl: project.siteUrl ?? '' },
-    { limit: 6 },
+    { limit: 10 },
   ).filter(
     (page) =>
       !/github\.com\/[^/]+\/[^/]+/i.test(page.url) &&
@@ -976,10 +1039,11 @@ export function listOutreachActions(
       isRelevantCitedThread(page, project, latestBatch, onboardingSummary),
   );
 
-  for (const page of citedPages.slice(0, 3)) {
+  let directoryCount = 0;
+  let threadCount = 0;
+  for (const page of citedPages) {
+    const pageKind = classifyCitedExternalPage(page);
     const safeKey = createHash('sha256').update(page.url).digest('base64url').slice(0, 16);
-    const id = `post:thread:${safeKey}`;
-    const saved = persistedMap.get(id);
     const hostLabel =
       page.host ||
       (/\breddit\b|(?:^|[\s·/])r\/[a-z0-9_]+/i.test(page.title)
@@ -987,13 +1051,43 @@ export function listOutreachActions(
         : isEn
           ? 'External'
           : '该外部');
+
+    if (pageKind === 'directory_listing') {
+      if (directoryCount >= 4) continue;
+      directoryCount += 1;
+      const id = `directory:${safeKey}`;
+      const saved = persistedMap.get(id) ?? persistedMap.get(`post:thread:${safeKey}`);
+      records.push({
+        id,
+        kind: 'directory_listing',
+        title: page.title || hostLabel,
+        subtitle: isEn
+          ? `${hostLabel} directory/list already cited by AI — submit your product details to get listed.`
+          : `${hostLabel} 外部目录/榜单已被 AI 直接引用 — 备好客观提交材料申请收录。`,
+        targetUrl: page.url,
+        citedCount: page.questionCount,
+        citedEngines: page.engines,
+        status: saved?.status ?? 'prepared',
+        listingDraft: saved?.listingDraft ?? buildDefaultDirectoryListingDraft(project, page),
+        ...(saved?.resultUrl ? { resultUrl: saved.resultUrl } : {}),
+        ...(saved?.note ? { note: saved.note } : {}),
+        ...(saved?.completedAt ? { completedAt: saved.completedAt } : {}),
+        updatedAt: saved?.updatedAt ?? now,
+      });
+      continue;
+    }
+
+    if (threadCount >= 3) continue;
+    threadCount += 1;
+    const id = `post:thread:${safeKey}`;
+    const saved = persistedMap.get(id);
     records.push({
       id,
       kind: 'community_post',
       title: page.title,
       subtitle: isEn
-        ? `${hostLabel} page already cited by AI — draft an honest developer note and open in Ego Lite.`
-        : `${hostLabel} 页面已被 AI 直接引用 — 生成一段克制的开发者补充说明并在 Ego Lite 打开。`,
+        ? `${hostLabel} discussion already cited by AI — draft a concise factual reply.`
+        : `${hostLabel} 社区讨论已被 AI 直接引用 — 可备一段克制的真实经验补充。`,
       targetUrl: page.url,
       citedCount: page.questionCount,
       citedEngines: page.engines,
@@ -1006,12 +1100,13 @@ export function listOutreachActions(
     });
   }
 
-  // Rank strictly by leverage: AI-cited Awesome PRs first, then repo metadata, then cited threads, then Show HN
+  // Rank strictly by leverage: AI-cited Awesome PRs & Directories first, then repo metadata, then threads, then Show HN
   const priorityWeight = (item: OutreachActionRecord) => {
     if (item.kind === 'awesome_pr') return 0;
-    if (item.kind === 'repo_meta') return 1;
-    if (item.id.startsWith('post:thread:')) return 2;
-    return 3;
+    if (item.kind === 'directory_listing') return 1;
+    if (item.kind === 'repo_meta') return 2;
+    if (item.id.startsWith('post:thread:')) return 3;
+    return 4;
   };
   return records.sort(
     (a, b) =>
@@ -1559,11 +1654,20 @@ export function markOutreachStatusAction(
   if (cleanResultUrl && !/^https?:\/\//i.test(cleanResultUrl)) {
     throw new OptimizationStateError('公开链接必须以 http:// 或 https:// 开头。', 400);
   }
+  if (status === 'completed') {
+    const resolvedProofUrl = cleanResultUrl || existing.resultUrl?.trim() || '';
+    if (!resolvedProofUrl || !/^https?:\/\//i.test(resolvedProofUrl)) {
+      throw new OptimizationStateError(
+        '请粘贴已提交或已发布后的真实公开链接（以 http:// 或 https:// 开头），以便记入已上线记录并用于后续复测核对。',
+        400,
+      );
+    }
+  }
 
   return upsertOutreachRecord(projectId, {
     ...existing,
     status,
-    ...(cleanResultUrl ? { resultUrl: cleanResultUrl } : status === 'completed' ? { resultUrl: existing.resultUrl || existing.targetUrl } : {}),
+    ...(cleanResultUrl ? { resultUrl: cleanResultUrl } : {}),
     ...(options?.note?.trim() ? { note: options.note.trim() } : {}),
     ...(status === 'completed' ? { completedAt: new Date().toISOString() } : {}),
   });

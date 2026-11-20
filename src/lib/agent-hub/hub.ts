@@ -43,6 +43,58 @@ export interface AgentRunResult<TOutput> {
   telemetry: AgentTelemetrySnapshot;
 }
 
+export interface AgentBatchOptions<TInput = unknown> extends AgentRunOptions {
+  /** Max parallel workers executing shards concurrently (defaults to 4). */
+  concurrency?: number;
+  /** Optional human-friendly label for each shard in progress logs. */
+  shardLabel?: (input: TInput, index: number, total: number) => string;
+}
+
+export interface AgentBatchResult<TOutput> {
+  results: AgentRunResult<TOutput>[];
+  outputs: TOutput[];
+  progress: HumanProgressStep[];
+  telemetry: AgentTelemetrySnapshot;
+}
+
+export interface AgentMapReduceOptions<TMapInput, TMapOutput, TReduceInput, TReduceOutput>
+  extends AgentRunOptions {
+  mapSpec: string | AgentSpec<TMapInput, TMapOutput>;
+  mapInputs: TMapInput[];
+  reduceSpec: string | AgentSpec<TReduceInput, TReduceOutput>;
+  buildReduceInput: (mapped: TMapOutput[], rawResults: AgentRunResult<TMapOutput>[]) => TReduceInput;
+  concurrency?: number;
+  shardLabel?: (input: TMapInput, index: number, total: number) => string;
+  /** Optional transport override for the reduce phase if different from map. */
+  reduceTransport?: LLMTransport;
+}
+
+export interface AgentMapReduceResult<TMapOutput, TReduceOutput> {
+  mapped: AgentRunResult<TMapOutput>[];
+  reduced: AgentRunResult<TReduceOutput>;
+  output: TReduceOutput;
+  progress: HumanProgressStep[];
+  telemetry: AgentTelemetrySnapshot;
+}
+
+function aggregateTelemetry(
+  agentId: string,
+  snapshots: Array<AgentTelemetrySnapshot | undefined>,
+  wallMs: number,
+): AgentTelemetrySnapshot {
+  const valid = snapshots.filter((s): s is AgentTelemetrySnapshot => Boolean(s));
+  const models = [...new Set(valid.map((s) => s.model).filter(Boolean))];
+  return {
+    agentId,
+    model: models.join(', '),
+    turns: valid.reduce((sum, s) => sum + s.turns, 0),
+    toolCalls: valid.reduce((sum, s) => sum + s.toolCalls, 0),
+    totalMs: wallMs,
+    promptTokens: valid.reduce((sum, s) => sum + s.promptTokens, 0),
+    completionTokens: valid.reduce((sum, s) => sum + s.completionTokens, 0),
+  };
+}
+
 /** Micro-kernel Strategy Registry + Template ReAct Loop + AOP Interceptor Chain. */
 export class AgentHub {
   private readonly specs = new Map<string, AgentSpec<any, any>>();
@@ -141,6 +193,147 @@ export class AgentHub {
       for (const a of aspects) await a.onError?.({ agentId: spec.id, title: spec.title, message: msg });
       throw error;
     }
+  }
+
+  /**
+   * Executes an array of independent shard inputs against a registered AgentSpec with bounded
+   * concurrency while preserving input order, guardrails, telemetry, and human progress logs.
+   */
+  async runBatch<TInput, TOutput>(
+    specOrId: string | AgentSpec<TInput, TOutput>,
+    inputs: TInput[],
+    options: AgentBatchOptions<TInput>,
+  ): Promise<AgentBatchResult<TOutput>> {
+    const spec = typeof specOrId === 'string' ? this.get<TInput, TOutput>(specOrId) : specOrId;
+    const startedAt = Date.now();
+    const progress: HumanProgressStep[] = [];
+    const emit = (step: HumanProgressStep) => {
+      progress.push(step);
+      options.onProgress?.(step);
+    };
+
+    if (!inputs.length) {
+      return {
+        results: [],
+        outputs: [],
+        progress,
+        telemetry: aggregateTelemetry(spec.id, [], 0),
+      };
+    }
+
+    const concurrency = Math.max(1, Math.min(options.concurrency ?? 4, inputs.length));
+    emit({
+      at: new Date().toISOString(),
+      agentId: spec.id,
+      kind: 'start',
+      message: `正在并发调度 ${inputs.length} 个「${spec.title}」子任务（并发度 ${concurrency}）…`,
+    });
+
+    const results: AgentRunResult<TOutput>[] = new Array(inputs.length);
+    let nextIndex = 0;
+
+    const worker = async () => {
+      while (true) {
+        if (options.signal?.aborted) {
+          throw new Error('并发任务已取消。');
+        }
+        const idx = nextIndex;
+        if (idx >= inputs.length) return;
+        nextIndex += 1;
+
+        const item = inputs[idx];
+        const label = options.shardLabel?.(item, idx, inputs.length) ?? `#${idx + 1}/${inputs.length}`;
+        const res = await this.run(spec, item, {
+          projectId: options.projectId,
+          transport: options.transport,
+          preferredProvider: options.preferredProvider,
+          allowWriteTools: options.allowWriteTools,
+          interceptors: options.interceptors,
+          signal: options.signal,
+          onProgress: (step) => {
+            if (step.kind === 'done' || step.kind === 'tool' || step.kind === 'error') {
+              emit({ ...step, message: `[${label}] ${step.message}` });
+            }
+          },
+        });
+        results[idx] = res;
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+    const wallMs = Date.now() - startedAt;
+    emit({
+      at: new Date().toISOString(),
+      agentId: spec.id,
+      kind: 'done',
+      message: `${inputs.length} 个「${spec.title}」并发分片全部完成（用时 ${(wallMs / 1000).toFixed(1)} 秒）。`,
+    });
+
+    return {
+      results,
+      outputs: results.map((r) => r.output),
+      progress,
+      telemetry: aggregateTelemetry(
+        spec.id,
+        results.map((r) => r.telemetry),
+        wallMs,
+      ),
+    };
+  }
+
+  /**
+   * Unified Map-Reduce orchestrator on top of AgentHub: fans out independent shards in parallel
+   * via `runBatch`, then synthesizes shard outputs via `reduceSpec` under the same AOP chain.
+   */
+  async mapReduce<TMapInput, TMapOutput, TReduceInput, TReduceOutput>(
+    params: AgentMapReduceOptions<TMapInput, TMapOutput, TReduceInput, TReduceOutput>,
+  ): Promise<AgentMapReduceResult<TMapOutput, TReduceOutput>> {
+    const startedAt = Date.now();
+    const progress: HumanProgressStep[] = [];
+    const forward = (step: HumanProgressStep) => {
+      progress.push(step);
+      params.onProgress?.(step);
+    };
+
+    const mappedBatch = await this.runBatch(params.mapSpec, params.mapInputs, {
+      projectId: params.projectId,
+      transport: params.transport,
+      preferredProvider: params.preferredProvider,
+      allowWriteTools: params.allowWriteTools,
+      interceptors: params.interceptors,
+      signal: params.signal,
+      concurrency: params.concurrency,
+      shardLabel: params.shardLabel,
+      onProgress: forward,
+    });
+
+    const reduceInput = params.buildReduceInput(mappedBatch.outputs, mappedBatch.results);
+    const reduced = await this.run(params.reduceSpec, reduceInput, {
+      projectId: params.projectId,
+      transport: params.reduceTransport ?? params.transport,
+      preferredProvider: params.preferredProvider,
+      allowWriteTools: params.allowWriteTools,
+      interceptors: params.interceptors,
+      signal: params.signal,
+      onProgress: forward,
+    });
+
+    const mapId = typeof params.mapSpec === 'string' ? params.mapSpec : params.mapSpec.id;
+    const reduceId = typeof params.reduceSpec === 'string' ? params.reduceSpec : params.reduceSpec.id;
+    const wallMs = Date.now() - startedAt;
+
+    return {
+      mapped: mappedBatch.results,
+      reduced,
+      output: reduced.output,
+      progress,
+      telemetry: aggregateTelemetry(
+        `${mapId}->${reduceId}`,
+        [mappedBatch.telemetry, reduced.telemetry],
+        wallMs,
+      ),
+    };
   }
 }
 

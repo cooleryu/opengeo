@@ -5,6 +5,7 @@ import {
   formatMediaPathForDestination,
   listAvailableProjectMedia,
 } from '@/lib/geo/agents/project-tools';
+import { auditShotsDirectory } from '@/lib/geo/optimization/page-audit';
 import { resolveGeoProject } from '@/lib/geo/projects';
 
 export const runtime = 'nodejs';
@@ -21,6 +22,25 @@ const MIME_BY_EXT: Record<string, string> = {
 export function GET(request: NextRequest) {
   try {
     const projectId = resolveGeoProject(request.nextUrl.searchParams.get('project'));
+    const auditShot = (request.nextUrl.searchParams.get('auditShot') || '').trim();
+    if (auditShot) {
+      if (!/^[a-zA-Z0-9._-]+\.png$/.test(auditShot)) {
+        return NextResponse.json({ error: '无效的体检截图路径。' }, { status: 400 });
+      }
+      const shotsDir = path.resolve(auditShotsDirectory(projectId));
+      const fullPath = path.resolve(shotsDir, auditShot);
+      if (!fullPath.startsWith(`${shotsDir}${path.sep}`) || !fs.existsSync(fullPath)) {
+        return NextResponse.json({ error: '未找到对应页面区块截图。' }, { status: 404 });
+      }
+      const buffer = fs.readFileSync(fullPath);
+      return new NextResponse(buffer, {
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'private, max-age=60',
+        },
+      });
+    }
+
     const rawRef = (request.nextUrl.searchParams.get('path') || '').trim().split(/[?#]/)[0];
     const destination = request.nextUrl.searchParams.get('destination') || undefined;
     if (!rawRef) {
