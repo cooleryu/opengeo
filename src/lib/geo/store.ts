@@ -740,7 +740,14 @@ export async function handleGeoAction(body: Record<string, unknown>, options: { 
         if (started.completion) await started.completion;
         const job = getQuestionGeneration();
         if (job?.id !== started.job.id || job.status !== 'completed') {
-          throw GeoError.coded('invalid_request', 409, { reason: 'question_prep_running' }, job?.error || job?.message);
+          const stillRunning =
+            job?.id === started.job.id && (job.status === 'queued' || job.status === 'running');
+          throw GeoError.coded(
+            'invalid_request',
+            stillRunning ? 409 : 422,
+            { reason: stillRunning ? 'question_prep_running' : 'question_prep_incomplete' },
+            job?.error || job?.message,
+          );
         }
       }
     } catch (error) {

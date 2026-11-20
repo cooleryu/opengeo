@@ -159,6 +159,19 @@ test('question failure preserves successful understanding; retry is explicit and
   const progress: QuestionGenerationProgress[] = [];
   await withGeoProject(id, async () => {
     const plan = getQuestionPlan();
+    await assert.rejects(
+      handleGeoAction({ action: 'generate_questions', planId: plan.id, revision: plan.revision,
+        positioning: understood.summary, requestId: 'explicit-failing-retry' }, {
+        questionGenerationRuntime: { generate: async () => { throw new Error('生成的问题未通过原文依据检查'); } },
+      }),
+      (err: unknown) => {
+        const coded = err as { code?: string; status?: number; params?: { reason?: string } };
+        assert.equal(coded.code, 'invalid_request');
+        assert.equal(coded.status, 422);
+        assert.equal(coded.params?.reason, 'question_prep_incomplete');
+        return true;
+      },
+    );
     const state = await handleGeoAction({ action: 'generate_questions', planId: plan.id, revision: plan.revision,
       positioning: understood.summary, requestId: 'explicit-retry' }, {
       onQuestionProgress: value => progress.push(value), questionGenerationRuntime: { generate: async (seed, positioning, runtime) => {

@@ -10,6 +10,7 @@ import type { GeoQuestionPlan, QuestionCandidate, QuestionCategory, QuestionGene
 import type { GeoStructuredModel } from './connection-settings';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel from './chatgpt-model';
+import { buildSetReviewContext, resolveRepairQuote, snapCandidateEvidenceQuotes } from './question-planner-helpers';
 
 const callOptionsSchema = z.object({
   temperature: z.number().min(0).max(2), maxTokens: z.number().int().positive(),
@@ -375,6 +376,8 @@ type PlanningRuntime = {
   model?: GeoStructuredModel; onProgress?: (progress: QuestionPlanningProgress) => void;
   /** Server-only checkpoints. The caller must verify the source job's input fingerprint and base plan. */
   resume?: readonly QuestionGenerationCheckpoint[];
+  maxConcurrency?: number;
+  subscriptionModel?: (options: { timeoutMs: number; onActivity?: (activity: NonNullable<QuestionPlanningProgress['request']>) => void }) => GeoStructuredModel;
 };
 type TrackedPlanningRuntime = PlanningRuntime & { onActivity?: (activity: NonNullable<QuestionPlanningProgress['request']>) => void };
 
@@ -394,6 +397,7 @@ function trackPlanningRuntime(runtime: PlanningRuntime, initial: Pick<QuestionPl
 
 async function planningModel(runtime: TrackedPlanningRuntime, parameters: PlanningParameters): Promise<GeoStructuredModel> {
   if (runtime.model) return runtime.model;
+  if (runtime.subscriptionModel) return runtime.subscriptionModel({ timeoutMs: parameters.subscriptionTimeoutMs, onActivity: runtime.onActivity });
   const { loadGeoModel, shouldUseChatGPTSubscription } = await import('./connection-settings');
   return shouldUseChatGPTSubscription(getChatGPTStatus()) ? new ChatGPTModel({ timeoutMs: parameters.subscriptionTimeoutMs, onActivity: runtime.onActivity }) : loadGeoModel();
 }
@@ -489,13 +493,14 @@ async function validateWithEvidenceRepair(
   scope: 'draft' | 'review', context: ReturnType<typeof boundedContext>,
   seed: GeoSeed, model: GeoStructuredModel, parameters: PlanningParameters, runtime: PlanningRuntime,
 ): Promise<QuestionCandidate[]> {
+  const providedCandidates = scope === 'review' ? candidates.map(reviewCandidateInput) : [];
+  const snapped = snapCandidateEvidenceQuotes(candidates, scope, context.materials, providedCandidates);
   let originalError: EvidenceQuoteError;
-  try { return validate(candidates); } catch (error) {
+  try { return validate(snapped); } catch (error) {
     if (!(error instanceof EvidenceQuoteError)) throw error;
     originalError = error;
   }
-  const providedCandidates = scope === 'review' ? candidates.map(reviewCandidateInput) : [];
-  const failures = candidates.flatMap(candidate => {
+  const failures = snapped.flatMap(candidate => {
     const evidence = scope === 'draft' ? candidate.evidence : candidate.review.assessment?.evidence ?? [];
     return evidence.flatMap((item, evidenceIndex) => providedEvidence(item, context, providedCandidates) ? [] : [{
       candidateId: candidate.id, query: candidate.query, intent: candidate.intent,
@@ -526,14 +531,14 @@ async function validateWithEvidenceRepair(
   } catch (error) {
     throw new Error(`${originalError.message} 原文修正未完成，题单未保存。`, { cause: error });
   }
-  const repaired = structuredClone(candidates);
+  const repaired = structuredClone(snapped);
   const applied = new Set<string>();
   for (const correction of result.corrections) {
     const failure = failures.find(item => item.candidateId === correction.candidateId && item.evidenceIndex === correction.evidenceIndex);
     const key = `${correction.candidateId}:${correction.evidenceIndex}`;
     if (!failure || applied.has(key) || correction.assetId !== failure.assetId) throw new Error('原文修正未逐项对应失败摘录，题单未保存。');
     if (!correction.quote) throw new EvidenceQuoteError('未找到能够替换失败摘录的原文，题单未保存。', failure.candidateId, failure);
-    const evidence = { assetId: correction.assetId, quote: correction.quote };
+    const evidence = { assetId: correction.assetId, quote: resolveRepairQuote(correction.quote, correction.assetId, repairContext.materials, providedCandidateEvidence) };
     if (!providedEvidence(evidence, repairContext, providedCandidates)) throw new EvidenceQuoteError('修正后的摘录仍不是所提供材料的原文，题单未保存。', failure.candidateId, evidence);
     const candidate = repaired.find(item => item.id === correction.candidateId)!;
     (scope === 'draft' ? candidate.evidence : candidate.review.assessment!.evidence)[correction.evidenceIndex] = evidence;
@@ -700,15 +705,7 @@ async function completeQuestionFunnel(input: {
     else {
       const stageRuntime = trackPlanningRuntime(runtime, { stage: 'reviewing', message: round ? '正在复核补题后的需求覆盖和问题取舍。' : '正在审核整组问题的需求覆盖、重复和自然问法。' });
       stageRuntime.onProgress?.({ stage: 'reviewing', message: round ? '正在复核补题后的需求覆盖和问题取舍。' : '正在审核整组问题的需求覆盖、重复和自然问法。' });
-      const context = boundedContext(seed, { ...projectContext(seed, positioning), needs,
-        selectionAdvantages: planned.selectionAdvantages, maxSelected: 8, refinementRound: round,
-        candidates: candidates.map(candidate => ({ id: candidate.id, query: candidate.query, category: candidate.category, intent: candidate.intent,
-          review: { decision: candidate.review.decision, priority: candidate.review.priority, status: candidate.review.status, reason: candidate.review.reason,
-            ...(candidate.review.assessment ? { assessment: { worthPursuing: candidate.review.assessment.worthPursuing,
-              currentSupport: candidate.review.assessment.currentSupport, gaps: candidate.review.assessment.gaps } } : {}),
-          },
-        })),
-      }, setSystem, parameters);
+      const context = buildSetReviewContext({ seed, positioning, understanding: getProjectOnboardingPlanningContext(seed.project.id), needs, selectionAdvantages: planned.selectionAdvantages, candidates, round, system: setSystem, maxInputBytes: parameters.maxInputBytes, resolveOwnership: resolveAssetOwnership });
       const model = await planningModel(stageRuntime, parameters);
       result = setReviewSchema.parse(await model.generateObject({ schema: setReviewSchema,
         messages: [{ role: 'system', content: setSystem }, { role: 'user', content: JSON.stringify(context) }], options: parameters.review,
@@ -887,7 +884,8 @@ export async function generateQuestionPlan(seed: GeoSeed, positioning: string, r
     payload: funnel ? { ...funnel, executionVersion: 3 } : legacyResume ? { directions: planned.directions } : { directions: planned.directions, executionVersion: 2 },
   } });
   const materials = [...planningContext.materials];
-  const draftResults = await settledBatches(draftSpecs, parameters.maxConcurrency, async ({ direction, index, limit }) => {
+  const concurrency = callerRuntime.maxConcurrency ?? parameters.maxConcurrency;
+  const draftResults = await settledBatches(draftSpecs, concurrency, async ({ direction, index, limit }) => {
     const batchRuntime = trackPlanningRuntime(callerRuntime, { stage: 'generating', message: `正在生成第 ${index + 1}/${draftSpecs.length} 个方向的问题：${direction.title}。` });
     const prepared = preparedDrafts[index];
     const { system, context } = prepared ? { system: '', context: prepared.context } : draftContext(direction, limit);
@@ -945,7 +943,7 @@ export async function generateQuestionPlan(seed: GeoSeed, positioning: string, r
     return { batch, candidates, context, validate, restored };
   });
   // All saved reviews have been revalidated before any remaining review is requested.
-  const reviewResults = await settledBatches(reviewSpecs, parameters.maxConcurrency, async ({ batch, candidates, context, validate, restored }, index) => {
+  const reviewResults = await settledBatches(reviewSpecs, concurrency, async ({ batch, candidates, context, validate, restored }, index) => {
     const batchNumber = index + 1;
     const batchRuntime = trackPlanningRuntime(callerRuntime, { stage: 'reviewing', message: `正在独立审核第 ${batchNumber}/${batches.length} 批问题的价值和现有依据。` });
     let validated: QuestionCandidate[];

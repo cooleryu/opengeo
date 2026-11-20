@@ -128,24 +128,32 @@ export function buildServerErrorPayload(
         ? coded.status
         : 400;
     const params = coded.params && Object.keys(coded.params).length > 0 ? coded.params : undefined;
+    const detail =
+      coded.detail && !(lang === 'en' && /[\p{Script=Han}]/u.test(coded.detail))
+        ? coded.detail
+        : undefined;
     return {
       status,
       body: {
         error: translateServerCode(lang, coded.code, params),
         code: coded.code,
         ...(params ? { params } : {}),
-        ...(coded.detail ? { detail: coded.detail } : {}),
+        ...(detail ? { detail } : {}),
       },
     };
   }
 
   const rawDetail = error instanceof Error ? error.message : String(error ?? '');
+  const detail =
+    rawDetail && !(lang === 'en' && /[\p{Script=Han}]/u.test(rawDetail))
+      ? rawDetail
+      : undefined;
   return {
     status: 500,
     body: {
       error: translateServerCode(lang, 'internal_error'),
       code: 'internal_error',
-      ...(rawDetail ? { detail: rawDetail } : {}),
+      ...(detail ? { detail } : {}),
     },
   };
 }

@@ -85,6 +85,31 @@ test('buildServerErrorPayload localizes codes, reason/field subkeys, and maps un
 
   assert.match(translateServerCode('en', 'model_not_configured'), /Settings/i);
   assert.match(translateServerCode('zh', 'model_not_configured'), /设置/);
+
+  const prepFailedEn = buildServerErrorPayload(
+    {
+      code: 'invalid_request',
+      status: 422,
+      params: { reason: 'question_prep_incomplete' },
+      detail: '生成的问题未通过原文依据检查，已停止保存。',
+    },
+    'en',
+  );
+  assert.equal(prepFailedEn.status, 422);
+  assert.match(prepFailedEn.body.error, /did not finish/i);
+  assert.equal(prepFailedEn.body.detail, undefined, 'English responses must not leak Chinese internal detail');
+
+  const prepFailedZh = buildServerErrorPayload(
+    {
+      code: 'invalid_request',
+      status: 422,
+      params: { reason: 'question_prep_incomplete' },
+      detail: '生成的问题未通过原文依据检查，已停止保存。',
+    },
+    'zh',
+  );
+  assert.match(prepFailedZh.body.error, /问题准备未完成/);
+  assert.equal(prepFailedZh.body.detail, '生成的问题未通过原文依据检查，已停止保存。');
 });
 
 test('localizeOnboardingRecord and localizeBrowserCollectSnapshot translate codes and keep legacy text', () => {

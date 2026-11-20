@@ -680,30 +680,23 @@ test('three draft and review requests overlap, settle out of order, and retain s
 });
 
 test('configured concurrency below three bounds active requests without changing deterministic results', async () => {
-  const agentFiles = require('./agent-files');
-  const originalRead = agentFiles.readAgentParameters;
-  agentFiles.readAgentParameters = (name: string, schema: z.ZodType) => {
-    const parameters = originalRead(name, schema);
-    return name === 'question-planning' ? { ...parameters, maxConcurrency: 2 } : parameters;
-  };
   let active = 0;
   let peak = 0;
   const calls: ModelInput[] = [];
-  try {
-    const result = await generateQuestionPlan(seed, seed.project.description, {
-      model: fakeModel(async (input: ModelInput) => {
-        const context = JSON.parse(String(input.messages[1].content));
-        if (calls.length === 1) return planningDirections(3);
-        active++; peak = Math.max(peak, active);
-        await new Promise<void>(resolve => setImmediate(resolve));
-        active--;
-        if (context.direction) return { candidates: [{ ...planningDraft(), query: `方向 ${directionOffset(context)} 如何检查恢复任务的权限？` }] };
-        return { reviews: context.candidates.map((candidate: { id: string }) => modelReview(candidate.id)) };
-      }, calls),
-    });
-    assert.equal(peak, 2);
-    assert.deepEqual(result.candidates.filter(candidate => candidate.origin === 'model').map(candidate => candidate.id), ['model-1', 'model-5', 'model-9']);
-  } finally { agentFiles.readAgentParameters = originalRead; }
+  const result = await generateQuestionPlan(seed, seed.project.description, {
+    maxConcurrency: 2,
+    model: fakeModel(async (input: ModelInput) => {
+      const context = JSON.parse(String(input.messages[1].content));
+      if (calls.length === 1) return planningDirections(3);
+      active++; peak = Math.max(peak, active);
+      await new Promise<void>(resolve => setImmediate(resolve));
+      active--;
+      if (context.direction) return { candidates: [{ ...planningDraft(), query: `方向 ${directionOffset(context)} 如何检查恢复任务的权限？` }] };
+      return { reviews: context.candidates.map((candidate: { id: string }) => modelReview(candidate.id)) };
+    }, calls),
+  });
+  assert.equal(peak, 2);
+  assert.deepEqual(result.candidates.filter(candidate => candidate.origin === 'model').map(candidate => candidate.id), ['model-1', 'model-5', 'model-9']);
 });
 
 test('a failed parallel batch waits for every sibling and preserves successful checkpoints without returning a partial plan', async () => {
@@ -807,36 +800,28 @@ test('direction and batch limits reject oversized or unknown source output witho
 });
 
 test('subscription activity follows each current stage including repair without replaying checkpoints', async () => {
-  const auth = require('./chatgpt-auth');
-  const adapter = require('./chatgpt-model');
-  const originalStatus = auth.getChatGPTStatus;
-  const OriginalModel = adapter.default;
   const progress: QuestionGenerationProgress[] = [];
   const valid = planningDraft();
   const invalid = structuredClone(valid);
   invalid.evidence[0].quote = '这是一段生成的概括，并不是对应材料的一段逐字原文。';
   let requestNumber = 0;
-  auth.getChatGPTStatus = () => ({ enabled: true });
-  adapter.default = class {
-    constructor(private options: { timeoutMs: number; onActivity: (request: NonNullable<QuestionGenerationProgress['request']>) => void }) {
+  await generateQuestionPlan(seed, seed.project.description, {
+    onProgress(event) { progress.push(structuredClone(event)); },
+    subscriptionModel: (options) => {
       assert.equal(options.timeoutMs, 1200000);
-    }
-    async generateObject(input: ModelInput) {
-      requestNumber++;
-      this.options.onActivity({ phase: 'connecting', elapsedMs: 0, eventCount: 0, outputCharacters: 0 });
-      const context = JSON.parse(String(input.messages[1].content));
-      const reply = requestNumber === 1 ? planningDirections() : context.maxSelected ? completeSetReply(context) : context.direction ? { candidates: [invalid] }
-        : context.failures ? correctedQuotes(input, valid.evidence[0].quote) : { reviews: [modelReview('model-1')] };
-      this.options.onActivity({ phase: 'completed', elapsedMs: 10, eventCount: 2, outputCharacters: JSON.stringify(reply).length });
-      return reply;
-    }
-  };
-  try {
-    await generateQuestionPlan(seed, seed.project.description, { onProgress(event) { progress.push(structuredClone(event)); } });
-  } finally {
-    auth.getChatGPTStatus = originalStatus;
-    adapter.default = OriginalModel;
-  }
+      return {
+        async generateObject(input: ModelInput) {
+          requestNumber++;
+          options.onActivity?.({ phase: 'connecting', elapsedMs: 0, eventCount: 0, outputCharacters: 0 });
+          const context = JSON.parse(String(input.messages[1].content));
+          const reply = requestNumber === 1 ? planningDirections() : context.maxSelected ? completeSetReply(context) : context.direction ? { candidates: [invalid] }
+            : context.failures ? correctedQuotes(input, valid.evidence[0].quote) : { reviews: [modelReview('model-1')] };
+          options.onActivity?.({ phase: 'completed', elapsedMs: 10, eventCount: 2, outputCharacters: JSON.stringify(reply).length });
+          return reply as never;
+        },
+      };
+    },
+  });
   assert.equal(requestNumber, 5);
   assert.deepEqual(progress.filter(event => event.request?.phase === 'connecting').map(event => event.stage), ['planning', 'generating', 'repairing', 'reviewing', 'reviewing']);
   assert.deepEqual(progress.filter(event => event.request?.phase === 'connecting').map(event => event.workflowStep), ['planning', 'generating', 'generating', 'reviewing', 'reviewing']);
@@ -846,56 +831,47 @@ test('subscription activity follows each current stage including repair without 
 });
 
 test('concurrent subscription activity stays attached to its own batch after a sibling checkpoint', async () => {
-  const auth = require('./chatgpt-auth');
-  const adapter = require('./chatgpt-model');
-  const originalStatus = auth.getChatGPTStatus;
-  const OriginalModel = adapter.default;
   const progress: QuestionGenerationProgress[] = [];
   const requests = new Map<string, { gate: ReturnType<typeof deferred<unknown>>; activity: () => void; context: { candidates?: { id: string }[] } }>();
-  auth.getChatGPTStatus = () => ({ enabled: true });
-  adapter.default = class {
-    constructor(private options: { onActivity: (request: NonNullable<QuestionGenerationProgress['request']>) => void }) {}
-    async generateObject(input: ModelInput) {
-      const context = JSON.parse(String(input.messages[1].content));
-      if (context.maxSelected) return completeSetReply(context);
-      if (!context.direction && !context.candidates) return planningDirections(2);
-      const key = context.direction ? `draft-${directionOffset(context) / 4 + 1}` : `review-${(Number(context.candidates[0].id.slice(6)) - 1) / 4 + 1}`;
-      const gate = deferred<unknown>();
-      const activity = () => this.options.onActivity({ phase: 'receiving', elapsedMs: 10, eventCount: 1, outputCharacters: 1, requestId: key });
-      requests.set(key, { gate, activity, context });
-      activity();
-      return gate.promise;
-    }
-  };
-  try {
-    const resultPromise = generateQuestionPlan(seed, seed.project.description, { onProgress(event) { progress.push(structuredClone(event)); } });
-    await until(() => requests.size === 2);
-    requests.get('draft-1')!.gate.resolve({ candidates: Array.from({ length: 4 }, (_, index) => ({ ...planningDraft(), query: `活动阶段 ${index + 1} 如何核对任务权限？` })) });
-    await until(() => progress.some(event => event.checkpoint?.key === 'draft-1'));
-    requests.get('draft-2')!.activity();
-    const draftActivity = progress.at(-1)!;
-    assert.equal(draftActivity.stage, 'generating');
-    assert.equal(draftActivity.workflowStep, 'generating');
-    assert.match(draftActivity.message, /第 2\/2 个方向/);
-    assert.equal(draftActivity.checkpoint, undefined);
-    requests.get('draft-2')!.gate.resolve({ candidates: Array.from({ length: 4 }, (_, index) => ({ ...planningDraft(), query: `活动阶段 ${index + 5} 如何核对任务权限？` })) });
-    await until(() => requests.size === 4);
-    const first = requests.get('review-1')!;
-    first.gate.resolve({ reviews: first.context.candidates!.map(candidate => modelReview(candidate.id)) });
-    await until(() => progress.some(event => event.checkpoint?.key === 'review-1'));
-    requests.get('review-2')!.activity();
-    const reviewActivity = progress.at(-1)!;
-    assert.equal(reviewActivity.stage, 'reviewing');
-    assert.equal(reviewActivity.workflowStep, 'reviewing');
-    assert.match(reviewActivity.message, /第 2\/2 批/);
-    assert.equal(reviewActivity.checkpoint, undefined);
-    const second = requests.get('review-2')!;
-    second.gate.resolve({ reviews: second.context.candidates!.map(candidate => modelReview(candidate.id)) });
-    await resultPromise;
-  } finally {
-    auth.getChatGPTStatus = originalStatus;
-    adapter.default = OriginalModel;
-  }
+  const resultPromise = generateQuestionPlan(seed, seed.project.description, {
+    onProgress(event) { progress.push(structuredClone(event)); },
+    subscriptionModel: (options) => ({
+      async generateObject(input: ModelInput) {
+        const context = JSON.parse(String(input.messages[1].content));
+        if (context.maxSelected) return completeSetReply(context) as never;
+        if (!context.direction && !context.candidates) return planningDirections(2) as never;
+        const key = context.direction ? `draft-${directionOffset(context) / 4 + 1}` : `review-${(Number(context.candidates[0].id.slice(6)) - 1) / 4 + 1}`;
+        const gate = deferred<unknown>();
+        const activity = () => options.onActivity?.({ phase: 'receiving', elapsedMs: 10, eventCount: 1, outputCharacters: 1, requestId: key });
+        requests.set(key, { gate, activity, context });
+        activity();
+        return await gate.promise as never;
+      },
+    }),
+  });
+  await until(() => requests.size === 2);
+  requests.get('draft-1')!.gate.resolve({ candidates: Array.from({ length: 4 }, (_, index) => ({ ...planningDraft(), query: `活动阶段 ${index + 1} 如何核对任务权限？` })) });
+  await until(() => progress.some(event => event.checkpoint?.key === 'draft-1'));
+  requests.get('draft-2')!.activity();
+  const draftActivity = progress.at(-1)!;
+  assert.equal(draftActivity.stage, 'generating');
+  assert.equal(draftActivity.workflowStep, 'generating');
+  assert.match(draftActivity.message, /第 2\/2 个方向/);
+  assert.equal(draftActivity.checkpoint, undefined);
+  requests.get('draft-2')!.gate.resolve({ candidates: Array.from({ length: 4 }, (_, index) => ({ ...planningDraft(), query: `活动阶段 ${index + 5} 如何核对任务权限？` })) });
+  await until(() => requests.size === 4);
+  const first = requests.get('review-1')!;
+  first.gate.resolve({ reviews: first.context.candidates!.map(candidate => modelReview(candidate.id)) });
+  await until(() => progress.some(event => event.checkpoint?.key === 'review-1'));
+  requests.get('review-2')!.activity();
+  const reviewActivity = progress.at(-1)!;
+  assert.equal(reviewActivity.stage, 'reviewing');
+  assert.equal(reviewActivity.workflowStep, 'reviewing');
+  assert.match(reviewActivity.message, /第 2\/2 批/);
+  assert.equal(reviewActivity.checkpoint, undefined);
+  const second = requests.get('review-2')!;
+  second.gate.resolve({ reviews: second.context.candidates!.map(candidate => modelReview(candidate.id)) });
+  await resultPromise;
 });
 
 async function savedReviewFailure() {
