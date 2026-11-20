@@ -133,8 +133,8 @@ if (args.since && !Number.isFinite(sinceMs)) {
   throw new Error('--since 时间格式无效。');
 }
 const humanPace = args.pace !== 'false';
-const minDelayMs = Number(args['min-delay-ms'] ?? 10000);
-const maxDelayMs = Number(args['max-delay-ms'] ?? 18000);
+const minDelayMs = Number(args['min-delay-ms'] ?? 5000);
+const maxDelayMs = Number(args['max-delay-ms'] ?? 9000);
 if (!Number.isFinite(minDelayMs) || !Number.isFinite(maxDelayMs) || minDelayMs < 0 || maxDelayMs < minDelayMs) {
   throw new Error('--min-delay-ms / --max-delay-ms 参数无效。');
 }
@@ -178,10 +178,11 @@ if (args.question) {
       q[language] &&
       (!questionFilter || questionFilter.has(q.id)),
   );
-  // Run each engine sequentially with per-engine cooldowns so a CAPTCHA on one platform
-  // never blocks saving unaffected platforms.
-  for (const engine of engines) {
-    for (const q of activeQuestions) {
+  // Alternate platforms question by question: each platform's own cooldown then runs
+  // while the other platform is being searched, so a round takes about half as long
+  // without either site seeing faster traffic.
+  for (const q of activeQuestions) {
+    for (const engine of engines) {
       const alreadyDone = Number.isFinite(sinceMs)
         ? q.observations?.some(
             (o) =>
@@ -353,11 +354,11 @@ async function runChromeDriver() {
       skipNextCooldown = false;
       await ensureActivePage();
       console.log(`[${i + 1}/${queue.length}] ${item.questionId} (${item.engine}, ${item.language}): ${item.query}`);
+      // A platform's cooldown counts from when it was asked, not from when our own review finished.
+      lastByEngine[item.engine] = Date.now();
       try {
         await collectBrowserQuestion({ page: () => activePage }, item);
-        lastByEngine[item.engine] = Date.now();
       } catch (stepError) {
-        lastByEngine[item.engine] = Date.now();
         const message = stepError?.message ?? String(stepError);
         if (isBatch && (stepError?.code === 'REVIEW_PENDING' || /回答已入库.*(?:审核仍待核实|模型分析失败)/.test(message))) {
           reviewPendingCount += 1;
@@ -627,8 +628,9 @@ try {
   process.exitCode = 1;
 }
 `;
-      const stepRes = await runEgoScript(itemScript, { forwardOutput: true });
+      // A platform's cooldown counts from when it was asked, not from when our own review finished.
       lastByEngine[item.engine] = Date.now();
+      const stepRes = await runEgoScript(itemScript, { forwardOutput: true });
 
       if (stopping) break;
       if (stepRes.code !== 0) {
