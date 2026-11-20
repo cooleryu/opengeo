@@ -16,7 +16,6 @@ import {
   Plus,
   X,
 } from 'lucide-react';
-import { resolveProjectUiLanguage } from '@/lib/geo/i18n';
 import type { GeoConnectionSettings } from '@/lib/geo/connection-settings-types';
 import type { GeoProject } from '@/lib/geo/types';
 import type { QuestionGenerationJob } from '@/lib/geo/question-types';
@@ -28,7 +27,11 @@ import BackgroundPreparationStatus from './BackgroundPreparationStatus';
 import DevI18nLeakHighlighter from './DevI18nLeakHighlighter';
 import ModelSettingsCard from './ModelSettingsCard';
 import OpenGeoBrandMark from './OpenGeoBrandMark';
-import { UiLanguageProvider, useUiLanguage } from './UiLanguageContext';
+import {
+  UiLanguageProvider,
+  UiLanguageToggle,
+  useUiLanguage,
+} from './UiLanguageContext';
 import './project-onboarding.css';
 
 type ProjectResponse = {
@@ -53,7 +56,7 @@ function CapabilityText({ text }: { text: string }) {
 }
 
 function ProjectOnboardingPageInner() {
-  const { uiLanguage, setUiLanguage, t } = useUiLanguage();
+  const { uiLanguage, t } = useUiLanguage();
   const isEn = uiLanguage === 'en';
   const [url, setUrl] = useState('');
   const [notes, setNotes] = useState('');
@@ -76,7 +79,6 @@ function ProjectOnboardingPageInner() {
   const revisionSubmitting = useRef(false);
   const requestId = useRef('');
   const submittedInput = useRef('');
-  const syncedProjectLang = useRef('');
   const inferredKind = inferProjectEntryKind(url);
   const record = result?.onboarding;
   const working = Boolean(
@@ -85,6 +87,11 @@ function ProjectOnboardingPageInner() {
   const ready = record?.status === 'ready';
   const questionGeneration = result?.questionGeneration;
   const analysis = record?.analysis;
+  const analysisLang =
+    record?.outputLanguage ||
+    (analysis?.summary && /[\p{Script=Han}]/u.test(analysis.summary)
+      ? 'zh'
+      : 'en');
   const revising = busy || Boolean(pendingRevision && working);
   const revisionFailed =
     record?.status === 'failed' && Boolean(record.revision);
@@ -96,9 +103,6 @@ function ProjectOnboardingPageInner() {
     let active = true;
     const params = new URLSearchParams(window.location.search);
     const id = params.get('project') || '';
-    if (!id && !params.get('ui')) {
-      setUiLanguage('en');
-    }
     if (params.get('next') === 'questions' && params.get('revision')) {
       setPendingRevision(params.get('revision')!);
       setConfirmOpen(true);
@@ -147,7 +151,7 @@ function ProjectOnboardingPageInner() {
     return () => {
       active = false;
     };
-  }, [isEn, setUiLanguage]);
+  }, [isEn]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -169,16 +173,6 @@ function ProjectOnboardingPageInner() {
         }
         if (controller.signal.aborted) return;
         setResult(payload);
-        const lockedLang = resolveProjectUiLanguage({
-          uiLanguage: payload.onboarding?.uiLanguage ?? payload.project?.uiLanguage,
-          summaryOrDescription:
-            payload.onboarding?.analysis?.summary || payload.project?.description,
-        });
-        const langKey = `${projectId}:${lockedLang}`;
-        if (syncedProjectLang.current !== langKey) {
-          syncedProjectLang.current = langKey;
-          setUiLanguage(lockedLang);
-        }
         setError('');
         setErrorCode('');
         setLoading(false);
@@ -233,7 +227,7 @@ function ProjectOnboardingPageInner() {
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [projectId, refreshKey, isEn, setUiLanguage]);
+  }, [projectId, refreshKey, isEn]);
 
   useEffect(() => {
     const restorePage = (event: PageTransitionEvent) => {
@@ -297,7 +291,7 @@ function ProjectOnboardingPageInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           retry
-            ? { action: 'retry', projectId, requestId: id }
+            ? { action: 'retry', projectId, requestId: id, uiLanguage }
             : {
                 action: 'revise',
                 projectId,
@@ -377,13 +371,6 @@ function ProjectOnboardingPageInner() {
       }
       setMatchedExisting(!retry && response.status === 200);
       setResult(payload);
-      const lockedLang = resolveProjectUiLanguage({
-        uiLanguage: payload.onboarding?.uiLanguage ?? payload.project?.uiLanguage,
-        summaryOrDescription:
-          payload.onboarding?.analysis?.summary || payload.project?.description,
-      });
-      syncedProjectLang.current = `${payload.project.id}:${lockedLang}`;
-      setUiLanguage(lockedLang);
       setProjectId(payload.project.id);
       setHasProjects(true);
       window.history.replaceState(
@@ -416,6 +403,7 @@ function ProjectOnboardingPageInner() {
           <OpenGeoBrandMark size={30} />OpenGEO
         </Link>
         <div className="og-onboarding-topbar-right">
+          <UiLanguageToggle disabled={busy} />
           {hasProjects && (
             <Link
               className="og-onboarding-back"
@@ -482,28 +470,7 @@ function ProjectOnboardingPageInner() {
                 <label className="og-onboarding-field is-inline">
                   {t('onboarding.uiLangPrompt')}
                 </label>
-                <div
-                  className="og-lang-switch"
-                  role="group"
-                  aria-label={t('onboarding.uiLangPrompt')}
-                >
-                  <button
-                    type="button"
-                    aria-pressed={uiLanguage === 'en'}
-                    disabled={busy}
-                    onClick={() => setUiLanguage('en')}
-                  >
-                    English
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={uiLanguage === 'zh'}
-                    disabled={busy}
-                    onClick={() => setUiLanguage('zh')}
-                  >
-                    简体中文
-                  </button>
-                </div>
+                <UiLanguageToggle disabled={busy} />
               </div>
 
               <label
@@ -660,13 +627,13 @@ function ProjectOnboardingPageInner() {
             )}
             {ready && analysis && (
               <section className="og-onboarding-understanding">
-                <div className="og-onboarding-summary">
+                <div className="og-onboarding-summary" lang={analysisLang}>
                   <p>{analysis.summary}</p>
                 </div>
                 <div className="og-onboarding-audience">
                   <p>
                     <strong>{t('onboarding.audienceLabel')}</strong>
-                    {analysis.audience}
+                    <span lang={analysisLang}>{analysis.audience}</span>
                   </p>
                 </div>
                 {questionGeneration && (
@@ -691,7 +658,7 @@ function ProjectOnboardingPageInner() {
                   </a>
                 </div>
                 <h2>{t('onboarding.capabilitiesHeading')}</h2>
-                <ul className="og-onboarding-capabilities">
+                <ul className="og-onboarding-capabilities" lang={analysisLang}>
                   {analysis.capabilities.slice(0, 3).map((item, index) => (
                     <li key={index}>
                       <CapabilityText text={item} />
@@ -705,7 +672,7 @@ function ProjectOnboardingPageInner() {
                         count: analysis.capabilities.length - 3,
                       })}
                     </summary>
-                    <ul className="og-onboarding-capabilities">
+                    <ul className="og-onboarding-capabilities" lang={analysisLang}>
                       {analysis.capabilities.slice(3).map((item, index) => (
                         <li key={index}>
                           <CapabilityText text={item} />

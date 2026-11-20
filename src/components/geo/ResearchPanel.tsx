@@ -1170,6 +1170,7 @@ export default function ResearchPanel({
                               key={row.key}
                               projectId={batch.projectId}
                               path={row.observation?.answerPath}
+                              contentLang={row.observation?.language}
                               projectNames={projectNames.filter((name): name is string => Boolean(name))}
                             />
                           )}
@@ -1180,7 +1181,7 @@ export default function ResearchPanel({
                                   ? (isEn ? 'Prompt' : '本次问法')
                                   : (isEn ? 'Pending query' : '待搜索问题')}
                               </h3>
-                              <p>
+                              <p lang={row.observation?.language ?? filters.language}>
                                 {row.observation?.query ||
                                   (filters.language === 'zh'
                                     ? row.question.zh
@@ -1192,7 +1193,7 @@ export default function ResearchPanel({
                             <OverviewAudit batch={batch} row={row} />
                           )}
                           {!drawer.question && (
-                            <p className="rw-answer-question">
+                            <p className="rw-answer-question" lang={filters.language}>
                               {filters.language === 'zh'
                                 ? row.question.zh
                                 : row.question.en}
@@ -1202,7 +1203,14 @@ export default function ResearchPanel({
                             <>
                               {!drawer.question && (
                                 <>
-                                  <p className="rw-summary">
+                                  <p
+                                    className="rw-summary"
+                                    lang={
+                                      /[\p{Script=Han}]/u.test(row.observation.summary)
+                                        ? 'zh'
+                                        : 'en'
+                                    }
+                                  >
                                     {row.observation.summary}
                                   </p>
                                   {row.observation.overviewStatus && (

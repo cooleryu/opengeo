@@ -362,6 +362,7 @@ export function cancelOptimizationRun(
 export interface StartOptimizationOptions {
   mode?: OptimizationRunMode;
   targetLanguage?: 'en' | 'zh';
+  uiLanguage?: 'en' | 'zh';
   includeChineseCompanion?: boolean;
   onlyNewContent?: boolean;
   angleBrief?: string;
@@ -687,10 +688,12 @@ export async function startOptimizationRun(
     options.targetLanguage ??
     seed.project.targetLanguage ??
     resolveProjectTargetLanguage(seed.project, readRelationalOverview(projectId));
-  const uiLanguage = resolveProjectUiLanguage({
-    uiLanguage: seed.project.uiLanguage,
-    summaryOrDescription: seed.project.description,
-  });
+  const uiLanguage =
+    options.uiLanguage ??
+    resolveProjectUiLanguage({
+      uiLanguage: seed.project.uiLanguage,
+      summaryOrDescription: seed.project.description,
+    });
   const winnerProber =
     options.probeWinners ??
     (options.transport?.provider === 'test'
@@ -700,8 +703,13 @@ export async function startOptimizationRun(
     projectId,
     mode,
     options.onlyNewContent
-      ? '正在按你选定的角度梳理现有内容与真实回答，准备撰写新文章…'
-      : '正在梳理项目的全部监测问题与真实搜索回答，寻找最关键的突破口…',
+      ? uiLanguage === 'en'
+        ? 'Reviewing existing content and live AI answers for your chosen angle…'
+        : '正在按你选定的角度梳理现有内容与真实回答，准备撰写新文章…'
+      : uiLanguage === 'en'
+        ? 'Reviewing tracked buyer questions and live AI answers to find the highest-leverage moves…'
+        : '正在梳理项目的全部监测问题与真实搜索回答，寻找最关键的突破口…',
+    uiLanguage,
   );
   const { controller, throwIfAborted, cleanup } = attachRunAbortController(
     projectId,

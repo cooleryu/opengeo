@@ -28,7 +28,7 @@ import {
   getBatchResearchEngines,
   isResearchEngine,
 } from '@/lib/geo/research-engines';
-import { resolveProjectTargetLanguage } from '@/lib/geo/i18n';
+import { inferContentLang, resolveProjectTargetLanguage } from '@/lib/geo/i18n';
 import {
   getLatestResearchObservation,
   getResearchRows,
@@ -835,26 +835,33 @@ export default function QuestionManagementPanel({
                     </td>
                   )}
                   <td>
-                    <button
-                      className="qm-question"
-                      onClick={() =>
+                    {(() => {
+                      const questionText =
                         scope === 'observed' && research
-                          ? onResult(research, language, resultEngine)
+                          ? research[language] ||
+                            research[language === 'zh' ? 'en' : 'zh']
                           : candidate
-                            ? reviewCandidate(candidate)
-                            : onResult(research!, language, resultEngine)
-                      }
-                    >
-                      {scope === 'observed' && research
-                        ? research[language] ||
-                          research[language === 'zh' ? 'en' : 'zh']
-                        : candidate
-                          ? language === 'en'
-                            ? candidate.queryEn || candidate.query
-                            : candidate.query
-                          : research![language] ||
-                            research![language === 'zh' ? 'en' : 'zh']}
-                    </button>
+                            ? language === 'en'
+                              ? candidate.queryEn || candidate.query
+                              : candidate.query
+                            : research![language] ||
+                              research![language === 'zh' ? 'en' : 'zh'];
+                      return (
+                        <button
+                          className="qm-question"
+                          lang={inferContentLang(questionText)}
+                          onClick={() =>
+                            scope === 'observed' && research
+                              ? onResult(research, language, resultEngine)
+                              : candidate
+                                ? reviewCandidate(candidate)
+                                : onResult(research!, language, resultEngine)
+                          }
+                        >
+                          {questionText}
+                        </button>
+                      );
+                    })()}
                     {research && !research[language]?.trim() && (
                       <small className="qm-note">
                         {isEn
@@ -863,7 +870,10 @@ export default function QuestionManagementPanel({
                       </small>
                     )}
                     {scope === 'observed' && research?.valueReason && (
-                      <p className="qm-question-value">
+                      <p
+                        className="qm-question-value"
+                        lang={inferContentLang(research.valueReason)}
+                      >
                         {research.valueReason}
                       </p>
                     )}

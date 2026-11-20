@@ -56,12 +56,10 @@ import TrafficPanel from './TrafficPanel';
 import ConnectionSettingsPanel from './ConnectionSettingsPanel';
 import DevI18nLeakHighlighter from './DevI18nLeakHighlighter';
 import { normalizeQuestionMonitoringUrl } from './question-monitoring-url';
-import {
-  resolveProjectTargetLanguage,
-  resolveProjectUiLanguage,
-} from '@/lib/geo/i18n';
+import { resolveProjectTargetLanguage } from '@/lib/geo/i18n';
 import {
   UiLanguageProvider,
+  UiLanguageToggle,
   useUiLanguage,
 } from './UiLanguageContext';
 import OpenGeoBrandMark from './OpenGeoBrandMark';
@@ -224,7 +222,7 @@ function MarkdownBody({
 }
 
 function OpenGeoAppInner() {
-  const { t, uiLanguage, setUiLanguage } = useUiLanguage();
+  const { t, uiLanguage } = useUiLanguage();
   const isEn = uiLanguage === 'en';
   const isEnRef = useRef(isEn);
   isEnRef.current = isEn;
@@ -421,27 +419,6 @@ function OpenGeoAppInner() {
       window.removeEventListener('pageshow', restorePage);
     };
   }, [refresh]);
-  useEffect(() => {
-    const project = storedData?.project;
-    if (!project) return;
-    const urlUi =
-      typeof window !== 'undefined'
-        ? new URLSearchParams(window.location.search).get('ui')
-        : null;
-    if (urlUi === 'en' || urlUi === 'zh') {
-      if (uiLanguage !== urlUi) {
-        setUiLanguage(urlUi);
-      }
-      return;
-    }
-    const locked = resolveProjectUiLanguage({
-      uiLanguage: project.uiLanguage,
-      summaryOrDescription: project.description,
-    });
-    if (uiLanguage !== locked) {
-      setUiLanguage(locked);
-    }
-  }, [storedData?.project, uiLanguage, setUiLanguage]);
   useEffect(() => {
     if (page !== 'overview' || !projectId) return;
     let active = true;
@@ -968,7 +945,7 @@ function OpenGeoAppInner() {
             </span>
             <span className="og-project-label">
               <small>{t('nav.currentProject')}</small>
-              <strong>
+              <strong data-i18n-skip={data?.project.name ? '' : undefined}>
                 {data?.project.name ?? (isEn ? 'Loading…' : '正在读取…')}
               </strong>
             </span>
@@ -1016,7 +993,7 @@ function OpenGeoAppInner() {
                   <span className="og-project-avatar">
                     {project.name.slice(0, 1).toUpperCase()}
                   </span>
-                  <strong>{project.name}</strong>
+                  <strong data-i18n-skip="">{project.name}</strong>
                   {project.id === projectId && <Check size={16} />}
                 </button>
               ))}
@@ -1050,6 +1027,7 @@ function OpenGeoAppInner() {
           ))}
         </nav>
         <div className="og-sidebar-bottom">
+          <UiLanguageToggle className="og-sidebar-lang" />
           <a
             href={data?.project.siteUrl || data?.project.repositoryUrl || undefined}
             aria-disabled={!data}
@@ -1296,7 +1274,7 @@ function OpenGeoAppInner() {
                                     ? t('overview.catBrand')
                                     : t('overview.catProblem')}
                                 </span>
-                                <span>
+                                <span lang={targetLang}>
                                   {targetLang === 'en' ? c.queryEn || c.query : c.query || c.queryEn}
                                 </span>
                               </li>

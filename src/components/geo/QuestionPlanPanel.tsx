@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { GeoAsset } from '@/lib/geo/types';
+import { inferContentLang } from '@/lib/geo/i18n';
 import {
   type GeoQuestionPlan,
   type QuestionCandidate,
@@ -282,7 +283,9 @@ export default function QuestionPlanPanel({
             </div>
           </>
         ) : (
-          <p className="qp-positioning-text">{positioning}</p>
+          <p className="qp-positioning-text" lang={inferContentLang(positioning)}>
+            {positioning}
+          </p>
         )}
         {hasCandidates && positioningChanged && (
           <div className="qp-positioning-change" role="status">
@@ -470,7 +473,7 @@ export default function QuestionPlanPanel({
                 void onToggle(candidate.id, event.target.checked)
               }
             />
-            <h3>{candidate.query}</h3>
+            <h3 lang={inferContentLang(candidate.query)}>{candidate.query}</h3>
           </label>
           <div className="qp-question-meta">
             <span>{categoryLabels[candidate.category][langKey]}</span>
@@ -516,7 +519,9 @@ export default function QuestionPlanPanel({
         </div>
         {expanded[candidate.id] && (
           <div className="qp-question-details" id={detailsId}>
-            <p className="qp-review">{candidate.review.reason}</p>
+            <p className="qp-review" lang={inferContentLang(candidate.review.reason)}>
+              {candidate.review.reason}
+            </p>
             <div className="qp-review-meta">
               <span>
                 {candidate.origin === 'existing'

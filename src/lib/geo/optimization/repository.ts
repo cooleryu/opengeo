@@ -97,6 +97,9 @@ function rowToRun(
     baselineObservationIds: parseJsonSafe<string[]>(row.baseline_obs_ids_json, []),
     followupObservationIds: parseJsonSafe<string[]>(row.followup_obs_ids_json, []),
     errorMessage: row.error_message,
+    ...(row.output_language === 'en' || row.output_language === 'zh'
+      ? { outputLanguage: row.output_language }
+      : {}),
     deliverables,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -133,6 +136,7 @@ export function createOptimizationRunRecord(
   projectId: string,
   mode: OptimizationRunMode,
   initialMessage: string,
+  outputLanguage?: 'en' | 'zh',
 ): OptimizationRun {
   const baselineIds = captureBaselineObservationIds(projectId);
   return withProjectDb(projectId, (db, id) => {
@@ -145,8 +149,8 @@ export function createOptimizationRunRecord(
     db.prepare(
       `INSERT INTO opengeo_optimization_runs (
         id, project_id, mode, status, status_message, summary, progress_json,
-        baseline_obs_ids_json, followup_obs_ids_json, error_message, created_at, updated_at
-      ) VALUES (?, ?, ?, 'planning', ?, '', ?, ?, '[]', NULL, ?, ?)`,
+        baseline_obs_ids_json, followup_obs_ids_json, error_message, output_language, created_at, updated_at
+      ) VALUES (?, ?, ?, 'planning', ?, '', ?, ?, '[]', NULL, ?, ?, ?)`,
     ).run(
       runId,
       id,
@@ -154,6 +158,7 @@ export function createOptimizationRunRecord(
       initialMessage,
       JSON.stringify(initialProgress),
       JSON.stringify(baselineIds),
+      outputLanguage ?? null,
       now,
       now,
     );

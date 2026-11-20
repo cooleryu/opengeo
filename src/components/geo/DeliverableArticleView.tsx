@@ -24,7 +24,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { translateUi, type GeoLanguage } from '@/lib/geo/i18n';
+import { inferContentLang, translateUi, type GeoLanguage } from '@/lib/geo/i18n';
 import { buildCodingAgentEvidenceBrief } from '@/lib/geo/optimization/evidence-brief';
 import {
   buildExternalMarkdown,
@@ -985,7 +985,7 @@ export default function DeliverableArticleView({
       )}
 
       <div className={isLongCollapsible && !bodyExpanded ? 'dav-prose-collapsed-wrap' : undefined}>
-        <article className="dav-prose">
+        <article className="dav-prose" lang={inferContentLang(renderedMarkdown)}>
         {centeredHero && (
           <header className="dav-readme-hero">
             {centeredHero.logo && (

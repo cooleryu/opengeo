@@ -113,10 +113,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'start' || action === 'retry') {
+      const requestUiLanguage = resolveRequestUiLanguage(request, body);
       if (action === 'start' && !getGeoModelSettings().modelConfigured) {
         return serverErrorResponse(
           { code: 'model_not_configured', status: 400 },
-          resolveRequestUiLanguage(request, body),
+          requestUiLanguage,
         );
       }
       const onlyNewContent = body.onlyNewContent === true;
@@ -137,6 +138,7 @@ export async function POST(request: NextRequest) {
       ) =>
         runIdToResume
           ? resumeOptimizationRun(projectId, runIdToResume, {
+              uiLanguage: requestUiLanguage,
               preferredProvider,
               includeChineseCompanion,
               onProgress,
@@ -144,6 +146,7 @@ export async function POST(request: NextRequest) {
             })
           : startOptimizationRun(projectId, {
               mode,
+              uiLanguage: requestUiLanguage,
               preferredProvider,
               includeChineseCompanion,
               onlyNewContent,
@@ -286,6 +289,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'audit_page') {
+      const requestUiLanguage = resolveRequestUiLanguage(request, body);
       const assetId = typeof body.assetId === 'string' && body.assetId.trim() ? body.assetId.trim() : undefined;
       const preferredProvider =
         body.preferredProvider === 'gemini' || body.preferredProvider === 'deepseek'
@@ -305,6 +309,7 @@ export async function POST(request: NextRequest) {
               try {
                 const pageAudit = await runPageContentAudit(projectId, {
                   assetId,
+                  uiLanguage: requestUiLanguage,
                   preferredProvider,
                   captureLiveScreenshots,
                   signal: request.signal,
@@ -341,6 +346,7 @@ export async function POST(request: NextRequest) {
       return await withGeoProject(projectId, async () => {
         const pageAudit = await runPageContentAudit(projectId, {
           assetId,
+          uiLanguage: requestUiLanguage,
           preferredProvider,
           captureLiveScreenshots,
           signal: request.signal,

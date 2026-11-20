@@ -143,6 +143,7 @@ export interface RelationalOptimizationRunRow {
   baseline_obs_ids_json: string;
   followup_obs_ids_json: string;
   error_message: string | null;
+  output_language?: 'en' | 'zh' | null;
   created_at: string;
   updated_at: string;
 }
@@ -262,6 +263,7 @@ export const RELATIONAL_SCHEMA_SQL = `
     baseline_obs_ids_json TEXT NOT NULL DEFAULT '[]',
     followup_obs_ids_json TEXT NOT NULL DEFAULT '[]',
     error_message TEXT,
+    output_language TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE (project_id, id),
@@ -517,6 +519,12 @@ export function configureSqliteConnection(db: Database.Database): Database.Datab
     .all() as Array<{ name: string }>;
   if (!auditColumns.some((col) => col.name === 'recommended_competitors_json')) {
     db.exec("ALTER TABLE opengeo_answer_audits ADD COLUMN recommended_competitors_json TEXT NOT NULL DEFAULT '[]';");
+  }
+  const runColumns = db
+    .prepare("PRAGMA table_info('opengeo_optimization_runs')")
+    .all() as Array<{ name: string }>;
+  if (!runColumns.some((col) => col.name === 'output_language')) {
+    db.exec('ALTER TABLE opengeo_optimization_runs ADD COLUMN output_language TEXT;');
   }
   return db;
 }

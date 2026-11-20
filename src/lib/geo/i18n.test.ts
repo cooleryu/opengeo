@@ -9,11 +9,11 @@ import {
   type UiMessageKey,
 } from './i18n';
 
-test('resolveProjectUiLanguage respects explicit uiLanguage and infers legacy Chinese projects cleanly', () => {
+test('resolveProjectUiLanguage respects explicit uiLanguage and defaults to en without Han guessing', () => {
   assert.equal(resolveProjectUiLanguage(undefined), 'en');
   assert.equal(resolveProjectUiLanguage({ uiLanguage: 'en', summaryOrDescription: '中文描述' }), 'en');
   assert.equal(resolveProjectUiLanguage({ uiLanguage: 'zh', summaryOrDescription: 'English desc' }), 'zh');
-  assert.equal(resolveProjectUiLanguage({ summaryOrDescription: '开源、本地运行的 AI 搜索可见性工作台' }), 'zh');
+  assert.equal(resolveProjectUiLanguage({ summaryOrDescription: '开源、本地运行的 AI 搜索可见性工作台' }), 'en');
   assert.equal(resolveProjectUiLanguage({ summaryOrDescription: 'Local AI gateway' }), 'en');
 });
 

@@ -31,9 +31,8 @@ export function resolveProjectTargetLanguage(
 }
 
 /**
- * Resolve the project's locked display & report language (`en` | `zh`).
- * Uses explicit saved `uiLanguage` when available, otherwise infers from
- * existing project summary/description so legacy Chinese projects stay Chinese.
+ * Fallback UI language resolver when no request language is available.
+ * Uses explicit saved `uiLanguage` when available, otherwise defaults to `'en'`.
  */
 export function resolveProjectUiLanguage(
   input?: { uiLanguage?: GeoLanguage; summaryOrDescription?: string } | null,
@@ -41,10 +40,15 @@ export function resolveProjectUiLanguage(
   if (input?.uiLanguage === 'en' || input?.uiLanguage === 'zh') {
     return input.uiLanguage;
   }
-  if (input?.summaryOrDescription && /[\p{Script=Han}]/u.test(input.summaryOrDescription)) {
-    return 'zh';
-  }
   return 'en';
+}
+
+export function inferContentLang(
+  text: string | null | undefined,
+  explicit?: GeoLanguage | null,
+): GeoLanguage {
+  if (explicit === 'en' || explicit === 'zh') return explicit;
+  return text && /[\p{Script=Han}]/u.test(text) ? 'zh' : 'en';
 }
 
 const zhMessages = {
@@ -226,14 +230,7 @@ const zhMessages = {
   'onboarding.creatingBtn': '正在创建项目',
   'onboarding.footerHint': '自动读取公开资料，仅在你确认后开始分析与采集。',
   'onboarding.goOverview': '进入项目概览',
-  'onboarding.uiLangHeading': '选择界面与报告语言',
-  'onboarding.uiLangLockBadge': '开始后锁定不变',
-  'onboarding.uiLangCommitmentDesc': '决定本项目的操作界面与全部 AI 分析、诊断及总结语言，创建后不可中途切换（对外搜索监测与推广成稿仍默认面向英文市场）。',
-  'onboarding.uiLangEnTitle': 'English',
-  'onboarding.uiLangEnHint': '默认 · 英文界面与英文 AI 分析报告',
-  'onboarding.uiLangZhTitle': '简体中文',
-  'onboarding.uiLangZhHint': '中文界面与中文 AI 分析报告',
-  'onboarding.startOverLink': '重新填写入口或重选语言',
+  'onboarding.startOverLink': '重新填写入口',
   'dav.roleReadme': '主页介绍改写',
   'dav.roleQuickstartUpdate': '快速上手改写',
   'dav.roleQuickstartNew': '快速上手指南',
@@ -626,14 +623,7 @@ const enMessages: Record<UiMessageKey, string> = {
   'onboarding.creatingBtn': 'Creating Project',
   'onboarding.footerHint': 'Reads only public pages; waits for your confirmation before monitoring.',
   'onboarding.goOverview': 'Open Overview',
-  'onboarding.uiLangHeading': 'Choose Display & Report Language',
-  'onboarding.uiLangLockBadge': 'Locked after start',
-  'onboarding.uiLangCommitmentDesc': 'Sets the interface language and all AI-generated product summaries & reports for this project. Locked once analysis starts (external AI search & content still target English).',
-  'onboarding.uiLangEnTitle': 'English',
-  'onboarding.uiLangEnHint': 'Default · Interface & AI reports in English',
-  'onboarding.uiLangZhTitle': '简体中文',
-  'onboarding.uiLangZhHint': 'Chinese interface & AI reports',
-  'onboarding.startOverLink': 'Start over with another URL or language',
+  'onboarding.startOverLink': 'Start over with another URL',
   'dav.roleReadme': 'Homepage Rewrite',
   'dav.roleQuickstartUpdate': 'Quickstart Rewrite',
   'dav.roleQuickstartNew': 'Quickstart Guide',

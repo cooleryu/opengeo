@@ -949,7 +949,7 @@ export default function PageAuditSection({
             <div className="oap-modal-body">
               {/* Quiet one-line AI summary strip + optional platform difference disclosure */}
               <div className="oap-modal-summary-bar">
-                <p>{activeAudit.signalSheet.summary}</p>
+                <p lang={activeAudit.uiLanguage}>{activeAudit.signalSheet.summary}</p>
                 <button
                   type="button"
                   className="oap-modal-diff-link"
@@ -969,11 +969,15 @@ export default function PageAuditSection({
                 <div className="oap-modal-signal-grid">
                   <div>
                     <strong>ChatGPT</strong>
-                    <p>{activeAudit.signalSheet.platformDifferences.chatgpt}</p>
+                    <p lang={activeAudit.uiLanguage}>
+                      {activeAudit.signalSheet.platformDifferences.chatgpt}
+                    </p>
                   </div>
                   <div>
                     <strong>Google AI</strong>
-                    <p>{activeAudit.signalSheet.platformDifferences.google}</p>
+                    <p lang={activeAudit.uiLanguage}>
+                      {activeAudit.signalSheet.platformDifferences.google}
+                    </p>
                   </div>
                 </div>
               )}
@@ -985,7 +989,13 @@ export default function PageAuditSection({
                   const isSelected = selectedIds.has(finding.id);
                   const isBusyOne = busyFindingId === finding.id;
                   const preview = finding.patchPreview;
-                  const mergedReason = `${finding.whyAiMissed}${finding.codebaseFact ? `（核实依据：${finding.codebaseFact}）` : ''}`;
+                  const mergedReason = `${finding.whyAiMissed}${
+                    finding.codebaseFact
+                      ? activeAudit.uiLanguage === 'en'
+                        ? ` (Verified: ${finding.codebaseFact})`
+                        : `（核实依据：${finding.codebaseFact}）`
+                      : ''
+                  }`;
 
                   return (
                     <article
@@ -1000,10 +1010,12 @@ export default function PageAuditSection({
                             {isApplied ? <Check size={12} /> : idx + 1}
                           </span>
                           <div className="oap-stream-title-group">
-                            <h3>{finding.title}</h3>
+                            <h3 lang={activeAudit.uiLanguage}>{finding.title}</h3>
                             <div className="oap-stream-meta">
                               <span>
-                                {finding.sectionHeading}
+                                <span lang={activeAudit.uiLanguage}>
+                                  {finding.sectionHeading}
+                                </span>
                                 {activeAudit.targetKind === 'repo_doc'
                                   ? isEn
                                     ? ` · L${finding.startLine}–${finding.endLine}`
@@ -1044,13 +1056,15 @@ export default function PageAuditSection({
                       </div>
 
                       {/* ONE Merged Plain-Language Reason */}
-                      <p className="oap-stream-reason">{mergedReason}</p>
+                      <p className="oap-stream-reason" lang={activeAudit.uiLanguage}>
+                        {mergedReason}
+                      </p>
 
                       {/* Wide-Context Real Highlighted Page Screenshot */}
                       {finding.screenshotFile ? (
                         <figure className="oap-stream-shot">
                           <div className="oap-stream-shot-chrome">
-                            <span>
+                            <span data-i18n-skip="">
                               {activeAudit.targetUrl?.replace(/^https?:\/\//i, '') || activeAudit.targetLabel}
                             </span>
                             {activeAudit.targetUrl && (
@@ -1066,7 +1080,7 @@ export default function PageAuditSection({
                           />
                         </figure>
                       ) : (
-                        <div className="oap-stream-excerpt">
+                        <div className="oap-stream-excerpt" lang={activeAudit.targetLanguage}>
                           <pre>{renderHighlightedExcerpt(finding.sectionExcerpt, finding.anchorQuote)}</pre>
                         </div>
                       )}
@@ -1101,8 +1115,16 @@ export default function PageAuditSection({
                               </button>
                             )}
                           </div>
-                          <p className="oap-stream-suggestion-summary">{preview.plainSummary}</p>
-                          <div className="oap-stream-suggestion-render">
+                          <p
+                            className="oap-stream-suggestion-summary"
+                            lang={activeAudit.uiLanguage}
+                          >
+                            {preview.plainSummary}
+                          </p>
+                          <div
+                            className="oap-stream-suggestion-render"
+                            lang={activeAudit.targetLanguage}
+                          >
                             <Markdown options={{ forceBlock: true }}>
                               {preview.afterExcerpt}
                             </Markdown>

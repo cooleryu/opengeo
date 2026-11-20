@@ -12,7 +12,25 @@ import {
 import { translateUi, type GeoLanguage, type UiMessageKey } from '@/lib/geo/i18n';
 
 const STORAGE_KEY = 'opengeo:ui-lang:v2';
+const COOKIE_NAME = 'opengeo-ui-lang';
 const LANG_EVENT = 'opengeo:ui-lang-change';
+
+function resolveNavigatorLanguage(): GeoLanguage {
+  if (typeof navigator === 'undefined') return 'en';
+  const list =
+    Array.isArray(navigator.languages) && navigator.languages.length > 0
+      ? navigator.languages
+      : navigator.language
+        ? [navigator.language]
+        : [];
+  for (const raw of list) {
+    const tag = raw.trim().toLowerCase();
+    if (!tag) continue;
+    if (tag.startsWith('zh')) return 'zh';
+    if (tag.startsWith('en')) return 'en';
+  }
+  return 'en';
+}
 
 type UiLanguageContextValue = {
   uiLanguage: GeoLanguage;
@@ -41,8 +59,8 @@ function subscribeLanguage(callback: () => void) {
   };
 }
 
-function readStoredLanguage(fallback: GeoLanguage): GeoLanguage {
-  if (typeof window === 'undefined') return fallback;
+function readStoredLanguage(): GeoLanguage {
+  if (typeof window === 'undefined') return 'en';
   try {
     const param = new URLSearchParams(window.location.search).get('ui');
     if (param === 'en' || param === 'zh') return param;
@@ -51,7 +69,7 @@ function readStoredLanguage(fallback: GeoLanguage): GeoLanguage {
   } catch {
     // Ignore locked-down storage.
   }
-  return fallback;
+  return resolveNavigatorLanguage();
 }
 
 export function UiLanguageProvider({
@@ -63,7 +81,7 @@ export function UiLanguageProvider({
 }) {
   const uiLanguage = useSyncExternalStore(
     subscribeLanguage,
-    () => readStoredLanguage(initialLanguage),
+    readStoredLanguage,
     () => initialLanguage,
   );
 
@@ -78,6 +96,8 @@ export function UiLanguageProvider({
   const setUiLanguage = useCallback((next: GeoLanguage) => {
     try {
       window.localStorage.setItem(STORAGE_KEY, next);
+      document.cookie = `${COOKIE_NAME}=${next}; Path=/; Max-Age=31536000; SameSite=Lax`;
+      document.documentElement.lang = next === 'en' ? 'en' : 'zh-CN';
       window.dispatchEvent(new Event(LANG_EVENT));
     } catch {
       // Ignore storage write errors.
@@ -148,10 +168,10 @@ export function useChineseCompanionPreference(): [boolean, (next: boolean) => vo
 
 export function UiLanguageToggle({
   className = '',
-  fullLabels = false,
+  disabled = false,
 }: {
   className?: string;
-  fullLabels?: boolean;
+  disabled?: boolean;
 }) {
   const { uiLanguage, setUiLanguage, t } = useUiLanguage();
   return (
@@ -162,14 +182,18 @@ export function UiLanguageToggle({
     >
       <button
         type="button"
+        data-i18n-skip=""
         aria-pressed={uiLanguage === 'en'}
+        disabled={disabled}
         onClick={() => setUiLanguage('en')}
       >
-        {fullLabels ? 'English' : 'EN'}
+        English
       </button>
       <button
         type="button"
+        data-i18n-skip=""
         aria-pressed={uiLanguage === 'zh'}
+        disabled={disabled}
         onClick={() => setUiLanguage('zh')}
       >
         中文

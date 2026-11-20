@@ -1151,28 +1151,48 @@ export default function ProjectOverview({
       };
     }
     if (mention.yes === 0) {
-      const headline = topLeaderNames
-        ? isEn
-          ? `Not yet in AI recommendations — ${topLeaderNames} lead`
-          : `当前在 AI 推荐中未上榜 — ${topLeaderNames} 领跑`
-        : isEn
-          ? 'Not yet appearing in AI answers'
-          : '当前在 AI 回答中暂未出现提及';
+      const headline = topLeaderNames ? (
+        isEn ? (
+          <>
+            Not yet in AI recommendations — <span data-i18n-skip="">{topLeaderNames}</span> lead
+          </>
+        ) : (
+          <>
+            当前在 AI 推荐中未上榜 — <span data-i18n-skip="">{topLeaderNames}</span> 领跑
+          </>
+        )
+      ) : isEn ? (
+        'Not yet appearing in AI answers'
+      ) : (
+        '当前在 AI 回答中暂未出现提及'
+      );
       const subline =
-        brandSplit.total > 0 && brandSplit.yes === 0
-          ? isEn
-            ? `The gap is presence: 0/${discoverySplit.total} non-branded answers mentioned you, and even direct "${brandLabel}" searches missed. Start with the AI-cited lists below.`
-            : `核心瓶颈是「缺席」：${discoverySplit.total} 次非品牌拉新回答全部未提及，连直接搜「${brandLabel}」也未认出。优先抢占下方 AI 高频引用的外部榜单。`
-          : isEn
-            ? `The gap is presence: 0/${mention.completed} measured answers name you yet. Start by getting listed on the AI-cited sources below.`
-            : `核心瓶颈是「缺席」：${mention.completed} 次实测回答暂未出现你的名字，建议优先拿下下方 AI 正在引用的外部榜单与对比页。`;
+        brandSplit.total > 0 && brandSplit.yes === 0 ? (
+          isEn ? (
+            <>
+              The gap is presence: 0/{discoverySplit.total} non-branded answers mentioned you, and even direct &ldquo;<span data-i18n-skip="">{brandLabel}</span>&rdquo; searches missed. Start with the AI-cited lists below.
+            </>
+          ) : (
+            <>
+              核心瓶颈是「缺席」：{discoverySplit.total} 次非品牌拉新回答全部未提及，连直接搜「<span data-i18n-skip="">{brandLabel}</span>」也未认出。优先抢占下方 AI 高频引用的外部榜单。
+            </>
+          )
+        ) : isEn ? (
+          `The gap is presence: 0/${mention.completed} measured answers name you yet. Start by getting listed on the AI-cited sources below.`
+        ) : (
+          `核心瓶颈是「缺席」：${mention.completed} 次实测回答暂未出现你的名字，建议优先拿下下方 AI 正在引用的外部榜单与对比页。`
+        );
       return { headline, subline };
     }
     if (discoverySplit.total > 0 && discoverySplit.yes === 0) {
       return {
-        headline: isEn
-          ? `Visible on brand searches only — 0/${discoverySplit.total} non-branded prompts`
-          : `仅搜「${brandLabel}」时出现 — 非品牌拉新仍为 0/${discoverySplit.total}`,
+        headline: isEn ? (
+          `Visible on brand searches only — 0/${discoverySplit.total} non-branded prompts`
+        ) : (
+          <>
+            仅搜「<span data-i18n-skip="">{brandLabel}</span>」时出现 — 非品牌拉新仍为 0/{discoverySplit.total}
+          </>
+        ),
         subline: isEn
           ? 'Buyers who already know your name can find you, but category discovery still goes to competitors. Prioritize external lists and comparisons.'
           : '已经认识你的用户能搜到你，但按需求找工具的新买家全流向了竞品；优先铺设外部榜单和品类对比。',
@@ -1417,7 +1437,17 @@ export default function ProjectOverview({
               className={`pov-kpi-pill is-btn ${brandSplit.yes === 0 ? 'is-warn' : ''} ${focus === 'brand' ? 'is-active' : ''}`.trim()}
               onClick={() => jumpFocus(focus === 'brand' ? 'all' : 'brand')}
             >
-              <span>{isEn ? `Brand "${brandLabel}"` : `搜「${brandLabel}」`}</span>
+              <span>
+                {isEn ? (
+                  <>
+                    Brand &ldquo;<span data-i18n-skip="">{brandLabel}</span>&rdquo;
+                  </>
+                ) : (
+                  <>
+                    搜「<span data-i18n-skip="">{brandLabel}</span>」
+                  </>
+                )}
+              </span>
               <strong>
                 {brandSplit.yes}/{brandSplit.total}
               </strong>
@@ -1816,7 +1846,14 @@ export default function ProjectOverview({
                   aria-selected={focus === 'brand'}
                   onClick={() => setFocus('brand')}
                 >
-                  {isEn ? 'Brand' : `搜「${brandLabel}」`} <span>{brandQuestionCount}</span>
+                  {isEn ? (
+                    'Brand'
+                  ) : (
+                    <>
+                      搜「<span data-i18n-skip="">{brandLabel}</span>」
+                    </>
+                  )}{' '}
+                  <span>{brandQuestionCount}</span>
                 </button>
               )}
             </div>
@@ -1894,14 +1931,25 @@ export default function ProjectOverview({
                         {categoryLabel && (
                           <span className="pov-q-cat">{categoryLabel}</span>
                         )}
-                        <span className="pov-q-text">
+                        <span
+                          className="pov-q-text"
+                          lang={
+                            question[activeLanguage]
+                              ? activeLanguage
+                              : question.en
+                                ? 'en'
+                                : 'zh'
+                          }
+                        >
                           {question[activeLanguage] || question.en || question.zh}
                         </span>
                       </div>
                       {qWinners.length > 0 && (
                         <div className="pov-q-winners">
                           <span>{isEn ? 'AI cited:' : 'AI 引用了：'}</span>
-                          <b>{qWinners.map((w) => w.label).join(' · ')}</b>
+                          <b data-i18n-skip="">
+                            {qWinners.map((w) => w.label).join(' · ')}
+                          </b>
                         </div>
                       )}
                     </button>
@@ -2071,8 +2119,8 @@ export default function ProjectOverview({
                         rel="noreferrer"
                         className="pov-gap-source-link"
                       >
-                        <strong>{src.title}</strong>
-                        <span>
+                        <strong data-i18n-skip="">{src.title}</strong>
+                        <span data-i18n-skip={src.subtitle === 'web' ? undefined : ''}>
                           {src.subtitle === 'web'
                             ? isEn
                               ? 'Cited web page'

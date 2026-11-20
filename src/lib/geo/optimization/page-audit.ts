@@ -1361,6 +1361,7 @@ export async function refreshPageAuditScreenshots(projectId: string): Promise<Pa
 
 export interface RunPageAuditOptions {
   assetId?: string;
+  uiLanguage?: 'en' | 'zh';
   preferredProvider?: 'gemini' | 'deepseek';
   transport?: LLMTransport;
   concurrency?: number;
@@ -1381,7 +1382,7 @@ export async function runPageContentAudit(
 ): Promise<PageAuditRecord> {
   const seed = loadProjectSeed(projectId);
   const targetLanguage = resolveProjectTargetLanguage(seed.project);
-  const uiLanguage = resolveProjectUiLanguage(seed.project);
+  const uiLanguage = options.uiLanguage ?? resolveProjectUiLanguage(seed.project);
   const isEn = uiLanguage === 'en';
   const progress: HumanProgressStep[] = [];
   const emit = (step: HumanProgressStep) => {

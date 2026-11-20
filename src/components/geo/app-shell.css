@@ -192,7 +192,33 @@
 .og-redesigned .og-sidebar-bottom {
   font-size: 12px;
   color: #77859c;
-  gap: 17px;
+  gap: 14px;
+}
+.og-redesigned .og-sidebar-bottom .og-sidebar-lang {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f5f7fa;
+  gap: 2px;
+}
+.og-redesigned .og-sidebar-bottom .og-sidebar-lang button {
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #5c6678;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.og-redesigned .og-sidebar-bottom .og-sidebar-lang button[aria-pressed='true'] {
+  background: #ffffff;
+  color: #161b24;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 .og-redesigned .og-modal-backdrop {
   background: #18233f44;

@@ -133,7 +133,7 @@ export const optimizationStrategistAgent: AgentSpec<StrategistInput, StrategistO
     const maxItems = input.mode === 'focus' ? 1 : 3;
     const scenario = resolveProjectScenario(ctx.projectId);
     const strategistSystem = readAgentText('improvement-planning', `${scenario}/strategist.md`);
-    const uiLang = input.uiLanguage ?? seed.project.uiLanguage ?? 'zh';
+    const uiLang = input.uiLanguage ?? seed.project.uiLanguage ?? 'en';
     const targetLang = input.targetLanguage ?? seed.project.targetLanguage ?? 'en';
     const langInstruction = [
       `控制台展示语言（uiLanguage）= "${uiLang}"：summary 与 audienceAndGoal 必须使用 ${uiLang === 'en' ? 'English' : '简体中文'} 撰写。`,

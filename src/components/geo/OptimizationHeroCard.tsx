@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowRight,
   BookOpen,
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import type { HumanProgressStep } from '@/lib/agent-hub';
 import type { OptimizationRunStatus } from '@/lib/geo/db/schema';
+import { inferContentLang } from '@/lib/geo/i18n';
 import type { OptimizationRunViewModel } from '@/lib/geo/optimization/types';
 import {
   estimateReadingMinutes,
@@ -417,10 +418,18 @@ export default function OptimizationHeroCard({
                     : '为你写好了一篇获客文章，看看能不能发'}
             </h2>
 
-            <p className="ohc-why">{diagnosis.lead}</p>
+            <p
+              className="ohc-why"
+              lang={inferContentLang(run.summary, run.outputLanguage)}
+            >
+              {diagnosis.lead}
+            </p>
 
             {diagnosis.bullets.length > 0 && (
-              <ul className="ohc-gap-bullets">
+              <ul
+                className="ohc-gap-bullets"
+                lang={inferContentLang(run.summary, run.outputLanguage)}
+              >
                 {diagnosis.bullets.map((bullet, idx) => (
                   <li key={idx}>{bullet}</li>
                 ))}
@@ -620,24 +629,47 @@ export default function OptimizationHeroCard({
   }
 
   // 3. Awaiting retest & Completed helpers (action-type-aware copy + post-indexing retest trigger)
-  const formatNextOutreachCta = (next: HeroNextOutreach | null): string => {
-    if (!next) return isEn ? 'Open Action Plan' : '查看优化方案';
+  const formatNextOutreachCta = (next: HeroNextOutreach | null): ReactNode => {
+    if (!next) return isEn ? 'Open Action Plan' : '查看行动计划';
     if (next.kind === 'awesome_pr') {
-      return isEn ? `Next: Submit PR to ${next.title}` : `下一步：向 ${next.title} 提榜单 PR`;
+      return isEn ? (
+        <>
+          Next: Submit PR to <span data-i18n-skip="">{next.title}</span>
+        </>
+      ) : (
+        <>
+          下一步：向 <span data-i18n-skip="">{next.title}</span> 提榜单 PR
+        </>
+      );
     }
     if (next.kind === 'repo_meta') {
       return isEn ? 'Next: Sync GitHub About & Topics' : '下一步：补齐 GitHub 仓库简介与标签';
     }
     if (next.id.startsWith('post:thread:')) {
-      return isEn ? `Next: Reply in ${next.title}` : `下一步：参与高引用讨论`;
+      return isEn ? (
+        <>
+          Next: Reply in <span data-i18n-skip="">{next.title}</span>
+        </>
+      ) : (
+        '下一步：参与高引用讨论'
+      );
     }
-    return isEn ? `Next: Share on ${next.title}` : `下一步：前往「${next.title}」发布分享`;
+    return isEn ? (
+      <>
+        Next: Share on <span data-i18n-skip="">{next.title}</span>
+      </>
+    ) : (
+      <>
+        下一步：前往「<span data-i18n-skip="">{next.title}</span>」发布分享
+      </>
+    );
   };
 
   const formatNextOutreachHeadline = (
     next: HeroNextOutreach,
     stage: 'awaiting' | 'indexing' | 'post_window',
-  ): string => {
+  ): ReactNode => {
+    const titleNode = <span data-i18n-skip="">{next.title}</span>;
     const prefixEn =
       stage === 'awaiting'
         ? 'Docs are live'
@@ -653,34 +685,42 @@ export default function OptimizationHeroCard({
 
     if (next.kind === 'awesome_pr') {
       if (isEn) {
-        return stage === 'awaiting'
-          ? `Docs are live — next, submit your PR to ${next.title}`
-          : stage === 'indexing'
-            ? `Recent updates are still indexing — next, submit a PR to ${next.title}`
-            : `No lift yet — next, submit your PR to ${next.title}`;
+        return stage === 'awaiting' ? (
+          <>Docs are live — next, submit your PR to {titleNode}</>
+        ) : stage === 'indexing' ? (
+          <>Recent updates are still indexing — next, submit a PR to {titleNode}</>
+        ) : (
+          <>No lift yet — next, submit your PR to {titleNode}</>
+        );
       }
-      return stage === 'awaiting'
-        ? `内容已上线，趁收录期间先提交「${next.title}」榜单 PR`
-        : stage === 'indexing'
-          ? `最近上线的内容还在收录期内；这期间先去提交「${next.title}」PR`
-          : `暂未新增提及；下一步先提「${next.title}」榜单 PR`;
+      return stage === 'awaiting' ? (
+        <>内容已上线，趁收录期间先提交「{titleNode}」榜单 PR</>
+      ) : stage === 'indexing' ? (
+        <>最近上线的内容还在收录期内；这期间先去提交「{titleNode}」PR</>
+      ) : (
+        <>暂未新增提及；下一步先提「{titleNode}」榜单 PR</>
+      );
     }
 
     if (next.kind === 'repo_meta') {
       return isEn
         ? `${prefixEn} — next, sync your GitHub repo description & topics`
-        : `${prefixZh}；下一步先补齐 GitHub 仓库简介与 Topics`;
+        : `${prefixZh}；下一步先补齐 GitHub 仓库简介与标签`;
     }
 
     if (next.id.startsWith('post:thread:')) {
-      return isEn
-        ? `${prefixEn} — next, join cited thread "${next.title}"`
-        : `${prefixZh}；下一步可参与高引用讨论「${next.title}」`;
+      return isEn ? (
+        <>{prefixEn} — next, join cited thread &ldquo;{titleNode}&rdquo;</>
+      ) : (
+        <>{prefixZh}；下一步可参与高引用讨论「{titleNode}」</>
+      );
     }
 
-    return isEn
-      ? `${prefixEn} — next, share on ${next.title}`
-      : `${prefixZh}；下一步可去「${next.title}」发布分享`;
+    return isEn ? (
+      <>{prefixEn} — next, share on {titleNode}</>
+    ) : (
+      <>{prefixZh}；下一步可去「{titleNode}」发布分享</>
+    );
   };
 
   const triggerPostIndexingRetest = async (runId: string) => {

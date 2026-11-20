@@ -3,6 +3,7 @@
 import { createElement, useEffect, useId, useRef, useState } from 'react';
 import Markdown from 'markdown-to-jsx';
 import { ChevronDown, ChevronUp, LocateFixed } from 'lucide-react';
+import { inferContentLang, type GeoLanguage } from '@/lib/geo/i18n';
 import { useUiLanguage } from './UiLanguageContext';
 
 function safeLink(href?: string) {
@@ -19,10 +20,12 @@ export default function AnswerText({
   projectId,
   path,
   projectNames = [],
+  contentLang,
 }: {
   projectId: string;
   path?: string;
   projectNames?: string[];
+  contentLang?: GeoLanguage;
 }) {
   const { uiLanguage } = useUiLanguage();
   const isEn = uiLanguage === 'en';
@@ -95,7 +98,12 @@ export default function AnswerText({
     })
       .then(async (response) => {
         const result = await response.json();
-        if (!response.ok) throw new Error(result.error || '回答暂时无法读取。');
+        if (!response.ok) {
+          throw new Error(
+            result.error ||
+              (isEn ? 'Could not load this answer right now.' : '回答暂时无法读取。'),
+          );
+        }
         if (!controller.signal.aborted) {
           setLoaded({
             key: requestKey,
@@ -112,12 +120,17 @@ export default function AnswerText({
           setLoaded({
             key: requestKey,
             content: null,
-            error: reason instanceof Error ? reason.message : '回答暂时无法读取。',
+            error:
+              reason instanceof Error
+                ? reason.message
+                : isEn
+                  ? 'Could not load this answer right now.'
+                  : '回答暂时无法读取。',
           });
         }
       });
     return () => controller.abort();
-  }, [projectId, path, requestKey]);
+  }, [projectId, path, requestKey, isEn]);
 
   useEffect(() => {
     if (!body.current) return;
@@ -178,7 +191,11 @@ export default function AnswerText({
             className={`rw-answer-excerpt${!expanded && long ? ' is-clipped' : ''}`}
             id={id}
           >
-            <div className="rw-answer-prose" ref={body}>
+            <div
+              className="rw-answer-prose"
+              ref={body}
+              lang={inferContentLang(content, contentLang)}
+            >
               <Markdown
                 options={{
                   disableParsingRawHTML: true,
@@ -226,7 +243,7 @@ export default function AnswerText({
                             target="_blank"
                             rel="noopener noreferrer"
                           >
-                            {markProjectNames(alt || '查看图片')}
+                            {markProjectNames(alt || (isEn ? 'View image' : '查看图片'))}
                           </a>
                         ) : null;
                       },

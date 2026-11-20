@@ -111,6 +111,7 @@ export interface OptimizationRun {
   baselineObservationIds: string[];
   followupObservationIds: string[];
   errorMessage: string | null;
+  outputLanguage?: 'en' | 'zh';
   deliverables: OptimizationDeliverable[];
   createdAt: string;
   updatedAt: string;
