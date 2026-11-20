@@ -24,7 +24,7 @@ const MAX_LINES = 600;
 const maxLinesCeilings = {
   'src/components/geo/ProjectOverview.tsx': 671,
   'src/components/geo/OptimizationStudio.tsx': 1100,
-  'src/components/geo/OpenGeoApp.tsx': 1766,
+  'src/components/geo/OpenGeoApp.tsx': 1726,
   'src/lib/geo/optimization/page-audit.ts': 1723,
   'src/lib/geo/outreach/outreach-actions.ts': 1527,
   'src/components/geo/ResearchPanel.tsx': 1503,

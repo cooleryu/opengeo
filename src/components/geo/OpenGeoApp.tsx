@@ -14,15 +14,12 @@ import {
   ArrowRight,
   ArrowUpRight,
   ChevronDown,
-  LayoutDashboard,
   Check,
   FileText,
-  ListChecks,
   Loader2,
   Plus,
   Search,
   Settings2,
-  GitCompareArrows,
   X,
 } from 'lucide-react';
 import type { GeoAsset, GeoState } from '@/lib/geo/types';
@@ -63,28 +60,10 @@ import {
   useUiLanguage,
 } from './UiLanguageContext';
 import OpenGeoBrandMark from './OpenGeoBrandMark';
+import { MENU_ITEMS, PAGE_IDS, PAGES, type Page } from './open-geo-app/pages';
 import './opengeo.css';
 import './app-shell.css';
 
-type Page =
-  | 'overview'
-  | 'question-plan'
-  | 'competitor'
-  | 'traffic'
-  | 'assets'
-  | 'tasks'
-  | 'monitor'
-  | 'settings';
-const pages: Page[] = [
-  'overview',
-  'question-plan',
-  'competitor',
-  'traffic',
-  'assets',
-  'tasks',
-  'monitor',
-  'settings',
-];
 type Dialog = 'questions' | null;
 const assetTypeLabel = (type: string, isEn: boolean) =>
   (
@@ -392,7 +371,7 @@ function OpenGeoAppInner() {
         setToast('');
         setQuestionGenerationProgress(undefined);
       }
-      setPage(pages.includes(requestedPage) ? requestedPage : 'overview');
+      setPage(PAGE_IDS.includes(requestedPage) ? requestedPage : 'overview');
       setSelectedTask(params.get('task') ?? '');
       setDialog(requestedPage === 'question-plan' && params.get('setup') === 'questions' ? 'questions' : null);
       setAsset(null);
@@ -876,24 +855,13 @@ function OpenGeoAppInner() {
     {
       id: 'primary',
       label: null,
-      items: [
-        { id: 'overview' as Page, label: t('nav.overview'), icon: LayoutDashboard },
-        { id: 'question-plan' as Page, label: t('nav.questions'), icon: Search },
-        { id: 'competitor' as Page, label: t('nav.competitor'), icon: GitCompareArrows },
-        { id: 'tasks' as Page, label: t('nav.tasks'), icon: ListChecks },
-      ],
+      items: MENU_ITEMS.map((item) => ({ ...item, label: t(item.label) })),
     },
   ];
-  const nav = navGroups.flatMap((group) => group.items);
-  const sidebarPage =
-    page === 'monitor' || page === 'assets' ? 'tasks' : page;
-  const improvementWorkspace =
-    page === 'tasks' || page === 'monitor' || page === 'assets';
-  const customCanvasPage =
-    page === 'overview' ||
-    page === 'competitor' ||
-    page === 'question-plan' ||
-    improvementWorkspace;
+  const pageInfo = PAGES[page];
+  const sidebarPage = pageInfo.activeMenu ?? page;
+  // Pages with a title use the shared page header; the rest draw their own full canvas.
+  const customCanvasPage = !pageInfo.title;
   const overviewMissedCount = useMemo(() => {
     const b = data?.latestResearch;
     if (!b) return 0;
@@ -1197,11 +1165,7 @@ function OpenGeoAppInner() {
                     <OpenGeoBrandMark size={25} /> OpenGEO
                   </a>
                   <h1>
-                    {page === 'settings'
-                      ? t('term.settings')
-                      : page === 'traffic'
-                        ? t('nav.traffic')
-                        : nav.find((item) => item.id === sidebarPage)?.label}
+                    {pageInfo.title && t(pageInfo.title)}
                   </h1>
                 </div>
                 {page !== 'settings' && (
@@ -1254,10 +1218,7 @@ function OpenGeoAppInner() {
                   : undefined
               }
             >
-              {data.latestResearch &&
-                (page === 'overview' ||
-                  page === 'question-plan' ||
-                  page === 'competitor') && (
+              {data.latestResearch && pageInfo.workspace === 'research' && (
                   <ResearchPanel
                     key={`research-${data.project.id}`}
                     hideHeader={page === 'overview'}
@@ -1644,7 +1605,7 @@ function OpenGeoAppInner() {
                   </div>
                 </Modal>
               )}
-              {(page === 'tasks' || page === 'monitor' || page === 'assets') && (
+              {pageInfo.workspace === 'action-plan' && (
                 <OptimizationStudio
                   key={`studio-${data.project.id}`}
                   projectId={data.project.id}
