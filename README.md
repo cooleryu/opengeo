@@ -13,9 +13,13 @@ find the gaps, draft the rewrite, and re-run the same questions after you ship.
 OpenGEO is an open-source, local-first AI search visibility workbench: it captures real ChatGPT and Google AI Overview answers from your own browser,<br>
 shows who got named and whose pages got cited, then turns each gap into one draft you can publish.
 
+OpenGEO is MIT licensed and runs on your own machine: start it locally with Node.js 24, and everything it collects stays in a local SQLite database and files on your disk. There is no subscription, no seat pricing, and no hosted account. The only cost is what your own model provider charges when you run a query with the API key you configured.
+
 **[Is OpenGEO for you](#is-opengeo-for-you)** · **[Quick Start](#quick-start)** · **[How it works](#how-it-works)** · **[Features](#features)** · **[Documentation](#documentation)** · **[Privacy & Cost](#privacy--cost)** · **[简体中文](README.zh-CN.md)**
 
 </div>
+
+https://github.com/user-attachments/assets/cfe721b2-81eb-4690-9801-ebcc39a582c7
 
 ## Is OpenGEO for you?
 
@@ -33,12 +37,23 @@ OpenGEO is built for indie SaaS teams, docs owners, and open-source maintainers 
 | Hosted visibility dashboards (Otterly.AI, Profound, Peec AI) | A monthly subscription and a visibility score with a trend line | The same question set, but every finding opens the saved answer and the exact pages it cited |
 | Self-hosted trackers & scrapers (Elmo, Gego, Limelit Open, OneGlanse, GEO/AEO Tracker) | Either call model APIs instead of the live consumer UI, or rely on heavy Docker / paid-scraper stacks that stop at monitoring scores | It captures the real ChatGPT and Google AI Overview result inside your own browser session, keeps the full answer text, and stores every cited URL |
 | Page auditors and linters (robots.txt, llms.txt, schema checks) | They report what's missing on your own pages | It reads the pages AI already cites for that question, compares their structure with yours, and then drafts the version that fills the gap |
+| Engine coverage | Scheduled trackers sweep dozens of engines and hand you a score per engine | It stays on the two consumer surfaces that actually cite pages today — ChatGPT and Google AI Overview — and keeps the full answer text for each one |
+| Traffic and conversion context | A visibility score that sits apart from your analytics | The traffic screen keeps referral sources, Umami, and article conversions in the same project as the mentions and citations |
 
 **Probably not a fit if** you only want hundreds of keywords scanned on a schedule with a weekly report waiting for you — no API key to connect, no answers to save by hand. A paid hosted monitoring service is less effort there. If what you need is to see whose pages AI actually cites, keep that evidence on your own disk, and walk away with a draft, OpenGEO is the right tool.
 
 ## Quick Start
 
 **1 · Launch the workbench.** Send the repository URL `https://github.com/cooleryu/opengeo` to the AI coding assistant you already use — Claude Code, Cursor, Codex, and Antigravity all work — and ask it to follow the repo's instructions, start the app locally, and open it for you; it handles the setup steps along the way. Prefer to do it yourself, or want to know what each screen is for first? Read [Quick Start](docs/getting-started.md).
+
+**Run it yourself:** Node.js 24 and npm, nothing else — no Docker, no server. From the repository root:
+
+```bash
+npm install
+npm run dev
+```
+
+Then open http://127.0.0.1:4327.
 
 **2 · Create a project and a question list.** First launch opens the new-project screen: pick a project type, paste your public homepage, add a couple of notes. Once OpenGEO understands the product, it proposes the question categories customers usually ask, and you can refine or add the exact English prompts buyers actually ask.
 
@@ -94,6 +109,10 @@ When a question misses you, OpenGEO first reads the pages AI cited for it — th
 | Private / incognito window (manual fallback) | Ask the exact prompt in an incognito window and paste the full answer plus cited URLs | Preserves the exact wording and cited references in the same project library for auditing and before/after comparison |
 
 Different browser sessions can surface slightly different answers, and Google AI Overviews don't appear for every query. OpenGEO judges on the copy you actually captured, so a round reflects what was really served that day instead of a normalized average.
+
+Google's AI Overview and AI Mode are two different surfaces. The table above covers the AI Overview shown above the regular results; the AI Mode conversational tab is not collected in this version.
+
+Gemini, Perplexity, Copilot and other engines have no integration here, and no release date is promised for them. For those, use the manual fallback: ask the prompt yourself and paste the full answer with its cited links.
 
 ## Documentation
 
