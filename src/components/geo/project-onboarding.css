@@ -174,15 +174,6 @@
   background: #fff;
   box-shadow: 0 14px 50px #2e4f8110;
 }
-.og-onboarding-types {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 30px;
-}
-.og-onboarding-types.og-onboarding-types-two {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
 .og-onboarding-lang-inline {
   display: flex;
   align-items: center;
@@ -194,87 +185,6 @@
 }
 .og-onboarding-field.is-inline {
   margin: 0;
-}
-.og-onboarding-lang-commitment {
-  margin-bottom: 26px;
-  padding: 18px;
-  border: 1px solid #d5e2f8;
-  border-radius: 14px;
-  background: #f7faff;
-}
-.og-onboarding-lang-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.og-onboarding-lang-head strong {
-  font-size: 14.5px;
-  font-weight: 650;
-  color: #1f2e47;
-}
-.og-onboarding-lock-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: #eaf1ff;
-  border: 1px solid #c9dbfc;
-  color: #2f5fb8;
-  font-size: 11.5px;
-  font-weight: 550;
-}
-.og-onboarding-lang-desc {
-  margin: 8px 0 14px;
-  font-size: 12.5px;
-  line-height: 1.65;
-  color: #5b687e;
-}
-.og-onboarding-lang-cards {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.og-onboarding-lang-cards > button {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  text-align: left;
-  padding: 14px 32px 14px 16px;
-  border: 1px solid #dce3ef;
-  border-radius: 11px;
-  background: #ffffff;
-  color: #3f4b5e;
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-}
-.og-onboarding-lang-cards > button:hover {
-  border-color: #aac4f7;
-  background: #fcfdff;
-}
-.og-onboarding-lang-cards > button.selected {
-  border-color: #4f7fdb;
-  background: #eff5ff;
-  color: #2450a6;
-  box-shadow: 0 0 0 1px #4f7fdb24;
-}
-.og-onboarding-lang-cards > button strong {
-  font-size: 14px;
-  font-weight: 600;
-}
-.og-onboarding-lang-cards > button small {
-  margin-top: 4px;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: #778398;
-}
-.og-onboarding-lang-cards > button.selected small {
-  color: #3c65b8;
 }
 .og-onboarding-start-over {
   display: inline-flex;
@@ -300,48 +210,6 @@
   color: #2959b7;
   font-size: 13px;
   font-weight: 500;
-}
-.og-onboarding-types > button {
-  position: relative;
-  padding: 20px 12px 17px;
-  border: 1px solid #e2e7ef;
-  border-radius: 12px;
-  color: #4e5767;
-  background: #fff;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-}
-.og-onboarding-types > button:hover {
-  background: #fafcff;
-  border-color: #aac4f7;
-}
-.og-onboarding-types > button.selected {
-  border-color: #5c89df;
-  color: #3265c2;
-  background: #f1f6ff;
-  box-shadow: 0 0 0 1px #5c89df22;
-}
-.og-onboarding-type-icon {
-  height: 36px;
-}
-.og-onboarding-types strong {
-  font-size: 14px;
-  font-weight: 550;
-}
-.og-onboarding-types small {
-  margin-top: 7px;
-  font-size: 11px;
-  color: #8a93a2;
-}
-.og-onboarding-selected {
-  position: absolute;
-  top: 10px;
-  right: 10px;
 }
 .og-onboarding-field {
   display: block;
@@ -858,10 +726,6 @@
   .og-onboarding-form,
   .og-onboarding-understanding {
     padding: 22px 18px;
-  }
-  .og-onboarding-types,
-  .og-onboarding-lang-cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .og-onboarding-form-footer {
     align-items: stretch;

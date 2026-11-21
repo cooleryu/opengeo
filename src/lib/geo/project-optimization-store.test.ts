@@ -11,7 +11,6 @@ import { getSeed } from './seed';
 import { localDiagnosis } from './diagnosis';
 import { buildQualityReview } from './quality';
 import { selectProjectDelivery } from './project-optimization-delivery';
-import { getProjectTaskProgress } from '../../components/geo/project-optimization-progress';
 import type { GeoProposal } from './types';
 
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'opengeo-project-optimization-'));
@@ -237,12 +236,10 @@ test('one approved action automatically becomes an exact reviewed draft on the s
   const pendingDelivery = getTask(task.id);
   assert.deepEqual(pendingDelivery.projectOptimization!.actions, multipleActions.projectOptimization!.actions);
   assert.equal(pendingDelivery.projectOptimization!.delivery!.phase, 'blocked');
-  assert.equal(getProjectTaskProgress(pendingDelivery).ready, false);
   assert.equal(pendingDelivery.implementation, null);
   saveTask(task);
   const missing = structuredClone(plan); missing.snapshot.evidence = [];
   assert.throws(() => selectProjectDelivery(missing), /原问题/);
-  assert.equal(getProjectTaskProgress(task).ready, false, 'a high-level plan is not a ready draft');
   let draftCalls = 0;
   const taskCount = listTasks().length;
   await finishProjectDelivery(task.id, {
@@ -260,7 +257,6 @@ test('one approved action automatically becomes an exact reviewed draft on the s
       assert.equal(current.workflow!.savedResearch!.recordedAt, observation.recordedAt);
       assert.match(current.researchContext!.snapshot!.targetAsset!.markdown, /Fresh original material/);
       progress!({ phase: 'reviewing', message: '正在检查修改稿' });
-      assert.equal(getProjectTaskProgress(getTask(task.id)).label, '正在检查修改稿');
       const context = buildTaskDiagnosisContext(current, currentSeed);
       const proposal: GeoProposal = { ...seed.proposal, id: `${task.id}-proposal`, title: '新增复核方法', status: 'reviewed',
         targetAssetId: asset.id, targetUrl: asset.publicUrl!, before: 'Fresh original material.', after: 'Fresh original material.\nCheck the saved input.',
@@ -281,18 +277,7 @@ test('one approved action automatically becomes an exact reviewed draft on the s
   assert.equal(ready.projectOptimization!.delivery!.phase, 'ready');
   assert.equal(ready.implementation, null);
   assert.equal(ready.monitor.enabled, false);
-  assert.equal(getProjectTaskProgress(ready).label, '待你确认改动');
-  assert.equal(getProjectTaskProgress(ready).ready, true);
-  const changed = structuredClone(ready); changed.proposal!.after += '\nUnreviewed change.';
-  assert.equal(getProjectTaskProgress(changed).ready, false);
-  const oldReview = structuredClone(ready); delete oldReview.workflow!.quality!.rounds[0].review.geoAcceptance;
-  assert.equal(getProjectTaskProgress(oldReview).ready, false);
   const approved = await handleGeoAction({ action: 'accept_plan', taskId: ready.id, proposalRevision: ready.workflow!.proposalRevision });
   const awaiting = approved.tasks.find(item => item.id === ready.id)!;
   assert.equal(awaiting.implementation, null);
-  assert.equal(getProjectTaskProgress(awaiting).label, '修改稿已确认，等待实施');
-  const implemented = structuredClone(awaiting);
-  implemented.implementation = { kind: 'user_confirmed', at: new Date().toISOString(), note: 'Synthetic implementation', url: asset.publicUrl! };
-  assert.equal(getProjectTaskProgress(implemented).label, '改动已登记，等待复测');
-  assert.equal(getProjectTaskProgress(implemented).ready, false);
 });

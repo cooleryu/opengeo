@@ -3,27 +3,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
-  ArrowRight,
-  Check,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
-  Copy,
-  ExternalLink,
-  GitPullRequest,
-  Layers3,
-  Loader2,
-  MessageSquarePlus,
-  Minus,
-  Play,
-  RefreshCw,
-  Square,
-  Terminal,
-  X,
 } from 'lucide-react';
-import type { BrowserCollectJobSnapshot } from '@/lib/geo/browser-collect-types';
-import { inferContentLang, plural, resolveProjectTargetLanguage } from '@/lib/geo/i18n';
-import type { QuestionCategory } from '@/lib/geo/question-types';
+import { resolveProjectTargetLanguage } from '@/lib/geo/i18n';
 import type {
   ResearchBatch,
   ResearchEngine,
@@ -32,12 +15,10 @@ import type {
 } from '@/lib/geo/research-types';
 import {
   extractOverviewGapSources,
-  extractQuestionTopWinners,
   extractTopExternalCitedSources,
   getResearchMetrics,
   getResearchRows,
   isBrandPrompt,
-  type OverviewGapSourceKind,
   type ResearchFilter,
   type ResearchRow,
 } from '@/lib/geo/research-view';
@@ -45,8 +26,6 @@ import {
   auditRows,
   isAiAnswerRow,
   summarizeMetric,
-  type AuditedResearchRow,
-  type MetricSummary,
 } from '@/lib/geo/overview-metrics';
 import {
   CONSUMER_RESEARCH_ENGINES,
@@ -55,433 +34,33 @@ import {
 } from '@/lib/geo/research-engines';
 import type { GeoProject } from '@/lib/geo/types';
 import CompetitorCandidates from './CompetitorCandidates';
-import ResearchEngineIcon from './ResearchEngineIcon';
 import { useUiLanguage } from './UiLanguageContext';
 import './project-overview.css';
+import { useBrowserCollect } from './project-overview/useBrowserCollect';
+import {
+  DEFAULT_VISIBLE_QUESTIONS,
+  type FocusFilter,
+  formatDirectMetric,
+  overviewObservationDates,
+  pct,
+  unavailableMetric,
+} from './project-overview/overview-format';
+import { buildSituationVerdict } from './project-overview/situation-verdict';
+import { OverviewCollectStatus } from './project-overview/OverviewCollectStatus';
+import { OverviewEmptyState } from './project-overview/OverviewEmptyState';
+import { OverviewTopbar } from './project-overview/OverviewTopbar';
+import { OverviewEarlyRetest } from './project-overview/OverviewEarlyRetest';
+import { OverviewInsightsHero } from './project-overview/OverviewInsightsHero';
+import { OverviewMentionCard } from './project-overview/OverviewMentionCard';
+import { OverviewCitationCard } from './project-overview/OverviewCitationCard';
+import { OverviewPlatformCard } from './project-overview/OverviewPlatformCard';
+import { OverviewQuestionFilters } from './project-overview/OverviewQuestionFilters';
+import { OverviewQuestionMatrix } from './project-overview/OverviewQuestionMatrix';
+import { OverviewGapSources } from './project-overview/OverviewGapSources';
 
-const unavailableMetric: MetricSummary = {
-  rate: null,
-  minimumRate: null,
-  yes: 0,
-  no: 0,
-  unknown: 0,
-  completed: 0,
-  unmeasured: 0,
-  questions: 0,
-};
-
-const verdictLabels = {
-  zh: { yes: '已提及', no: '未提及', unknown: '分析中' },
-  en: { yes: 'Mentioned', no: 'Not mentioned', unknown: 'Analyzing' },
-} as const;
-
-function getPlatformName(engine: ResearchEngine, _isEn = false): string {
-  if (engine === 'chatgpt') return 'ChatGPT';
-  return 'Google';
-}
-
-const categoryMessageKeys = {
-  brand: 'overview.catBrand',
-  positioning: 'overview.catPositioning',
-  problem: 'overview.catProblem',
-  content: 'overview.catContent',
-  comparison: 'overview.catComparison',
-  boundary: 'overview.catBoundary',
-} as const satisfies Record<QuestionCategory, Parameters<ReturnType<typeof useUiLanguage>['t']>[0]>;
-
-const pct = (value: number | null) =>
-  value === null ? '—' : `${Number(value.toFixed(1))}%`;
-
-export function overviewObservationDates(rows: ResearchRow[], isEn = false): string {
-  const dates = [
-    ...new Set(
-      rows.flatMap((row) => {
-        const date = row.observation?.recordedAt.match(/\d{4}-\d{2}-\d{2}/)?.[0];
-        return date ? [date] : [];
-      }),
-    ),
-  ].sort();
-  return !dates.length
-    ? (isEn ? 'No runs yet' : '尚无观测日期')
-    : dates.length === 1
-      ? dates[0]
-      : `${dates[0]} — ${dates[dates.length - 1]}`;
-}
-
-export function OverviewMention({
-  batch,
-  row,
-}: {
-  batch: ResearchBatch;
-  row: ResearchRow;
-}) {
-  const { uiLanguage, t } = useUiLanguage();
-  const isEn = uiLanguage === 'en';
-  const audit = auditRows(batch, [row], batch.answerAudits ?? [])[0]?.audit;
-  return (
-    <span
-      className={`pov-status ${audit?.mention === 'yes' ? 'positive' : ''}`}
-    >
-      {!row.observation
-        ? (isEn ? 'Not run' : '未测')
-        : !audit
-          ? (isEn ? 'Analyzing' : '分析中')
-          : audit.mention === 'unknown'
-            ? t('term.couldNotVerify')
-            : verdictLabels[isEn ? 'en' : 'zh'][audit.mention]}
-    </span>
-  );
-}
-
-function humanizeAuditEvidence(
-  text: string | undefined,
-  kind: 'mention' | 'citation',
-  verdict: 'yes' | 'no' | 'unknown',
-  isEn = false,
-  audited = false,
-): string {
-  const trimmed = text?.trim();
-  if (!trimmed) {
-    if (audited && verdict === 'unknown') {
-      return kind === 'mention'
-        ? isEn
-          ? "Couldn't verify whether this answer mentioned your product."
-          : '无法确认这条回答是否提到了你的产品。'
-        : isEn
-          ? "Couldn't verify whether this answer cited your site."
-          : '无法确认这条回答是否引用了你的网站。';
-    }
-    return kind === 'mention'
-      ? isEn
-        ? 'This answer has not been verified yet.'
-        : '这条回答尚未复核。'
-      : isEn
-        ? 'Source citation check is pending.'
-        : '引用关系尚未核实。';
-  }
-  if (/(?:nativeCitations|citationSource|citationsComplete|observedSourceHints|\bevidence\.)/i.test(trimmed)) {
-    if (kind === 'citation' && verdict === 'unknown') {
-      return audited
-        ? isEn
-          ? "Couldn't verify whether this answer cited your site from the captured links."
-          : '无法根据已采集的来源链接确认是否引用了你的网站。'
-        : isEn
-          ? 'Checking captured source links against your project pages.'
-          : '正在核对采集到的来源链接归属。';
-    }
-    if (kind === 'citation' && verdict === 'no') {
-      return isEn
-        ? 'Verified captured links: none point to your site, repository, or owned articles.'
-        : '已核对回答附带的来源链接，未发现指向本项目网站、仓库或自有文章的链接。';
-    }
-  }
-  if (isEn && /[\u4e00-\u9fff]/.test(trimmed)) {
-    if (kind === 'mention') {
-      if (verdict === 'no') {
-        const listed = trimmed.match(/列举了\s*([^，。；]+?)\s*等/);
-        const names = listed?.[1]?.replace(/\s*、\s*/g, ', ').trim();
-        if (names && !/[\u4e00-\u9fff]/.test(names)) {
-          return `The answer lists alternatives (${names}), with zero mention of your project or repository.`;
-        }
-        return 'Reviewed the full captured answer; your project name and repository were not mentioned.';
-      }
-      if (verdict === 'yes') {
-        return 'Verified direct mention of your project in the captured answer.';
-      }
-      return audited
-        ? "Couldn't verify whether this answer mentioned your product."
-        : 'Analyzing brand mention in this captured answer.';
-    }
-    if (verdict === 'no') {
-      return 'Verified captured links: none point to your site, repository, or owned articles.';
-    }
-    if (verdict === 'yes') {
-      return 'Confirmed a citation link pointing to your official site, repository, or authored article.';
-    }
-    return audited
-      ? "Couldn't verify whether this answer cited your site."
-      : 'Checking captured source links against your project pages.';
-  }
-  return trimmed
-    .replace(/[（(]\s*(?:citationSource|citationsComplete)\s*=[^）)]+[）)]/gi, '')
-    .trim();
-}
-
-export function OverviewAudit({
-  batch,
-  row,
-}: {
-  batch: ResearchBatch;
-  row: ResearchRow;
-}) {
-  const { uiLanguage, t } = useUiLanguage();
-  const isEn = uiLanguage === 'en';
-  const audit = auditRows(batch, [row], batch.answerAudits ?? [])[0]?.audit;
-  if (!row.observation || !isAiAnswerRow(row)) return null;
-  const mention = audit?.mention ?? 'unknown';
-  const citation = audit?.citation ?? 'unknown';
-  return (
-    <div className="pov-audit-detail">
-      <div>
-        <strong>
-          {isEn ? 'Brand mention' : '正文提及'} ·{' '}
-          {!audit
-            ? (isEn ? 'Analyzing' : '分析中')
-            : mention === 'unknown'
-              ? t('term.couldNotVerify')
-              : verdictLabels[isEn ? 'en' : 'zh'][mention]}
-        </strong>
-        <p
-          lang={audit?.mentionEvidence ? inferContentLang(audit.mentionEvidence) : undefined}
-          data-i18n-skip={audit?.mentionEvidence ? '' : undefined}
-        >
-          {humanizeAuditEvidence(audit?.mentionEvidence, 'mention', mention, isEn, Boolean(audit))}
-        </p>
-      </div>
-      <div>
-        <strong>
-          {isEn ? 'Official citation' : '官方引用'} ·{' '}
-          {!audit
-            ? (isEn ? 'Analyzing' : '分析中')
-            : citation === 'yes'
-              ? (isEn ? 'Cited' : '已确认')
-              : citation === 'no'
-                ? (isEn ? 'Not cited' : '未引用')
-                : t('term.couldNotVerify')}
-        </strong>
-        <p
-          lang={audit?.citationEvidence ? inferContentLang(audit.citationEvidence) : undefined}
-          data-i18n-skip={audit?.citationEvidence ? '' : undefined}
-        >
-          {humanizeAuditEvidence(audit?.citationEvidence, 'citation', citation, isEn, Boolean(audit))}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Symmetric Segmented Donut Ring Gauge for KPI cards.
- * Uses the exact same denominator as the adjacent fraction so visual and numbers never conflict.
- */
-function DonutRing({
-  yes,
-  unknown,
-  total,
-  centerText,
-}: {
-  yes: number;
-  unknown: number;
-  total: number;
-  centerText: string;
-}) {
-  const size = 68;
-  const stroke = 7;
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const safeTotal = Math.max(1, total);
-  const yesLen = total > 0 ? (yes / safeTotal) * c : 0;
-  const unknownLen = total > 0 ? (unknown / safeTotal) * c : 0;
-
-  return (
-    <span className="pov-donut" aria-hidden="true">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="#eef0f3"
-          strokeWidth={stroke}
-        />
-        {unknownLen > 0 && (
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke="#fcd34d"
-            strokeWidth={stroke}
-            strokeDasharray={`${unknownLen} ${c}`}
-            strokeDashoffset={-yesLen}
-            transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          />
-        )}
-        {yesLen > 0 && (
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke="#16a34a"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeDasharray={`${yesLen} ${c}`}
-            transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          />
-        )}
-      </svg>
-      <span className="pov-donut-label">{centerText}</span>
-    </span>
-  );
-}
-
-function AnswerPips({
-  yes,
-  no,
-  unknown,
-}: {
-  yes: number;
-  no: number;
-  unknown: number;
-}) {
-  const total = yes + no + unknown;
-  if (total <= 0 || total > 24) return null;
-  const items: ('yes' | 'no' | 'unknown')[] = [
-    ...Array<'yes'>(yes).fill('yes'),
-    ...Array<'no'>(no).fill('no'),
-    ...Array<'unknown'>(unknown).fill('unknown'),
-  ];
-  return (
-    <span className="pov-pips" aria-hidden="true">
-      {items.map((kind, idx) => (
-        <i key={idx} className={`is-${kind}`} />
-      ))}
-    </span>
-  );
-}
-
-/**
- * Same-denominator rate formatter:
- * Ensures e.g. `2 / 15` always displays `13.3%` (and `1 / 10` displays `10%`),
- * eliminating the confusing question-weighted `4.2%` mismatch.
- */
-function formatDirectMetric(
-  metric: MetricSummary,
-  metricKind: 'mention' | 'citation',
-  isEn: boolean,
-  options?: { unauditedCount?: number; couldNotVerifyLabel?: string },
-): {
-  primary: string;
-  qualifier?: string;
-  subline: string;
-  ringCenter: string;
-} {
-  if (metric.completed <= 0) {
-    return {
-      primary: '—',
-      subline: isEn ? 'No answers captured yet' : '暂未采集回答',
-      ringCenter: '0/0',
-    };
-  }
-  const hasUnaudited = (options?.unauditedCount ?? 0) > 0;
-  const couldNotVerify =
-    options?.couldNotVerifyLabel || (isEn ? "Couldn't verify" : '无法确认');
-  const unknownBadge = hasUnaudited
-    ? isEn
-      ? 'analyzing'
-      : '分析中'
-    : couldNotVerify;
-  const positiveVerb = isEn
-    ? (metricKind === 'citation' ? 'cited your site' : 'mentioned your brand')
-    : (metricKind === 'citation' ? '附上你的官网' : '提到你');
-  const directPct = Number(((metric.yes / metric.completed) * 100).toFixed(1));
-  if (metric.unknown === 0) {
-    return {
-      primary: `${directPct}%`,
-      subline: isEn
-        ? `${metric.yes} of ${metric.completed} answers ${positiveVerb}`
-        : `${metric.completed} 条回答里，${metric.yes} 条${positiveVerb}`,
-      ringCenter: `${metric.yes}/${metric.completed}`,
-    };
-  }
-  if (metric.yes > 0) {
-    return {
-      qualifier: isEn ? 'At least' : '至少',
-      primary: `${directPct}%`,
-      subline: isEn
-        ? `${metric.yes} of ${metric.completed} ${positiveVerb} (${metric.unknown} ${unknownBadge})`
-        : `${metric.completed} 条回答里 ${metric.yes} 条${positiveVerb}（${metric.unknown} 条${unknownBadge}）`,
-      ringCenter: `${metric.yes}/${metric.completed}`,
-    };
-  }
-  const verifiedNo = metric.yes + metric.no;
-  if (verifiedNo === 0) {
-    if (!hasUnaudited) {
-      return {
-        primary: couldNotVerify,
-        subline: isEn
-          ? `${plural('en', metric.unknown, { one: '{n} answer', other: '{n} answers' })} could not be verified`
-          : `${metric.unknown} 条回答无法确认`,
-        ringCenter: '?',
-      };
-    }
-    const unknownReason = isEn
-      ? metricKind === 'citation'
-        ? `Analyzing citation links in ${plural('en', metric.unknown, { one: '{n} answer', other: '{n} answers' })}`
-        : `Analyzing mentions in ${plural('en', metric.unknown, { one: '{n} answer', other: '{n} answers' })}`
-      : metricKind === 'citation'
-        ? `正在核对 ${metric.unknown} 条回答的链接归属`
-        : `正在核对 ${metric.unknown} 条回答的品牌提及`;
-    return {
-      primary: isEn ? 'Analyzing' : '分析中',
-      subline: unknownReason,
-      ringCenter: isEn ? '…' : '分析',
-    };
-  }
-  return {
-    primary: '0%',
-    subline: isEn
-      ? `${verifiedNo} verified not found · ${metric.unknown} ${unknownBadge}`
-      : `${verifiedNo} 条确认未见 · ${metric.unknown} 条${unknownBadge}`,
-    ringCenter: `0/${metric.completed}`,
-  };
-}
-
-function describeTileStatus(
-  row: AuditedResearchRow | undefined,
-  isEn = false,
-  couldNotVerifyLabel?: string,
-): {
-  state: 'found' | 'absent' | 'pending' | 'unmeasured';
-  statusText: string;
-  dateText: string;
-} {
-  if (!row?.observation) {
-    return { state: 'unmeasured', statusText: isEn ? 'Not captured yet' : '尚未搜索', dateText: '' };
-  }
-  const rawDate = (
-    row.observation.collectedAt ||
-    row.observation.recordedAt ||
-    ''
-  ).slice(0, 10);
-
-  if (!isAiAnswerRow(row)) {
-    return row.observation.status === 'found'
-      ? { state: 'found', statusText: isEn ? 'Appeared in search results' : '搜索结果已出现', dateText: rawDate }
-      : { state: 'absent', statusText: isEn ? 'Not in search results' : '搜索结果未出现', dateText: rawDate };
-  }
-
-  if (!row.audit) {
-    return { state: 'pending', statusText: isEn ? 'Analyzing answer' : '正在分析回答', dateText: rawDate };
-  }
-  const mention = row.audit.mention ?? 'unknown';
-  const citation = row.audit.citation ?? 'unknown';
-  if (mention === 'yes' && citation === 'yes') {
-    return { state: 'found', statusText: isEn ? 'Mentioned and cited' : '已提及并引用官网', dateText: rawDate };
-  }
-  if (mention === 'yes') {
-    return { state: 'found', statusText: isEn ? 'Mentioned in answer' : '回答已提及你', dateText: rawDate };
-  }
-  if (mention === 'no') {
-    return { state: 'absent', statusText: isEn ? 'Not mentioned in answer' : '回答未提及你', dateText: rawDate };
-  }
-  return {
-    state: 'pending',
-    statusText: couldNotVerifyLabel || (isEn ? "Couldn't verify" : '无法确认'),
-    dateText: rawDate,
-  };
-}
+// Kept so existing imports from './ProjectOverview' keep working.
+export { OverviewAudit, OverviewMention } from './project-overview/OverviewAudit';
+export { overviewObservationDates } from './project-overview/overview-format';
 
 type Props = {
   projectOptimization?: ReactNode;
@@ -513,15 +92,6 @@ type Props = {
   ) => Promise<void> | void;
 };
 
-type FocusFilter =
-  | 'all'
-  | 'missed'
-  | 'mentioned'
-  | 'cited'
-  | 'uncertain'
-  | 'brand';
-const DEFAULT_VISIBLE_QUESTIONS = 3;
-
 export default function ProjectOverview({
   projectOptimization,
   activeOptimizationRunId,
@@ -541,158 +111,19 @@ export default function ProjectOverview({
   const { uiLanguage, t } = useUiLanguage();
   const isEn = uiLanguage === 'en';
   const [copiedCmd, setCopiedCmd] = useState(false);
-  const [collectJob, setCollectJob] = useState<BrowserCollectJobSnapshot | null>(null);
-  const [startingCollect, setStartingCollect] = useState(false);
-  const [collectActionError, setCollectActionError] = useState('');
-  const prevCompletedRef = useRef<number>(0);
-  const onRefreshRef = useRef(onRefresh);
-  onRefreshRef.current = onRefresh;
-
-  useEffect(() => {
-    if (previewOnly) return;
-    let active = true;
-    const syncCollectJob = () => {
-      fetch(`/api/geo/browser-collect?project=${encodeURIComponent(batch.projectId)}`, {
-        cache: 'no-store',
-      })
-        .then((res) => (res.ok ? res.json() : null))
-        .then((payload: { job?: BrowserCollectJobSnapshot } | null) => {
-          if (!active || !payload?.job) return;
-          prevCompletedRef.current = payload.job.completedCount;
-          setCollectJob(payload.job);
-        })
-        .catch(() => {});
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') syncCollectJob();
-    };
-    syncCollectJob();
-    window.addEventListener('focus', syncCollectJob);
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      active = false;
-      window.removeEventListener('focus', syncCollectJob);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [batch.projectId, previewOnly]);
-
-  useEffect(() => {
-    if (previewOnly || collectJob?.status !== 'running') return;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await fetch(
-          `/api/geo/browser-collect?project=${encodeURIComponent(batch.projectId)}`,
-          { cache: 'no-store' },
-        );
-        if (!res.ok || cancelled) return;
-        const payload = (await res.json()) as { job?: BrowserCollectJobSnapshot };
-        if (!payload.job || cancelled) return;
-        const prevDone = prevCompletedRef.current;
-        prevCompletedRef.current = payload.job.completedCount;
-        setCollectJob(payload.job);
-        if (
-          payload.job.completedCount > prevDone ||
-          payload.job.status === 'completed'
-        ) {
-          onRefreshRef.current?.();
-        }
-      } catch {
-        // Keep last state on transient polling errors
-      }
-    };
-    const timer = setInterval(() => {
-      void poll();
-    }, 2500);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [batch.projectId, collectJob?.status, previewOnly]);
-
-  const startCollect = async (opts?: {
-    engine?: 'all' | 'chatgpt' | 'google';
-    spaceId?: number;
-    force?: boolean;
-    since?: string;
-    optimizationRunId?: string;
-  }) => {
-    if (previewOnly || startingCollect) return;
-    setStartingCollect(true);
-    setCollectActionError('');
-    const effectiveRunId = opts?.optimizationRunId ?? activeOptimizationRunId ?? undefined;
-    try {
-      const res = await fetch('/api/geo/browser-collect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'start',
-          projectId: batch.projectId,
-          engine: opts?.engine ?? 'all',
-          ...(opts?.force ? { force: true } : {}),
-          ...(opts?.since ? { since: opts.since } : {}),
-          ...(opts?.spaceId ? { spaceId: opts.spaceId } : {}),
-          ...(effectiveRunId ? { optimizationRunId: effectiveRunId } : {}),
-        }),
-      });
-      const payload = (await res.json()) as {
-        error?: string;
-        job?: BrowserCollectJobSnapshot;
-      };
-      if (!res.ok) {
-        throw new Error(
-          payload.error ||
-            (isEn
-              ? 'Could not start local browser collection.'
-              : '未能启动本地浏览器采集。'),
-        );
-      }
-      if (payload.job) {
-        prevCompletedRef.current = payload.job.completedCount;
-        setCollectJob(payload.job);
-      }
-    } catch (err) {
-      setCollectActionError(
-        err instanceof Error
-          ? err.message
-          : isEn
-            ? 'Failed to start local browser collection.'
-            : '启动本地浏览器采集失败。',
-      );
-    } finally {
-      setStartingCollect(false);
-    }
-  };
-
-  const stopCollect = async () => {
-    if (previewOnly) return;
-    try {
-      const res = await fetch('/api/geo/browser-collect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'stop',
-          projectId: batch.projectId,
-        }),
-      });
-      const payload = (await res.json()) as { job?: BrowserCollectJobSnapshot };
-      if (res.ok && payload.job) setCollectJob(payload.job);
-    } catch {
-      // Ignore transient stop errors
-    }
-  };
-
-  const resumeCollect = (job: BrowserCollectJobSnapshot) => {
-    void startCollect({
-      engine: job.engine,
-      spaceId: job.spaceId ?? undefined,
-      force: job.force,
-      since: job.force
-        ? (job.batchStartedAt ?? job.startedAt ?? undefined)
-        : undefined,
-      optimizationRunId: job.optimizationRunId ?? undefined,
-    });
-  };
+  const {
+    collectJob,
+    startingCollect,
+    collectActionError,
+    startCollect,
+    stopCollect,
+    resumeCollect,
+  } = useBrowserCollect({
+    projectId: batch.projectId,
+    previewOnly,
+    activeOptimizationRunId,
+    onRefresh,
+  });
   const hasLangObs = (lang: 'zh' | 'en') =>
     batch.questions.some((q) =>
       q.observations.some((obs) => obs.language === lang),
@@ -716,6 +147,8 @@ export default function ProjectOverview({
   const questionSectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
+    // Set after mount so server and client render the same markup.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNowMs(Date.now());
   }, []);
 
@@ -940,98 +373,6 @@ export default function ProjectOverview({
   };
 
   const collectCommand = `npm run collect -- --project ${batch.projectId}`;
-  const renderBrowserCollectStatus = () => {
-    if (!collectJob || collectJob.status === 'idle') return null;
-    if (collectJob.status === 'running') {
-      return (
-        <div className="pov-collect-status is-running" role="status">
-          <div className="pov-collect-status-main">
-            <Loader2 size={16} className="spin" />
-            <div>
-              <strong>{t('overview.collectingTitle')}</strong>
-              <p>
-                {collectJob.totalCount > 0 && collectJob.currentQuestionId
-                  ? t('overview.collectingStep', {
-                      done: collectJob.completedCount,
-                      total: collectJob.totalCount,
-                      message:
-                        collectJob.message ||
-                        `${collectJob.currentEngine === 'chatgpt' ? 'ChatGPT' : 'Google'} · ${collectJob.currentQuestionId}`,
-                    })
-                  : collectJob.message}
-              </p>
-              {collectJob.currentQuery && (
-                <p style={{ marginTop: 2, opacity: 0.85 }}>{collectJob.currentQuery}</p>
-              )}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="pov-secondary-btn"
-            onClick={() => void stopCollect()}
-          >
-            <Square size={13} />
-            {t('overview.stopCollectBtn')}
-          </button>
-        </div>
-      );
-    }
-    if (collectJob.status === 'needs_handoff') {
-      return (
-        <div className="pov-collect-status is-handoff" role="alert">
-          <div className="pov-collect-status-main">
-            <AlertTriangle size={16} />
-            <div>
-              <strong>{t('overview.handoffTitle')}</strong>
-              <p>{collectJob.error || t('overview.handoffDesc')}</p>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="pov-primary-btn"
-              disabled={startingCollect}
-              onClick={() => resumeCollect(collectJob)}
-            >
-              <RefreshCw size={14} />
-              {t('overview.resumeCollectBtn')}
-            </button>
-            <button
-              type="button"
-              className="pov-secondary-btn"
-              onClick={() => void stopCollect()}
-            >
-              <Square size={13} />
-              {t('overview.stopCollectBtn')}
-            </button>
-          </div>
-        </div>
-      );
-    }
-    if (collectJob.status === 'failed' && collectJob.error) {
-      return (
-        <div className="pov-collect-status is-error" role="alert">
-          <div className="pov-collect-status-main">
-            <AlertTriangle size={16} />
-            <div>
-              <strong>{collectJob.error}</strong>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="pov-secondary-btn"
-            disabled={startingCollect}
-            onClick={() => resumeCollect(collectJob)}
-          >
-            <RefreshCw size={14} />
-            {isEn ? 'Retry' : '重试采集'}
-          </button>
-        </div>
-      );
-    }
-    return null;
-  };
-
   if (!availableEngines.length) {
     const langLabel = t(
       activeLanguage === 'en'
@@ -1047,108 +388,22 @@ export default function ProjectOverview({
       }
     };
     return (
-      <div className="pov-shell">
-        <div className="pov-empty-card">
-          <div className="pov-empty-head">
-            <div>
-              <h1>
-                {t('overview.emptyReadyTitle', {
-                  count: batch.questions.length,
-                  langLabel,
-                })}
-              </h1>
-              <p>{t('overview.emptyReadyDesc')}</p>
-            </div>
-            <button
-              type="button"
-              className="pov-inline-link"
-              onClick={onQuestions}
-            >
-              {t('overview.reviewQuestionsBtn')} <ArrowRight size={14} />
-            </button>
-          </div>
-          {collectActionError && (
-            <div className="pov-collect-status is-error" role="alert">
-              <div className="pov-collect-status-main">
-                <AlertTriangle size={16} />
-                <div>
-                  <strong>{collectActionError}</strong>
-                </div>
-              </div>
-            </div>
-          )}
-          {renderBrowserCollectStatus()}
-          <div className="pov-empty-actions">
-            {collectJob?.status === 'needs_handoff' ? (
-              <button
-                type="button"
-                className="pov-primary-btn"
-                disabled={startingCollect}
-                onClick={() => resumeCollect(collectJob)}
-              >
-                <RefreshCw size={15} />
-                {t('overview.resumeCollectBtn')}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="pov-primary-btn"
-                disabled={startingCollect || collectJob?.status === 'running'}
-                onClick={() => void startCollect({ engine: 'all' })}
-              >
-                {startingCollect || collectJob?.status === 'running' ? (
-                  <>
-                    <Loader2 size={15} className="spin" />
-                    {t('overview.startingBrowserCollectBtn')}
-                  </>
-                ) : (
-                  <>
-                    <Play size={15} />
-                    {t('overview.startBrowserCollectBtn')}
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-          <details className="pov-cli-fallback">
-            <summary>{t('overview.cliFallbackSummary')}</summary>
-            <div className="pov-command-box">
-              <div className="pov-command-code">
-                <Terminal size={15} aria-hidden="true" />
-                <code>{collectCommand}</code>
-              </div>
-              <button
-                type="button"
-                className="pov-secondary-btn"
-                onClick={copyCollectCommand}
-              >
-                {copiedCmd ? <Check size={14} /> : <Copy size={14} />}
-                {copiedCmd
-                  ? t('overview.copiedCommand')
-                  : t('overview.copyCommand')}
-              </button>
-            </div>
-          </details>
-          {batch.questions.length > 0 && (
-            <ol className="pov-empty-questions">
-              {batch.questions.slice(0, 8).map((q) => (
-                <li key={q.id}>
-                  <span className="pov-q-cat">
-                    {isBrandPrompt(q, project?.name)
-                      ? t('overview.catBrand')
-                      : q.category
-                        ? t(categoryMessageKeys[q.category])
-                        : t('overview.catProblem')}
-                  </span>
-                  <span>
-                    {q[activeLanguage] || q.en || q.zh}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-      </div>
+      <OverviewEmptyState
+        batch={batch}
+        langLabel={langLabel}
+        onQuestions={onQuestions}
+        collectActionError={collectActionError}
+        collectJob={collectJob}
+        stopCollect={stopCollect}
+        startingCollect={startingCollect}
+        resumeCollect={resumeCollect}
+        startCollect={startCollect}
+        collectCommand={collectCommand}
+        copyCollectCommand={copyCollectCommand}
+        copiedCmd={copiedCmd}
+        project={project}
+        activeLanguage={activeLanguage}
+      />
     );
   }
 
@@ -1196,106 +451,19 @@ export default function ProjectOverview({
   const weakestPlatform =
     strongestPlatform ? sortedByRate[sortedByRate.length - 1] : null;
 
-  const situationVerdict = (() => {
-    if (sourceOnly) {
-      return {
-        headline: isEn
-          ? `${officialMetrics.found}/${officialMetrics.completed} web search checks included your site`
-          : `网页搜索出现 ${officialMetrics.found}/${officialMetrics.completed} 次`,
-        subline: isEn
-          ? 'Switch to All or an AI answer engine to inspect mention and citation gaps.'
-          : '切换到「全部」或 AI 回答平台查看完整提及与外部引用缺口。',
-      };
-    }
-    if (mention.completed === 0) {
-      return {
-        headline: isEn ? 'Waiting for first completed measurements' : '等待首轮实测完成',
-        subline: isEn
-          ? 'Run local browser checks to build your real citation baseline.'
-          : '运行本地浏览器实测后，这里会直接给出局势判断与高权重引用缺口。',
-      };
-    }
-    if (mention.yes === 0) {
-      const headline = topLeaderNames ? (
-        isEn ? (
-          <>
-            Not yet in AI recommendations — <span data-i18n-skip="">{topLeaderNames}</span> lead
-          </>
-        ) : (
-          <>
-            当前在 AI 推荐中未上榜 — <span data-i18n-skip="">{topLeaderNames}</span> 领跑
-          </>
-        )
-      ) : isEn ? (
-        'Not yet appearing in AI answers'
-      ) : (
-        '当前在 AI 回答中暂未出现提及'
-      );
-      const subline =
-        brandSplit.total > 0 && brandSplit.yes === 0 ? (
-          isEn ? (
-            <>
-              The gap is presence: 0/{discoverySplit.total} non-branded answers mentioned you, and even direct &ldquo;<span data-i18n-skip="">{brandLabel}</span>&rdquo; searches missed. Start with the AI-cited lists below.
-            </>
-          ) : (
-            <>
-              核心瓶颈是「缺席」：{discoverySplit.total} 次非品牌拉新回答全部未提及，连直接搜「<span data-i18n-skip="">{brandLabel}</span>」也未认出。优先抢占下方 AI 高频引用的外部榜单。
-            </>
-          )
-        ) : isEn ? (
-          `The gap is presence: 0/${mention.completed} measured answers name you yet. Start by getting listed on the AI-cited sources below.`
-        ) : (
-          `核心瓶颈是「缺席」：${mention.completed} 次实测回答暂未出现你的名字，建议优先拿下下方 AI 正在引用的外部榜单与对比页。`
-        );
-      return { headline, subline };
-    }
-    if (discoverySplit.total > 0 && discoverySplit.yes === 0) {
-      return {
-        headline: isEn ? (
-          `Visible on brand searches only — 0/${discoverySplit.total} non-branded prompts`
-        ) : (
-          <>
-            仅搜「<span data-i18n-skip="">{brandLabel}</span>」时出现 — 非品牌拉新仍为 0/{discoverySplit.total}
-          </>
-        ),
-        subline: isEn
-          ? 'Buyers who already know your name can find you, but category discovery still goes to competitors. Prioritize external lists and comparisons.'
-          : '已经认识你的用户能搜到你，但按需求找工具的新买家全流向了竞品；优先铺设外部榜单和品类对比。',
-      };
-    }
-    const rate = mention.rate ?? 0;
-    const engineHint =
-      strongestPlatform && weakestPlatform
-        ? isEn
-          ? ` Strongest on ${getPlatformName(strongestPlatform.engine, true)} (${pct(strongestPlatform.rate)}), weakest on ${getPlatformName(weakestPlatform.engine, true)} (${pct(weakestPlatform.rate)}).`
-          : ` ${getPlatformName(strongestPlatform.engine)}表现最强（${pct(strongestPlatform.rate)}），${getPlatformName(weakestPlatform.engine)}最弱（${pct(weakestPlatform.rate)}）。`
-        : '';
-    if (rate < 50) {
-      return {
-        headline: isEn
-          ? `Appearing in ${mention.yes}/${mention.completed} answers (${pct(rate)}) — not yet the default choice`
-          : `已在部分回答中露面（${mention.yes}/${mention.completed}，${pct(rate)}）— 距默认首选还有差距`,
-        subline: isEn
-          ? `Your site is cited in ${citation.yes}/${citation.completed} answers.${engineHint} Close the top external list gaps below to raise presence.`
-          : `官网/仓库直接引用为 ${citation.yes}/${citation.completed}。${engineHint}继续补齐下方外部高频榜单可稳定拉升曝光。`,
-      };
-    }
-    return {
-      headline: isEn
-        ? `Strong AI presence (${mention.yes}/${mention.completed}, ${pct(rate)})`
-        : `已进入核心推荐位（${mention.yes}/${mention.completed}，${pct(rate)}）`,
-      subline: isEn
-        ? `Site cited: ${citation.yes}/${citation.completed}.${engineHint}`
-        : `官网/仓库直接引用 ${citation.yes}/${citation.completed}。${engineHint}`,
-    };
-  })();
-
-  const gapKindLabel = (kind: OverviewGapSourceKind): string => {
-    if (kind === 'awesome') return isEn ? 'Open-source directory' : '开源导航清单';
-    if (kind === 'community') return isEn ? 'Community' : '社区讨论';
-    if (kind === 'roundup') return isEn ? 'Listicle' : '横评指南';
-    return isEn ? 'Competitor' : '竞品来源';
-  };
+  const situationVerdict = buildSituationVerdict({
+    sourceOnly,
+    isEn,
+    officialMetrics,
+    mention,
+    topLeaderNames,
+    brandSplit,
+    discoverySplit,
+    brandLabel,
+    strongestPlatform,
+    weakestPlatform,
+    citation,
+  });
 
   const unauditedAiCount = rows.filter(
     (r) => r.observation && isAiAnswerRow(r) && !r.audit,
@@ -1337,229 +505,56 @@ export default function ProjectOverview({
           </div>
         </div>
       )}
-      {renderBrowserCollectStatus()}
+      <OverviewCollectStatus
+        collectJob={collectJob}
+        stopCollect={stopCollect}
+        startingCollect={startingCollect}
+        resumeCollect={resumeCollect}
+      />
       {/* Top Bar */}
-      <header className="pov-topbar">
-        <div className="pov-title-group">
-          <h1>{t('term.overview')}</h1>
-          <span className="pov-scope-pill">
-            {t('overview.scopePill', {
-              questions: allQuestions.length,
-              platforms: availableEngines.length,
-              dates: dateRange,
-            })}
-          </span>
-        </div>
-
-        <div className="pov-controls">
-          {!previewOnly && allQuestions.length > 0 && (
-            <button
-              type="button"
-              className="pov-secondary-btn pov-rerun-btn is-quiet"
-              disabled={startingCollect || collectJob?.status === 'running'}
-              onClick={() => {
-                const targetEngine =
-                  selectedEngine === 'chatgpt' || selectedEngine === 'google'
-                    ? selectedEngine
-                    : 'all';
-                if (hrsSinceShip < 72) {
-                  setEarlyRetestHours(Math.max(1, Math.round(hrsSinceShip)));
-                  return;
-                }
-                void startCollect({
-                  engine: targetEngine,
-                  force: true,
-                  optimizationRunId: activeOptimizationRunId ?? undefined,
-                });
-              }}
-            >
-              {startingCollect || collectJob?.status === 'running' ? (
-                <>
-                  <Loader2 size={14} className="spin" />
-                  <span>{isEn ? 'Measuring…' : '正在实测…'}</span>
-                </>
-              ) : (
-                <>
-                  <RefreshCw size={14} />
-                  <span>
-                    {selectedEngine === 'chatgpt' || selectedEngine === 'google'
-                      ? isEn
-                        ? `Re-run ${getPlatformName(selectedEngine, isEn)}`
-                        : `重新实测 ${getPlatformName(selectedEngine, isEn)}`
-                      : isEn
-                        ? `Re-run all (${allQuestions.length})`
-                        : `重新实测全部 (${allQuestions.length}题)`}
-                  </span>
-                </>
-              )}
-            </button>
-          )}
-          <div
-            className="pov-segmented"
-            role="group"
-            aria-label={isEn ? 'Platform filter' : '平台筛选'}
-          >
-            <button
-              type="button"
-              aria-pressed={allPlatforms}
-              onClick={() =>
-                onFilters({ engine: 'all', kind: 'all', result: 'all' })
-              }
-            >
-              <Layers3 size={14} />
-              <span>{t('overview.allPlatforms')}</span>
-            </button>
-            {availableEngines.map((engine) => (
-              <button
-                key={engine}
-                type="button"
-                aria-pressed={selectedEngine === engine}
-                onClick={() =>
-                  onFilters({ engine, kind: 'all', result: 'all' })
-                }
-              >
-                <span className="pov-tab-brand-icon">
-                  <ResearchEngineIcon engine={engine} />
-                </span>
-                <span>{getPlatformName(engine, isEn)}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </header>
+      <OverviewTopbar
+        allQuestions={allQuestions}
+        availableEngines={availableEngines}
+        dateRange={dateRange}
+        previewOnly={previewOnly}
+        startingCollect={startingCollect}
+        collectJob={collectJob}
+        selectedEngine={selectedEngine}
+        hrsSinceShip={hrsSinceShip}
+        setEarlyRetestHours={setEarlyRetestHours}
+        startCollect={startCollect}
+        activeOptimizationRunId={activeOptimizationRunId}
+        allPlatforms={allPlatforms}
+        onFilters={onFilters}
+      />
 
       {earlyRetestHours !== null && (
-        <div className="pov-retest-confirm" role="alert">
-          <div className="pov-retest-confirm-copy">
-            <AlertTriangle size={16} />
-            <div>
-              <strong>
-                {isEn
-                  ? `Updates shipped ${earlyRetestHours}h ago — re-running now will likely stay 0 → 0`
-                  : `距离新内容上线仅过去 ${earlyRetestHours} 小时，现在重测大概率仍是 0 → 0`}
-              </strong>
-              <p>
-                {isEn
-                  ? 'Search engines and AI answers usually take 3–7 days to index new pages or list PRs.'
-                  : '搜索引擎与 AI 索引新推的文档或榜单 PR 通常需要 3～7 天，刚推送不久时复测仍会命中旧缓存。'}
-              </p>
-            </div>
-          </div>
-          <div className="pov-retest-confirm-actions">
-            <button
-              type="button"
-              className="pov-secondary-btn"
-              onClick={() => setEarlyRetestHours(null)}
-            >
-              {isEn ? 'Cancel' : '暂不重测'}
-            </button>
-            <button
-              type="button"
-              className="pov-secondary-btn"
-              onClick={() => {
-                setEarlyRetestHours(null);
-                void startCollect({
-                  engine:
-                    selectedEngine === 'chatgpt' || selectedEngine === 'google'
-                      ? selectedEngine
-                      : 'all',
-                  force: true,
-                  optimizationRunId: activeOptimizationRunId ?? undefined,
-                });
-              }}
-            >
-              <RefreshCw size={13} />
-              <span>{isEn ? 'Re-run Anyway' : '仍要立即重测'}</span>
-            </button>
-          </div>
-        </div>
+        <OverviewEarlyRetest
+          earlyRetestHours={earlyRetestHours}
+          setEarlyRetestHours={setEarlyRetestHours}
+          startCollect={startCollect}
+          selectedEngine={selectedEngine}
+          activeOptimizationRunId={activeOptimizationRunId}
+        />
       )}
 
       {/* Layer 1: Peec Insights-Style 0-Cost Situation Verdict */}
-      <section className="pov-insights-hero" aria-label={isEn ? 'AI search situation verdict' : '当前 AI 曝光局势诊断'}>
-        <div className="pov-insights-copy">
-          <h2>{situationVerdict.headline}</h2>
-          <p>{situationVerdict.subline}</p>
-        </div>
-
-        <div className="pov-insights-metrics">
-          <div className="pov-kpi-pill">
-            <span>{isEn ? 'AI Mentions' : 'AI 提及'}</span>
-            <strong className={mention.yes > 0 ? 'is-pos' : ''}>
-              {sourceOnly
-                ? `${officialMetrics.found}/${officialMetrics.completed}`
-                : `${mention.yes}/${mention.completed}`}
-            </strong>
-          </div>
-          {!sourceOnly && (
-            <div className="pov-kpi-pill">
-              <span>{isEn ? 'Official Cited' : '官方引用'}</span>
-              <strong className={citation.yes > 0 ? 'is-pos' : ''}>
-                {citation.yes}/{citation.completed}
-              </strong>
-            </div>
-          )}
-          {discoverySplit.total > 0 && (
-            <div className="pov-kpi-pill">
-              <span>{isEn ? 'Non-branded' : '非品牌拉新'}</span>
-              <strong>
-                {discoverySplit.yes}/{discoverySplit.total}
-              </strong>
-            </div>
-          )}
-          {brandSplit.total > 0 && (
-            <button
-              type="button"
-              className={`pov-kpi-pill is-btn ${brandSplit.yes === 0 ? 'is-warn' : ''} ${focus === 'brand' ? 'is-active' : ''}`.trim()}
-              onClick={() => jumpFocus(focus === 'brand' ? 'all' : 'brand')}
-            >
-              <span>
-                {isEn ? (
-                  <>
-                    Brand &ldquo;<span data-i18n-skip="">{brandLabel}</span>&rdquo;
-                  </>
-                ) : (
-                  <>
-                    搜「<span data-i18n-skip="">{brandLabel}</span>」
-                  </>
-                )}
-              </span>
-              <strong>
-                {brandSplit.yes}/{brandSplit.total}
-              </strong>
-            </button>
-          )}
-          {platformStats.map((item) => (
-            <button
-              key={item.engine}
-              type="button"
-              className={`pov-kpi-pill is-btn ${selectedEngine === item.engine ? 'is-active' : ''}`.trim()}
-              onClick={() =>
-                onFilters({
-                  engine: selectedEngine === item.engine ? 'all' : item.engine,
-                  kind: 'all',
-                  result: 'all',
-                })
-              }
-            >
-              <span className="pov-kpi-engine">
-                <ResearchEngineIcon engine={item.engine} />
-                {getPlatformName(item.engine, isEn)}
-              </span>
-              <strong>
-                {item.yesCount}/{item.totalCount}
-              </strong>
-            </button>
-          ))}
-          <button
-            type="button"
-            className="pov-inline-link pov-insights-comp-link"
-            onClick={onCompetitor}
-          >
-            {t('overview.vsCompetitor')} <ChevronRight size={13} />
-          </button>
-        </div>
-      </section>
+      <OverviewInsightsHero
+        situationVerdict={situationVerdict}
+        mention={mention}
+        sourceOnly={sourceOnly}
+        officialMetrics={officialMetrics}
+        citation={citation}
+        discoverySplit={discoverySplit}
+        brandSplit={brandSplit}
+        focus={focus}
+        jumpFocus={jumpFocus}
+        brandLabel={brandLabel}
+        platformStats={platformStats}
+        selectedEngine={selectedEngine}
+        onFilters={onFilters}
+        onCompetitor={onCompetitor}
+      />
 
       {isColdZeroStage ? (
         <>
@@ -1591,251 +586,38 @@ export default function ProjectOverview({
           {/* Row 1: 3-Card Bento Scoreboard with Symmetric Donut Rings */}
       <section className="pov-bento" aria-label={isEn ? 'Key performance' : '核心表现'}>
         {/* Card 1: AI Mention */}
-        <div
-          className={`pov-metric-card ${focus === 'missed' || focus === 'mentioned' || focus === 'brand' ? 'is-focused' : ''}`}
-        >
-          <div
-            role="button"
-            tabIndex={0}
-            className="pov-metric-card-click"
-            onClick={() =>
-              jumpFocus(
-                (sourceOnly ? officialMetrics.found : mention.yes) > 0
-                  ? 'mentioned'
-                  : 'missed',
-              )
-            }
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                e.currentTarget.click();
-              }
-            }}
-          >
-            <div className="pov-metric-head">
-              <span>
-                {sourceOnly ? t('overview.searchAppear') : t('overview.aiMention')}
-              </span>
-            </div>
-
-            <div className="pov-gauge-row">
-              <DonutRing
-                yes={sourceOnly ? officialMetrics.found : mention.yes}
-                unknown={sourceOnly ? 0 : mention.unknown}
-                total={sourceOnly ? officialMetrics.completed : mention.completed}
-                centerText={mentionDisplay.ringCenter}
-              />
-              <div className="pov-gauge-copy">
-                <div className="pov-metric-value">
-                  {mentionDisplay.qualifier && (
-                    <em className="pov-qualifier">{mentionDisplay.qualifier}</em>
-                  )}
-                  <strong>{mentionDisplay.primary}</strong>
-                </div>
-                <p className="pov-metric-sub">{mentionDisplay.subline}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="pov-metric-foot">
-            <AnswerPips
-              yes={sourceOnly ? officialMetrics.found : mention.yes}
-              no={
-                sourceOnly
-                  ? officialMetrics.completed - officialMetrics.found
-                  : mention.no
-              }
-              unknown={sourceOnly ? 0 : mention.unknown}
-            />
-            <div className="pov-metric-chips">
-              {brandSplit.total > 0 && (
-                <button
-                  type="button"
-                  className={`${mention.yes > 0 && discoverySplit.yes > 0 && brandSplit.yes > 0 ? 'is-yes' : 'is-amber'} ${focus === 'brand' ? 'is-active' : ''}`.trim()}
-                  onClick={() => jumpFocus(focus === 'brand' ? 'all' : 'brand')}
-                >
-                  {mention.yes === 0
-                    ? isEn
-                      ? `Even "${brandLabel}" wasn't recognized`
-                      : `直接搜「${brandLabel}」也未认出`
-                    : discoverySplit.yes === 0
-                      ? isEn
-                        ? `Only on "${brandLabel}" (${brandSplit.yes}/${brandSplit.total})`
-                        : `仅在搜「${brandLabel}」时提及 (${brandSplit.yes}/${brandSplit.total})`
-                      : isEn
-                        ? `Incl. "${brandLabel}" ${brandSplit.yes}/${brandSplit.total}`
-                        : `其中直接搜「${brandLabel}」提及 ${brandSplit.yes}/${brandSplit.total}`}
-                </button>
-              )}
-              {!sourceOnly && mention.unknown > 0 && (
-                <span className="is-amber">
-                  {mention.unknown} {isEn ? 'analyzing' : '分析中'}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+        <OverviewMentionCard
+          focus={focus}
+          jumpFocus={jumpFocus}
+          sourceOnly={sourceOnly}
+          officialMetrics={officialMetrics}
+          mention={mention}
+          mentionDisplay={mentionDisplay}
+          brandSplit={brandSplit}
+          discoverySplit={discoverySplit}
+          brandLabel={brandLabel}
+        />
 
         {/* Card 2: Official Citation */}
-        <button
-          type="button"
-          className={`pov-metric-card ${focus === 'cited' || focus === 'uncertain' ? 'is-focused' : ''}`}
-          disabled={sourceOnly}
-          onClick={jumpSources}
-        >
-          <div className="pov-metric-head">
-            <span>{t('overview.officialCitation')}</span>
-          </div>
-
-          <div className="pov-gauge-row">
-            <DonutRing
-              yes={sourceOnly ? 0 : citation.yes}
-              unknown={sourceOnly ? 0 : citation.unknown}
-              total={sourceOnly ? 0 : citation.completed}
-              centerText={sourceOnly ? '—' : citationDisplay.ringCenter}
-            />
-            <div className="pov-gauge-copy">
-              <div className="pov-metric-value">
-                {sourceOnly ? (
-                  <strong className="is-muted">—</strong>
-                ) : (
-                  <>
-                    {citationDisplay.qualifier && (
-                      <em className="pov-qualifier">
-                        {citationDisplay.qualifier}
-                      </em>
-                    )}
-                    <strong>{citationDisplay.primary}</strong>
-                  </>
-                )}
-              </div>
-              <p className="pov-metric-sub">
-                {sourceOnly
-                  ? (isEn
-                      ? 'Switch to an AI answer platform to inspect citation links'
-                      : '切换到 AI 回答平台查看参考链接')
-                  : citationDisplay.subline}
-              </p>
-            </div>
-          </div>
-
-          <div className="pov-metric-foot">
-            {!sourceOnly && (
-              <AnswerPips
-                yes={citation.yes}
-                no={citation.no}
-                unknown={citation.unknown}
-              />
-            )}
-            <div className="pov-metric-chips">
-              {sourceOnly ? (
-                <span>
-                  {isEn
-                    ? 'Web search results do not track AI answer citations'
-                    : '网页搜索结果不统计回答引用'}
-                </span>
-              ) : (
-                <>
-                  <span className={citation.yes > 0 ? 'is-yes' : ''}>
-                    {citation.yes} {isEn ? 'cited' : '已引用'}
-                  </span>
-                  <span>
-                    {citation.no} {isEn ? 'not cited' : '未引用'}
-                  </span>
-                  {citation.unknown > 0 && (
-                    <span className="is-amber">
-                      {citation.unknown} {isEn ? 'analyzing' : '分析中'}
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </button>
+        <OverviewCitationCard
+          focus={focus}
+          sourceOnly={sourceOnly}
+          jumpSources={jumpSources}
+          citation={citation}
+          citationDisplay={citationDisplay}
+        />
 
         {/* Card 3: Platform Breakdown with Colorful Brand Icons */}
-        <div className="pov-platform-card">
-          <div className="pov-metric-head">
-            <span>{t('overview.platformBreakdown')}</span>
-            <button
-              type="button"
-              className="pov-head-link pov-inline-link"
-              onClick={onCompetitor}
-            >
-              {t('overview.vsCompetitor')} <ChevronRight size={13} />
-            </button>
-          </div>
-
-          <div className="pov-platform-rows">
-            {platformStats.map((item) => {
-              const active = selectedEngine === item.engine;
-              const widthPct =
-                item.totalCount > 0
-                  ? Math.round((item.yesCount / item.totalCount) * 100)
-                  : 0;
-              return (
-                <button
-                  key={item.engine}
-                  type="button"
-                  className={`pov-platform-row ${active ? 'is-selected' : ''}`}
-                  onClick={() =>
-                    onFilters({
-                      engine: active ? 'all' : item.engine,
-                      kind: 'all',
-                      result: 'all',
-                    })
-                  }
-                >
-                  <span className="pov-platform-name">
-                    <span className="pov-row-brand-icon">
-                      <ResearchEngineIcon engine={item.engine} />
-                    </span>
-                    {getPlatformName(item.engine, isEn)}
-                  </span>
-                  <span className="pov-platform-track" aria-hidden="true">
-                    <span style={{ width: `${widthPct}%` }} />
-                  </span>
-                  <span className="pov-platform-stat">
-                    <em>
-                      {item.yesCount}/{item.totalCount}
-                    </em>
-                    <strong>
-                      {item.rate !== null
-                        ? pct(item.rate)
-                        : item.unknownCount > 0
-                          ? (isEn ? 'Pend' : '待核')
-                          : '—'}
-                    </strong>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {unmeasuredConsumerEngines.length > 0 && (
-            <button
-              type="button"
-              className="pov-unmeasured-note"
-              disabled={startingCollect || collectJob?.status === 'running'}
-              onClick={() =>
-                void startCollect({
-                  engine:
-                    unmeasuredConsumerEngines.length === 1
-                      ? unmeasuredConsumerEngines[0]
-                      : 'all',
-                })
-              }
-            >
-              <span>
-                {t('overview.unmeasuredPlatforms', {
-                  platforms: unmeasuredConsumerEngines
-                    .map((e) => getPlatformName(e, isEn))
-                    .join(' · '),
-                })}
-              </span>
-              <ArrowRight size={12} />
-            </button>
-          )}
-        </div>
+        <OverviewPlatformCard
+          onCompetitor={onCompetitor}
+          platformStats={platformStats}
+          selectedEngine={selectedEngine}
+          onFilters={onFilters}
+          unmeasuredConsumerEngines={unmeasuredConsumerEngines}
+          startingCollect={startingCollect}
+          collectJob={collectJob}
+          startCollect={startCollect}
+        />
       </section>
 
       {/* Restored Competitor Reference Card */}
@@ -1870,79 +652,18 @@ export default function ProjectOverview({
         ref={questionSectionRef}
         aria-label={t('overview.buyerQuestions')}
       >
-        <div className="pov-section-bar">
-          <div className="pov-section-title">
-            <h2>{t('overview.buyerQuestions')}</h2>
-          </div>
-
-          <div className="pov-section-tools">
-            <div
-              className="pov-filter-pills"
-              role="tablist"
-              aria-label={t('overview.buyerQuestions')}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={focus === 'all'}
-                onClick={() => setFocus('all')}
-              >
-                {t('overview.filterAll')} <span>{allQuestions.length}</span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={focus === 'missed'}
-                onClick={() => setFocus('missed')}
-              >
-                {t('overview.filterMissed')} <span>{missedCount}</span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={focus === 'mentioned'}
-                onClick={() => setFocus('mentioned')}
-              >
-                {t('overview.filterMentioned')} <span>{mentionedCount}</span>
-              </button>
-              {!sourceOnly && (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={focus === 'cited'}
-                  onClick={() => setFocus('cited')}
-                >
-                  {t('overview.filterCited')} <span>{citedCount}</span>
-                </button>
-              )}
-              {brandQuestionCount > 0 && (
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={focus === 'brand'}
-                  onClick={() => setFocus('brand')}
-                >
-                  {isEn ? (
-                    'Brand'
-                  ) : (
-                    <>
-                      搜「<span data-i18n-skip="">{brandLabel}</span>」
-                    </>
-                  )}{' '}
-                  <span>{brandQuestionCount}</span>
-                </button>
-              )}
-            </div>
-
-            <button
-              type="button"
-              className="pov-inline-link"
-              onClick={onQuestions}
-            >
-              {t('overview.manageQuestions')} <ArrowRight size={13} />
-            </button>
-          </div>
-        </div>
+        <OverviewQuestionFilters
+          focus={focus}
+          setFocus={setFocus}
+          allQuestions={allQuestions}
+          missedCount={missedCount}
+          mentionedCount={mentionedCount}
+          sourceOnly={sourceOnly}
+          citedCount={citedCount}
+          brandQuestionCount={brandQuestionCount}
+          brandLabel={brandLabel}
+          onQuestions={onQuestions}
+        />
 
         {displayedQuestions.length === 0 ? (
           <div className="pov-filter-empty">
@@ -1953,148 +674,17 @@ export default function ProjectOverview({
           </div>
         ) : (
           <>
-            <div className="pov-matrix">
-              {displayedQuestions.map((question) => {
-                const categoryLabel = isBrandPrompt(question, project?.name)
-                  ? t('overview.catBrand')
-                  : question.category
-                    ? t(categoryMessageKeys[question.category])
-                    : null;
-
-                const tileItems = matrixEngines.map((engine) => {
-                  const cellRow = allEngineRows.find(
-                    (r) =>
-                      r.question.id === question.id && r.engine === engine,
-                  );
-                  return {
-                    engine,
-                    ...describeTileStatus(cellRow, isEn, couldNotVerifyLabel),
-                  };
-                });
-
-                const searchedCount = tileItems.filter(
-                  (item) => item.state !== 'unmeasured',
-                ).length;
-                const hitCount = tileItems.filter(
-                  (item) => item.state === 'found',
-                ).length;
-                const qWinners =
-                  searchedCount > 0 && hitCount === 0
-                    ? extractQuestionTopWinners(
-                        question,
-                        matrixEngines,
-                        project,
-                        activeLanguage,
-                        3,
-                      )
-                    : [];
-
-                return (
-                  <div key={question.id} className="pov-matrix-row">
-                    <button
-                      type="button"
-                      className="pov-q-main"
-                      onClick={() =>
-                        onQuestion(
-                          question,
-                          allPlatforms
-                            ? undefined
-                            : (selectedEngine as ResearchEngine),
-                        )
-                      }
-                    >
-                      <div className="pov-q-heading">
-                        {categoryLabel && (
-                          <span className="pov-q-cat">{categoryLabel}</span>
-                        )}
-                        <span
-                          className="pov-q-text"
-                          lang={
-                            question[activeLanguage]
-                              ? activeLanguage
-                              : question.en
-                                ? 'en'
-                                : 'zh'
-                          }
-                        >
-                          {question[activeLanguage] || question.en || question.zh}
-                        </span>
-                      </div>
-                      {qWinners.length > 0 && (
-                        <div className="pov-q-winners">
-                          <span>{isEn ? 'AI cited:' : 'AI 引用了：'}</span>
-                          <b data-i18n-skip="">
-                            {qWinners.map((w) => w.label).join(' · ')}
-                          </b>
-                        </div>
-                      )}
-                    </button>
-
-                    {/* Proud Platform Icon-Badge Matrix + Hit Counter */}
-                    <div className="pov-tile-group">
-                      <div className="pov-tile-icons">
-                        {tileItems.map((item) => (
-                          <button
-                            key={item.engine}
-                            type="button"
-                            className={`pov-platform-tile is-${item.state}`}
-                            aria-label={`${getPlatformName(item.engine, isEn)} · ${item.statusText}`}
-                            onClick={() => onQuestion(question, item.engine)}
-                          >
-                            <ResearchEngineIcon engine={item.engine} />
-                            <span
-                              className="pov-tile-badge"
-                              aria-hidden="true"
-                            >
-                              {item.state === 'found' ? (
-                                <Check size={10} strokeWidth={2.8} />
-                              ) : item.state === 'absent' ? (
-                                <X size={10} strokeWidth={2.5} />
-                              ) : item.state === 'pending' ? (
-                                <b>?</b>
-                              ) : (
-                                <Minus size={10} strokeWidth={2.5} />
-                              )}
-                            </span>
-                            <span
-                              className="pov-tile-tooltip"
-                              role="tooltip"
-                            >
-                              <strong>{getPlatformName(item.engine, isEn)}</strong>
-                              <span>
-                                {item.statusText}
-                                {item.dateText ? ` · ${item.dateText}` : ''}
-                              </span>
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-
-                      <button
-                        type="button"
-                        className={`pov-tile-total ${hitCount > 0 ? 'has-found' : ''}`}
-                        title={
-                          isEn
-                            ? `${searchedCount} platforms tested, ${hitCount} mentioned you`
-                            : `已测 ${searchedCount} 个平台，${hitCount} 个提到你`
-                        }
-                        onClick={() =>
-                          onQuestion(
-                            question,
-                            allPlatforms
-                              ? undefined
-                              : (selectedEngine as ResearchEngine),
-                          )
-                        }
-                      >
-                        <strong>{searchedCount ? hitCount : '—'}</strong>
-                        <span>/ {searchedCount}</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <OverviewQuestionMatrix
+              displayedQuestions={displayedQuestions}
+              project={project}
+              matrixEngines={matrixEngines}
+              allEngineRows={allEngineRows}
+              couldNotVerifyLabel={couldNotVerifyLabel}
+              activeLanguage={activeLanguage}
+              onQuestion={onQuestion}
+              allPlatforms={allPlatforms}
+              selectedEngine={selectedEngine}
+            />
 
             {focus === 'all' &&
               filteredQuestions.length > DEFAULT_VISIBLE_QUESTIONS && (
@@ -2127,145 +717,10 @@ export default function ProjectOverview({
 
       {/* Layer 4: External Pages AI Cites Without You (Plain-Language Listing Opportunities) */}
       {overviewGapSources.length > 0 && (
-        <section
-          className="pov-gap-card"
-          aria-labelledby="pov-gap-heading"
-        >
-          <div className="pov-section-bar">
-            <div className="pov-section-title pov-gap-title-wrap">
-              <h2 id="pov-gap-heading">
-                {isEn
-                  ? 'External pages AI cites without you'
-                  : 'AI 引用但尚未收录你的外部页面'}
-              </h2>
-              <span className="pov-gap-sub">
-                {isEn
-                  ? 'Already cited by AI answers — submit a listing PR to open-source directories or join cited discussions'
-                  : '这些外部清单与讨论帖已被 AI 回答直接引用——可向开源导航清单提 PR 申请收录，或参与社区讨论'}
-              </span>
-            </div>
-            <div className="pov-section-tools">
-              <button
-                type="button"
-                className="pov-inline-link"
-                onClick={() => void onPlan?.()}
-              >
-                {isEn ? 'Open Action Plan' : '查看行动计划'} <ArrowRight size={13} />
-              </button>
-            </div>
-          </div>
-
-          <div
-            className="pov-gap-table-wrap"
-            tabIndex={0}
-            role="region"
-            aria-labelledby="pov-gap-heading"
-          >
-            <table
-              className="pov-gap-table"
-              style={
-                {
-                  '--col-type': JSON.stringify(isEn ? 'Type' : '类型'),
-                  '--col-engines': JSON.stringify(isEn ? 'Engines' : '引用平台'),
-                  '--col-prompts': JSON.stringify(isEn ? 'Prompts' : '出现题数'),
-                  '--col-action': JSON.stringify(isEn ? 'Next move' : '推荐动作'),
-                } as React.CSSProperties
-              }
-            >
-              <thead>
-                <tr>
-                  <th scope="col">{isEn ? 'Source URL / Repo' : '页面 / 仓库'}</th>
-                  <th scope="col">{isEn ? 'Type' : '类型'}</th>
-                  <th scope="col">{isEn ? 'Engines' : '引用平台'}</th>
-                  <th scope="col" className="is-num">
-                    {isEn ? 'Prompts' : '出现题数'}
-                  </th>
-                  <th scope="col" className="is-action">
-                    {isEn ? 'Next move' : '推荐动作'}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {overviewGapSources.map((src) => (
-                  <tr key={src.key}>
-                    <th scope="row">
-                      <a
-                        href={src.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="pov-gap-source-link"
-                      >
-                        <strong data-i18n-skip="">{src.title}</strong>
-                        <span data-i18n-skip={src.subtitle === 'web' ? undefined : ''}>
-                          {src.subtitle === 'web'
-                            ? isEn
-                              ? 'Cited web page'
-                              : 'AI 引用网页'
-                            : src.subtitle}
-                        </span>
-                      </a>
-                    </th>
-                    <td>
-                      <span className={`pov-gap-badge is-${src.kind}`}>
-                        {gapKindLabel(src.kind)}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="pov-gap-engines">
-                        {src.engines.map((eng) => (
-                          <span
-                            key={eng}
-                            className="pov-gap-engine-dot"
-                            title={getPlatformName(eng, isEn)}
-                          >
-                            <ResearchEngineIcon engine={eng} />
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="is-num">
-                      <span className="pov-gap-count">
-                        {src.questionCount}
-                        {isEn ? 'q' : ' 题'}
-                      </span>
-                    </td>
-                    <td className="is-action">
-                      {src.actionHint === 'submit_pr' ? (
-                        <button
-                          type="button"
-                          className="pov-gap-action-btn is-primary"
-                          onClick={() => void onPlan?.()}
-                        >
-                          <GitPullRequest size={12} />
-                          <span>{isEn ? 'Submit listing PR' : '提 PR 申请收录'}</span>
-                        </button>
-                      ) : src.actionHint === 'community_draft' ? (
-                        <button
-                          type="button"
-                          className="pov-gap-action-btn"
-                          onClick={() => void onPlan?.()}
-                        >
-                          <MessageSquarePlus size={12} />
-                          <span>{isEn ? 'Draft note' : '去发声'}</span>
-                        </button>
-                      ) : (
-                        <a
-                          href={src.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="pov-gap-action-btn"
-                        >
-                          <span>{isEn ? 'Inspect' : '查看'}</span>
-                          <ExternalLink size={11} />
-                        </a>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <OverviewGapSources
+          onPlan={onPlan}
+          overviewGapSources={overviewGapSources}
+        />
       )}
     </div>
   );

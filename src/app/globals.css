@@ -11,13 +11,6 @@
 }
 
 @layer base {
-  .overflow-hidden-scrollable {
-    -ms-overflow-style: none;
-  }
-
-  .overflow-hidden-scrollable::-webkit-scrollbar {
-    display: none;
-  }
 
   * {
     scrollbar-width: thin;
@@ -57,37 +50,12 @@
     }
   }
 
-  :root.dark *,
-  html.dark *,
-  body.dark * {
-    scrollbar-color: #21262d transparent; /* dark-200 */
-  }
-
-  :root.dark *::-webkit-scrollbar-thumb,
-  html.dark *::-webkit-scrollbar-thumb,
-  body.dark *::-webkit-scrollbar-thumb {
-    background: #21262d; /* dark-200 */
-  }
-
-  :root.dark *::-webkit-scrollbar-thumb:hover,
-  html.dark *::-webkit-scrollbar-thumb:hover,
-  body.dark *::-webkit-scrollbar-thumb:hover {
-    background: #30363d; /* dark-300 */
-  }
-
   html {
     scroll-behavior: smooth;
   }
 }
 
 @layer utilities {
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    overflow: hidden;
-  }
 }
 
 @media screen and (-webkit-min-device-pixel-ratio: 0) {

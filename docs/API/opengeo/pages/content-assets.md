@@ -11,7 +11,7 @@
 | 缺口 | 新数据会遇到什么 | 证据与补齐方向 |
 | --- | --- | --- |
 | 既有项目的周期材料刷新仍未自动化 | 新建项目已接调查与入库；既有项目不会因查看页面而自动重读网站。 | `POST /api/geo/projects` → `project-onboarding-analysis.ts` → `project-research.ts`；原文/关联追加项目 SQLite，再接现有选题。修订理解复用保存资料。 |
-| 新证据未进入下一轮缺口评估 | 新来源、已解决登记不会生成新版承接判断，下一批不自动接续旧核查。 | [research-batch-plan.ts:29](../../../../src/lib/geo/research-batch-plan.ts#L29) 从 concerns 建 gaps；[content-assets.ts:476](../../../../src/lib/geo/content-assets.ts#L476) 展示原 gaps。保存核查会更新关联任务上下文，但不重算问题 answerability/gaps，也不进入下一次拟题输入。需要引用新证据的评估版本与跨批关联。 |
+| 新证据未进入下一轮缺口评估 | 新来源、已解决登记不会生成新版承接判断，下一批不自动接续旧核查。 | [research-batch-plan.ts:29](../../../../src/lib/geo/research-batch-plan.ts#L29) 从 concerns 建 gaps。保存核查会更新关联任务上下文，但不重算问题 answerability/gaps，也不进入下一次拟题输入。需要引用新证据的评估版本与跨批关联。 |
 
 旧批次及审核应保持不变；缺的是新评估和版本交接。搜索发现的新自有 URL 当前只成为未登记来源，不自动变成有正文、可供拟题的资产。
 
@@ -31,7 +31,7 @@
 | 当前缺口 | 由本批研究题 `gaps[]` 生成 `ContentGovernanceItem[]`，ID 为 `<project>:<batch>:<question>:gap:<index>` | 前端分类 `content/evidence/capability/investigate`；历史 `GeoState.gaps` 单独保留，不合入当前缺口。 |
 | 核查记录 | 后端 `GeoState.governanceRecords?: AssetGovernanceRecord[]` | 前端按当前项目、批次及 gapId 找记录；任务关联、依据、状态是真实持久化字段。 |
 
-来源：[content-assets.ts:17](../../../../src/lib/geo/content-assets.ts#L17)、[content-assets.ts:424](../../../../src/lib/geo/content-assets.ts#L424)、[types.ts:75](../../../../src/lib/geo/types.ts#L75)。
+来源：[types.ts:75](../../../../src/lib/geo/types.ts#L75)。
 
 筛选参数 `assetTab,assetQuery,assetType,assetGapFilter,assetLevel,assetDomain,assetLimit,assetId,assetUrl,assetGap,assetDetail,assetEngine,assetQuestion,assetProject`，及共享 `language,engine,batch,observationIndex` 是前端地址状态，**不是后端过滤参数**。目录初始展示 24 项，更多项从已加载数据展开，没有服务端分页；支持的来源平台筛选为 ChatGPT/Google。
 

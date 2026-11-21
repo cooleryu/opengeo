@@ -72,34 +72,6 @@
   background: #f3faf6;
   color: #1f5c49;
 }
-.qm-tabs {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid #e5e5e7;
-}
-.qm-tabs button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 0;
-  margin-bottom: -1px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: #71717a;
-  font-size: 14px;
-}
-.qm-tabs button[aria-pressed='true'] {
-  border-bottom-color: #242426;
-  color: #18181b;
-  font-weight: 600;
-}
-.qm-tabs small {
-  font-size: 12px;
-  color: #71717a;
-}
 .qm-content {
   min-width: 0;
 }
@@ -110,12 +82,6 @@
   gap: 10px;
   margin-bottom: 16px;
 }
-.qm-result-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.og-app .qm-result-filters .og-select-button,
 .qm-secondary {
   height: 36px;
   border: 1px solid #dedee2;
@@ -123,11 +89,6 @@
   background: #fff;
   padding: 0 9px;
   font-size: 12px;
-}
-.og-app .qm-result-filters .og-select-button {
-  width: auto;
-  min-width: 110px;
-  min-height: 36px;
 }
 .og-app .qm-dialog .og-select-button {
   margin-top: 7px;
@@ -140,32 +101,6 @@
   font-size: 12px;
   line-height: 1.6;
 }
-.qm-result {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: #71717a;
-  white-space: nowrap;
-  font-size: 12px;
-}
-.qm-result.found {
-  color: #18765c;
-}
-.qm-research-basis {
-  margin-top: 22px;
-  padding-top: 16px;
-  border-top: 1px solid #e5e5e7;
-  font-size: 12px;
-  color: #71717a;
-  line-height: 1.7;
-}
-.qm-research-basis summary {
-  cursor: pointer;
-}
-.qm-research-basis p {
-  margin: 10px 0;
-}
-.qm-research-basis button,
 .qm-empty button {
   margin-right: 16px;
   text-decoration: underline;
@@ -308,15 +243,6 @@
 .qm-actions button:hover,
 .qm-question:hover {
   color: #18765c;
-}
-.qm-single-search {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
-.qm-single-search small {
-  color: #71717a;
-  font-size: 10px;
 }
 .qm-table td:nth-last-child(2) {
   min-width: 90px;
@@ -464,35 +390,6 @@ small.qm-note {
   .qm-batch-bar {
     align-items: flex-start;
   }
-}
-.qm-research-controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 0 0 14px;
-  font-size: 12px;
-  color: #63636d;
-}
-.qm-research-controls select,
-.qm-research-controls input {
-  border: 1px solid #dedee2;
-  border-radius: 5px;
-  padding: 7px 8px;
-  background: #fff;
-  color: #242426;
-}
-.qm-research-controls input {
-  width: 78px;
-  margin-left: 5px;
-}
-.qm-research-controls .qm-primary {
-  margin-left: auto;
-}
-.qm-run-status {
-  margin: 0 0 14px;
-  color: #63636d;
-  font-size: 12px;
 }
 .qm-error {
   color: #ad3737;
@@ -653,174 +550,8 @@ small.qm-note {
 .qm-platform-total:hover strong {
   text-decoration: underline;
 }
-
-.qm-search-progress {
-  margin: 8px 0 18px;
-  padding: 16px 18px 13px;
-  border: 1px solid var(--geo-border, #e3e6e8);
-  border-radius: 12px;
-  background: var(--geo-surface, #fff);
-}
-.qm-search-progress-heading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-}
-.qm-search-progress-heading > span {
-  color: #7d838a;
-}
-.qm-search-progress-heading > b {
-  margin-left: auto;
-  font-weight: 500;
-  color: #536e65;
-  white-space: nowrap;
-}
-.qm-search-progress p {
-  margin: 11px 0;
-  color: #666e76;
-  font-size: 13px;
-  line-height: 1.5;
-}
-.qm-search-progress progress {
-  display: block;
-  width: 100%;
-  height: 4px;
-  margin-top: 14px;
-  appearance: none;
-  border: 0;
-  border-radius: 4px;
-  background: #eef1f2;
-  accent-color: #519681;
-}
-.qm-search-progress progress::-webkit-progress-bar {
-  border-radius: 4px;
-  background: #eef1f2;
-}
-.qm-search-progress progress::-webkit-progress-value {
-  border-radius: 4px;
-  background: #519681;
-  transition: width 0.2s ease;
-}
-.qm-search-progress progress::-moz-progress-bar {
-  border-radius: 4px;
-  background: #519681;
-}
-.qm-stop-search {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 11px;
-  border: 1px solid #d9dde0;
-  background: #fff;
-  border-radius: 7px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.qm-stop-search:hover:not(:disabled) {
-  background: #f5f6f7;
-  border-color: #aab1b7;
-}
-.qm-stop-search:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.qm-search-spinner {
-  color: #519681;
-  animation: qm-search-spin 1s linear infinite;
-  flex-shrink: 0;
-}
-.qm-search-outcome {
-  margin: 8px 0 18px;
-  padding: 15px 18px 18px;
-  border: 1px solid var(--geo-border, #e3e6e8);
-  border-radius: 12px;
-  background: var(--geo-surface, #fff);
-}
-.qm-search-outcome-heading {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  color: #7d838a;
-  font-size: 12px;
-}
-.qm-outcome-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: #666e76;
-  font-size: 13px;
-  font-weight: 500;
-}
-.qm-outcome-status.saved {
-  color: #238265;
-}
-.qm-outcome-dismiss {
-  display: inline-flex;
-  padding: 5px;
-  margin-left: auto;
-  border-radius: 5px;
-}
-.qm-outcome-dismiss:hover {
-  background: #f1f3f4;
-  color: #202428;
-}
-.qm-search-outcome-body {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  margin-top: 12px;
-}
-.qm-search-outcome-body > div {
-  min-width: 0;
-  flex: 1;
-}
-.qm-search-outcome h3 {
-  margin: 0 0 8px;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.5;
-}
-.qm-search-outcome p {
-  margin: 5px 0 0;
-  font-size: 13px;
-  line-height: 1.6;
-}
-.qm-outcome-summary {
-  color: #717780;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.qm-outcome-open {
-  flex-shrink: 0;
-}
-@media (max-width: 700px) {
-  .qm-search-outcome-body {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 14px;
-  }
-}
 @keyframes qm-search-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .qm-search-spinner {
-    animation: none;
-  }
-}
-@media (max-width: 700px) {
-  .qm-search-progress-heading {
-    flex-wrap: wrap;
-  }
-  .qm-search-progress-heading > b {
-    margin-left: 0;
-  }
-  .qm-stop-search {
-    margin-left: auto;
   }
 }

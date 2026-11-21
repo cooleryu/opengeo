@@ -347,9 +347,6 @@
   .rw-question-detail .rw-detail-tabs {
     gap: 18px;
   }
-  .qd-visual-heading > span {
-    font-size: 9px;
-  }
   .rw-dialog.rw-question-detail {
     width: 100vw;
     height: 100dvh;
@@ -357,8 +354,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .qd-platform,
-  .qd-source-bar > span {
+  .qd-platform {
     transition: none;
   }
 }

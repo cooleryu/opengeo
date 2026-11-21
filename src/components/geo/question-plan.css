@@ -130,47 +130,6 @@
 .qp-generation-feedback .qp-generation {
   padding: 22px 25px;
 }
-.qp-generation-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px 28px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.qp-generation-steps li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #8490a6;
-  font-size: 14px;
-}
-.qp-generation-steps li.is-active {
-  color: #4b58cf;
-  font-weight: 600;
-}
-.qp-generation-steps li.is-done {
-  color: #53637d;
-}
-.qp-generation-step-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 25px;
-  height: 25px;
-  border: 1px solid #dce1ed;
-  border-radius: 50%;
-  font-size: 12px;
-}
-.is-active .qp-generation-step-icon {
-  border-color: #c4c6ed;
-  background: #eeefff;
-}
-.is-done .qp-generation-step-icon {
-  border-color: transparent;
-  background: #e9edf5;
-}
 .og-app .qp-generating p {
   margin-top: 13px;
   color: #63718e;
@@ -479,10 +438,6 @@
   .qp-start .qp-generation,
   .qp-generation-feedback .qp-generation {
     padding: 20px;
-  }
-  .qp-generation-steps {
-    flex-direction: column;
-    gap: 11px;
   }
   .qp-generation {
     padding: 0 20px 20px;

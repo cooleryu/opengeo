@@ -479,34 +479,6 @@
   display: block;
 }
 
-.ohc-paper-veil {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to bottom,
-    rgba(255, 255, 255, 0) 20%,
-    rgba(255, 255, 255, 0.86) 78%,
-    rgba(255, 255, 255, 0.97) 100%
-  );
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding-bottom: 8px;
-}
-
-.ohc-paper-veil span,
-.ohc-paper-more span {
-  font-size: 12px;
-  font-weight: 650;
-  color: #147a5b;
-}
-
-.ohc-paper-more {
-  padding-top: 8px;
-  border-top: 1px dashed #e6ece9;
-  text-align: right;
-}
-
 /* Working Live Phases */
 .ohc-working-wrap {
   display: flex;

@@ -60,7 +60,7 @@
 
 独立审核是同一配置模型的一次新上下文请求，接收完整诊断和候选，不带写作者对话与之前分数；并非另一个独立部署模型服务。诊断、起草、复检与自动续改使用已配置模型，费用不纳入任务采集预算，也没有在该协议内报告 token/金额。
 
-来源：[store.ts:594](../../../../src/lib/geo/store.ts#L594)、[planner.ts:191](../../../../src/lib/geo/planner.ts#L191)、[planner.ts:277](../../../../src/lib/geo/planner.ts#L277)、[quality.ts:22](../../../../src/lib/geo/quality.ts#L22)、[quality-evolution-data.ts:30](../../../../src/components/geo/quality-evolution-data.ts#L30)。
+来源：[store.ts:594](../../../../src/lib/geo/store.ts#L594)、[planner.ts:191](../../../../src/lib/geo/planner.ts#L191)、[planner.ts:277](../../../../src/lib/geo/planner.ts#L277)、[quality.ts:22](../../../../src/lib/geo/quality.ts#L22)。
 
 ## 实施登记
 
