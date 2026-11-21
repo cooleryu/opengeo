@@ -19,6 +19,8 @@ OpenGEO is MIT licensed and runs on your own machine: start it locally with Node
 
 </div>
 
+https://github.com/user-attachments/assets/cfe721b2-81eb-4690-9801-ebcc39a582c7
+
 ## Is OpenGEO for you?
 
 OpenGEO is built for indie SaaS teams, docs owners, and open-source maintainers who need citation-level evidence — which page the model picked, what the answer actually said, and what to change next — rather than one more visibility score to watch. Someone in your category is asking AI for a recommendation right now, and the answer is being assembled from pages that may not be yours. If you can't see which pages those are, you can't compete for them.
