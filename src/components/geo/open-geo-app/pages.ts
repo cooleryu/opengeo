@@ -15,7 +15,7 @@ export type Page =
   | 'traffic'
   | 'settings';
 
-type PageInfo = {
+export type PageInfo = {
   /** Main-menu entry (rows are in menu order). Pages without one are reached from elsewhere. */
   menu?: { label: UiMessageKey; icon: LucideIcon };
   /** Menu entry shown as current while this page is open, when it isn't the page's own. */
