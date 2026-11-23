@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, test } from 'node:test';
-import { analyzeResearchObservation } from './answer-audit';
+import { analyzeResearchObservation, domainBrandAlias } from './answer-audit';
 import type { GeoStructuredModel } from './connection-settings';
 import type { AnswerAuditRecord } from './overview-metrics';
 import type { CollectedAnswer } from './providers/types';
@@ -747,4 +747,25 @@ test('single-pass answer audit persists sanitized AI-extracted recommendedCompet
     { name: 'Otterly AI' },
     { name: 'Profound', url: 'https://tryprofound.com/' },
   ]);
+});
+
+test('identity enum synonyms normalize cleanly while omitted/null still fail closed', async () => {
+  const exactSynonym = await review({ ...positive(), identity: 'Exact_Match' });
+  assert.equal(exactSynonym.analysisStatus, 'complete');
+  assert.equal(exactSynonym.mention, 'yes');
+  assert.equal(exactSynonym.citation, 'yes');
+
+  const withoutName = answer({ text: 'No target product appears here.', citations: [] });
+  const absentSynonym = await review({ ...negative(), identity: 'not_mentioned' }, withoutName);
+  assert.equal(absentSynonym.analysisStatus, 'complete');
+  assert.equal(absentSynonym.mention, 'no');
+});
+
+test('domain-named projects derive their brand stem alias without mislabeling shared hosts', () => {
+  assert.equal(domainBrandAlias('transcriptapi.com'), 'transcriptapi');
+  assert.equal(domainBrandAlias('www.notion.com'), 'notion');
+  assert.equal(domainBrandAlias('tilion.com'), 'tilion');
+  assert.equal(domainBrandAlias('opengeo-ai.workers.dev'), undefined);
+  assert.equal(domainBrandAlias('example.com'), undefined);
+  assert.equal(domainBrandAlias('SampleProject'), undefined);
 });

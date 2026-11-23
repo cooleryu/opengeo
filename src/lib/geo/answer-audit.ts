@@ -54,10 +54,43 @@ type ModelResult = z.infer<typeof resultSchema>;
 // means "no quote"; a positive verdict without a verbatim quote is still rejected below.
 // Long answers can name more competitors than the side list keeps; that list is extra
 // information, not the verdict, so keep the first ones instead of failing the review.
+const IDENTITY_SYNONYMS: Record<string, ModelResult['identity']> = {
+  matched: 'matched',
+  match: 'matched',
+  exact: 'matched',
+  exact_match: 'matched',
+  confirmed: 'matched',
+  identified: 'matched',
+  official: 'matched',
+  direct: 'matched',
+  direct_match: 'matched',
+  yes: 'matched',
+  personal_memory: 'personal_memory',
+  memory: 'personal_memory',
+  unrecognized: 'unrecognized',
+  not_recognized: 'unrecognized',
+  unknown_project: 'unrecognized',
+  excluded: 'excluded',
+  homonym: 'excluded',
+  other_project: 'excluded',
+  ambiguous: 'ambiguous',
+  unclear: 'ambiguous',
+  uncertain: 'ambiguous',
+  absent: 'absent',
+  none: 'absent',
+  missing: 'absent',
+  not_mentioned: 'absent',
+  no: 'absent',
+};
+
 function normalizeReply(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
   const reply = { ...(raw as Record<string, unknown>) };
   if (reply.mentionQuote === null || reply.mentionQuote === undefined) reply.mentionQuote = '';
+  if (typeof reply.identity === 'string') {
+    const normalized = IDENTITY_SYNONYMS[reply.identity.trim().toLowerCase().replace(/[\s-]+/g, '_')];
+    if (normalized) reply.identity = normalized;
+  }
   // "Not mentioned" with no quote and no identity is the absent case; the checks below still
   // reject it when the answer does contain the project's name.
   if (reply.identity === undefined && reply.mention === 'no' && reply.mentionQuote === '') reply.identity = 'absent';
@@ -141,11 +174,38 @@ function loadAppliedDeliverableUrls(projectId: string): string[] {
   }
 }
 
+const HOSTING_PLATFORM_STEMS = new Set([
+  'github', 'gitlab', 'bitbucket', 'vercel', 'netlify', 'pages', 'workers',
+  'herokuapp', 'blogspot', 'wordpress', 'medium', 'substack', 'notion', 'google',
+  'example', 'localhost',
+]);
+
+export function domainBrandAlias(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed || !/^(?:https?:\/\/)?[a-z0-9.-]+\.[a-z]{2,}\/?$/i.test(trimmed)) return undefined;
+  let host = trimmed.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  host = host.replace(/^www\./, '');
+  const parts = host.split('.').filter(Boolean);
+  if (parts.length < 2) return undefined;
+  const secondLast = parts[parts.length - 2];
+  const stem =
+    parts.length >= 3 && /^(co|com|org|net|gov|edu|ac)$/.test(secondLast)
+      ? parts[parts.length - 3]
+      : secondLast;
+  if (!stem || stem.length < 3) return undefined;
+  if (stem === 'example' || stem === 'localhost') return undefined;
+  // Never treat shared hosting platforms (e.g. foo.workers.dev, bar.github.io) as brand aliases.
+  if (HOSTING_PLATFORM_STEMS.has(stem) && parts.length >= 3) return undefined;
+  return stem;
+}
+
 function projectIdentity(seed: GeoSeed, extraPublishedUrls: string[] = []): Identity {
   const project = seed.project as GeoSeed['project'] & { identityExclusion?: Identity['exclusion'] };
   const repoUrl = webUrl(project.repositoryUrl);
   const repoParts = repoUrl?.pathname.split('/').filter(Boolean) ?? [];
   const repositoryName = repoParts.at(-1);
+  const nameDomainStem = domainBrandAlias(project.name);
   const inferredOwner =
     project.owner?.trim() ||
     (repoUrl?.hostname.toLowerCase() === 'github.com' && repoParts.length >= 2
@@ -157,8 +217,12 @@ function projectIdentity(seed: GeoSeed, extraPublishedUrls: string[] = []): Iden
   const publishedUrls = [...new Set([...assetPublishedUrls, ...extraPublishedUrls])];
   return {
     name: project.name,
-    aliases: [...new Set([repositoryName, repositoryName?.replace(/[-_]/g, ' ')])]
-      .filter((name): name is string => Boolean(name) && name !== project.name),
+    aliases: [...new Set([
+      repositoryName,
+      repositoryName?.replace(/[-_]/g, ' '),
+      nameDomainStem,
+      nameDomainStem?.replace(/[-_]/g, ' '),
+    ])].filter((name): name is string => typeof name === 'string' && name.length > 0 && name.toLowerCase() !== project.name.toLowerCase()),
     owner: inferredOwner,
     description: project.description,
     officialRoots: [project.siteUrl, project.repositoryUrl].filter((url) => Boolean(webUrl(url))),
