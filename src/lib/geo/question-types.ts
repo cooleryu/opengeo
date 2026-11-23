@@ -1,6 +1,28 @@
 export type QuestionCategory = 'brand' | 'positioning' | 'problem' | 'content' | 'comparison' | 'boundary';
 export type QuestionDecision = 'include' | 'explore' | 'exclude';
 export type QuestionPriority = 'high' | 'medium' | 'low';
+export type QuestionDemandStatus = 'search-backed' | 'public-observed' | 'user-provided' | 'unverified';
+export type QuestionDemandSignalSource =
+  | 'dataforseo_ranked'
+  | 'dataforseo_overview'
+  | 'google_autocomplete'
+  | 'competitor_sitemap'
+  | 'hn_discussion'
+  | 'csv_import';
+export type QuestionTactic = 'direct-content' | 'outreach-monitor' | 'competitor-intercept' | 'brand-check';
+
+export interface QuestionDemandSignal {
+  id: string;
+  source: QuestionDemandSignalSource;
+  keyword: string;
+  searchVolume?: number;
+  cpc?: number;
+  kd?: number;
+  intent?: string;
+  competitorDomain?: string;
+  competitorRank?: number;
+  url?: string;
+}
 
 export interface QuestionNeed {
   id: string; title: string; audience: string; trigger: string;
@@ -27,7 +49,7 @@ export type QuestionGenerationCheckpoint = {
 };
 
 export type QuestionGenerationProgress = {
-  stage: 'preparing' | 'planning' | 'generating' | 'checking' | 'repairing' | 'reviewing' | 'saving';
+  stage: 'preparing' | 'discovering' | 'planning' | 'generating' | 'checking' | 'repairing' | 'reviewing' | 'saving';
   message: string;
   workflowStep?: 'planning' | 'generating' | 'reviewing' | 'saving';
   checkpoint?: Omit<QuestionGenerationCheckpoint, 'completedAt'>;
@@ -82,7 +104,10 @@ export interface QuestionCandidate {
   evidence: { assetId: string; quote: string }[];
   rationale: string;
   expectedResult: string;
-  demandStatus: 'unverified';
+  demandStatus: QuestionDemandStatus;
+  demandSignals?: QuestionDemandSignal[];
+  fanoutQueries?: string[];
+  tactic?: QuestionTactic;
   review: {
     decision: QuestionDecision; reason: string; concerns: string[];
     /** AI recommendation priority. Absent on legacy records; fresh reviews must provide it. */

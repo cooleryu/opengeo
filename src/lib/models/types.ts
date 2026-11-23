@@ -1,34 +1,18 @@
-import z from 'zod';
-import { Message } from '../types';
+import type { z } from 'zod';
 
-type Model = {
-  name: string;
-  key: string;
-};
-
-type ModelList = {
-  embedding: Model[];
-  chat: Model[];
-};
-
-type ProviderMetadata = {
-  name: string;
-  key: string;
-};
-
-type MinimalProvider = {
+export type ModelToolCall = {
   id: string;
   name: string;
-  chatModels: Model[];
-  embeddingModels: Model[];
+  arguments: Record<string, unknown>;
 };
 
-type ModelWithProvider = {
-  key: string;
-  providerId: string;
-};
+export type Message =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string; tool_calls?: ModelToolCall[] }
+  | { role: 'tool'; id: string; name: string; content: string };
 
-type GenerateOptions = {
+export type GenerateOptions = {
   temperature?: number;
   maxTokens?: number;
   topP?: number;
@@ -37,69 +21,10 @@ type GenerateOptions = {
   presencePenalty?: number;
 };
 
-type Tool = {
-  name: string;
-  description: string;
-  schema: z.ZodObject<any>;
-};
-
-type ToolCall = {
-  id: string;
-  name: string;
-  arguments: Record<string, any>;
-};
-
-type GenerateTextInput = {
-  messages: Message[];
-  tools?: Tool[];
-  options?: GenerateOptions;
-};
-
-type GenerateTextOutput = {
-  content: string;
-  toolCalls: ToolCall[];
-  additionalInfo?: Record<string, any>;
-};
-
-type StreamTextOutput = {
-  contentChunk: string;
-  toolCallChunk: ToolCall[];
-  additionalInfo?: Record<string, any>;
-  done?: boolean;
-};
-
-type GenerateObjectInput = {
+export type GenerateObjectInput = {
   schema: z.ZodTypeAny;
   messages: Message[];
   options?: GenerateOptions;
   /** Feature-specific clean-up of the parsed JSON, applied before `schema` validation. */
   prepare?: (raw: unknown) => unknown;
-};
-
-type GenerateObjectOutput<T> = {
-  object: T;
-  additionalInfo?: Record<string, any>;
-};
-
-type StreamObjectOutput<T> = {
-  objectChunk: Partial<T>;
-  additionalInfo?: Record<string, any>;
-  done?: boolean;
-};
-
-export type {
-  Model,
-  ModelList,
-  ProviderMetadata,
-  MinimalProvider,
-  ModelWithProvider,
-  GenerateOptions,
-  GenerateTextInput,
-  GenerateTextOutput,
-  StreamTextOutput,
-  GenerateObjectInput,
-  GenerateObjectOutput,
-  StreamObjectOutput,
-  Tool,
-  ToolCall,
 };

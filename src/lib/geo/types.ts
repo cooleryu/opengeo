@@ -1,5 +1,4 @@
 import type { CollectedAnswer } from './providers/types';
-import type { WidgetBlock } from '@/lib/types';
 import type { GeoVisibility } from './visibility-types';
 import type { GeoQuestionPlan, QuestionGenerationJob } from './question-types';
 import type { GeoDiagnosis, GeoWorkflow, StrategyMemory } from './workflow-types';
@@ -102,7 +101,8 @@ export type GeoStatus = 'queued' | 'investigating' | 'proposal_ready' | 'awaitin
 export interface GeoEvent { id:string; at:string; title:string; detail:string; kind:'info'|'success'|'attention'|'error' }
 export interface GeoRun { costEstimated?:boolean; id:string; at:string; completedAt?:string; measurementAt:string; mode:'replay'|'live'; status:'completed'|'partial'|'failed'; queryCount:number; completedCount:number; hitCount:number|null; resultCount:number; cost:number; summary:string; questions:GeoQuestion[]; error?:string; phase?:'baseline'|'followup'; protocolKey?:string; implementationRevision?:number }
 export interface GeoMonitor { enabled:boolean; mode:'replay'|'live'; timeOfDay:string; days:number; remaining:number; nextRunAt:string|null; budgetLimit:number; spent:number; queryIds:string[]; lastRunAt:string|null }
-export interface GeoTask { projectOptimization?:ProjectOptimization; reviewContextUpdatedAt?:string; assetGovernance?:AssetGovernanceRecord; researchGapReview?:GeoDiagnosis; researchContext?:ResearchTaskContext; projectId?:string; canContinueRevision?:boolean; collectionProvider?:ResearchEngine; id:string; title:string; goal:string; status:GeoStatus; createdAt:string; updatedAt:string; blocks:WidgetBlock[]; events:GeoEvent[]; proposal:GeoProposal|null; implementation:{kind:'rehearsal'|'user_confirmed';note:string;url:string;at:string;occurredAt?:string;proposalRevision?:number;proposalDigest?:string}|null; monitor:GeoMonitor; runs:GeoRun[]; source:'evidence'|'model'; error?:string; workflow?:GeoWorkflow; workflowHistory?:GeoWorkflow[] }
+export interface GeoWidgetBlock { id:string; type:'widget'; data:{ widgetType:string; params:Record<string, unknown> } }
+export interface GeoTask { projectOptimization?:ProjectOptimization; reviewContextUpdatedAt?:string; assetGovernance?:AssetGovernanceRecord; researchGapReview?:GeoDiagnosis; researchContext?:ResearchTaskContext; projectId?:string; canContinueRevision?:boolean; collectionProvider?:ResearchEngine; id:string; title:string; goal:string; status:GeoStatus; createdAt:string; updatedAt:string; blocks:GeoWidgetBlock[]; events:GeoEvent[]; proposal:GeoProposal|null; implementation:{kind:'rehearsal'|'user_confirmed';note:string;url:string;at:string;occurredAt?:string;proposalRevision?:number;proposalDigest?:string}|null; monitor:GeoMonitor; runs:GeoRun[]; source:'evidence'|'model'; error?:string; workflow?:GeoWorkflow; workflowHistory?:GeoWorkflow[] }
 export interface GeoFirstRunState {
   modelReady: boolean;
   productReady: boolean;

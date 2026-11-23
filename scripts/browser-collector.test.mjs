@@ -140,3 +140,42 @@ test('a saved capture is resubmitted without searching again', async () => {
   assert.equal(page.calls.length, 0);
   assert.equal(submitted[0].answerText, observation.answerText);
 });
+
+test('retries input marking and click when SPA hydration drops the temporary attribute', async () => {
+  mount('<main><div contenteditable="true"></div><p>SampleProject is a local tool.</p></main>');
+  const { input, submitted } = await setup([
+    { state: 'answer', observation, reader: { pageState: 'answer' }, resolvedLinks: [] },
+  ]);
+  const page = fakePage();
+  let clickAttempts = 0;
+  page.click = async (selector) => {
+    clickAttempts += 1;
+    page.calls.push(['click', selector]);
+    if (clickAttempts === 1) throw new Error('Selector [data-opengeo-input="1"] matched 0 elements');
+  };
+  await collectBrowserQuestion(page, input, fast);
+  assert.equal(clickAttempts, 2);
+  assert.deepEqual(page.calls.map(call => call[0]), ['goto', 'click', 'click', 'type', 'press']);
+  assert.equal(submitted.length, 1);
+});
+
+test('hands unclickable input pages to the AI page reader instead of failing with a raw click timeout', async () => {
+  mount('<main><div contenteditable="true"></div><p>Please verify you are human</p></main>');
+  const { input, submitted, pageReads } = await setup([
+    { state: 'robot_check', message: 'human verification overlay', reader: null },
+  ]);
+  const page = fakePage();
+  let clickAttempts = 0;
+  page.click = async (selector) => {
+    clickAttempts += 1;
+    page.calls.push(['click', selector]);
+    throw new Error('Selector [data-opengeo-input="1"] matched 0 elements');
+  };
+  await assert.rejects(
+    collectBrowserQuestion(page, input, fast),
+    error => error.code === 'NEEDS_HUMAN_HANDOFF',
+  );
+  assert.equal(clickAttempts, 3);
+  assert.equal(pageReads.length, 1);
+  assert.equal(submitted.length, 0);
+});

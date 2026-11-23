@@ -29,6 +29,8 @@ export interface LLMCompletionRequest {
   temperature?: number;
   maxTokens?: number;
   jsonMode?: boolean;
+  /** When true, allows provider reasoning/thinking (e.g. DeepSeek thinking) in jsonMode. */
+  thinking?: boolean;
   signal?: AbortSignal;
 }
 
@@ -50,6 +52,8 @@ export interface AgentSpec<TInput, TOutput> {
   id: string;
   title: string;
   role?: 'default' | 'fast';
+  /** Enables DeepSeek thinking mode for deep creative/comparison writing (pair with >= 6000 maxTokens). */
+  thinking?: boolean;
   maxTurns?: number;
   temperature?: number;
   maxTokens?: number;

@@ -28,7 +28,8 @@ import { isAiAnswerRow } from './overview-metrics';
 import { readLatestPageAudit } from './optimization/page-audit';
 import { getLatestOptimizationRun } from './optimization/repository';
 import { evaluateOutcome, buildStrategyMemory, selectStrategies } from './learning';
-import { buildInitialQuestionPlan, generateQuestionPlan, validateQuestionPlan } from './question-planner';
+import { buildInitialQuestionPlan, validateQuestionPlan } from './question-planner';
+import { generateMarketQuestionPlan } from './market-question-planner';
 import { reviewManualQuestion, saveManualQuestion } from './question-management';
 import type { GeoQuestionPlan, QuestionGenerationProgress } from './question-types';
 import { QuestionGenerationJobs } from './question-generation-job';
@@ -148,7 +149,7 @@ function database(): Database.Database {
   runtime.governanceSchemaReady = true;
   // Empty installations start without synthetic tasks; saved tasks stay intact.
   // This runs once per server process, never on a routine state refresh.
-  const stale = db.prepare('SELECT * FROM geo_task_locks').all() as Lock[];
+  const stale = db.prepare("SELECT * FROM geo_task_locks WHERE kind IN ('investigate', 'monitor')").all() as Lock[];
   for (const lock of stale) {
     const task = getTask(lock.task_id);
     if (lock.kind === 'investigate') {
@@ -261,7 +262,7 @@ function saveQuestionPlan(input: GeoQuestionPlan, expected: GeoQuestionPlan, onl
   })();
 }
 
-export type QuestionGenerationRuntime = { generate?: typeof generateQuestionPlan };
+export type QuestionGenerationRuntime = { generate?: typeof generateMarketQuestionPlan };
 
 function questionGenerationJobs(runtime: QuestionGenerationRuntime = {}): QuestionGenerationJobs {
   const projectId = currentGeoProject();
@@ -283,8 +284,7 @@ function questionGenerationJobs(runtime: QuestionGenerationRuntime = {}): Questi
         throw GeoError.coded('model_not_configured', 400);
       }
     },
-    generate: (positioning, onProgress, resume) =>
-      (runtime.generate ?? generateQuestionPlan)(getSeed(), positioning, { onProgress, ...(resume ? { resume } : {}) }),
+    generate: (positioning, onProgress, resume) => (runtime.generate ?? generateMarketQuestionPlan)(getSeed(), positioning, { onProgress, ...(resume ? { resume } : {}) }),
     save: (generated, expected) => {
       // Save the newly recommended draft as a whole. Reinstating historical
       // selections here would exceed its eight-question limit. Confirmed search

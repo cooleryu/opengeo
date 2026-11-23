@@ -118,7 +118,7 @@ export function QuestionSetupDialog({
             );
           }}
           onConfirm={async () => {
-            await act(
+            const result = await act(
               'confirm_questions',
               {
                 planId: data.questionPlan.id,
@@ -128,8 +128,15 @@ export function QuestionSetupDialog({
                 ? 'Confirmed buyer questions to track'
                 : '已确认要监测的问题',
             );
+            if (result) {
+              setDialog(null);
+              navigate('overview');
+            }
           }}
-          onContinue={() => navigate('tasks')}
+          onContinue={() => {
+            setDialog(null);
+            navigate('overview');
+          }}
         />
       </div>
     </Modal>

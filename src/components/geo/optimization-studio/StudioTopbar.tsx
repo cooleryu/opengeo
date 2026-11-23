@@ -1,6 +1,6 @@
 'use client';
 
-import { Archive, ArrowLeft, Clock, Loader2, Plus, Square } from 'lucide-react';
+import { Archive, ArrowLeft, Clock, Loader2, Square } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { PageAuditRecord } from '@/lib/geo/optimization/page-audit';
 import { useUiLanguage } from '../UiLanguageContext';
@@ -15,8 +15,6 @@ type StudioTopbarProps = {
   isWorking: boolean;
   cancellingRun: boolean;
   handleCancelRun: () => Promise<void>;
-  questionTotal: number;
-  setAngleModalOpen: Dispatch<SetStateAction<boolean>>;
 };
 
 export function StudioTopbar({
@@ -28,8 +26,6 @@ export function StudioTopbar({
   isWorking,
   cancellingRun,
   handleCancelRun,
-  questionTotal,
-  setAngleModalOpen,
 }: StudioTopbarProps) {
   const { t, uiLanguage } = useUiLanguage();
   const isEn = uiLanguage === 'en';
@@ -76,7 +72,7 @@ export function StudioTopbar({
           )}
         </button>
 
-        {isWorking ? (
+        {isWorking && (
           <button
             type="button"
             className="oap-stop-btn"
@@ -94,17 +90,6 @@ export function StudioTopbar({
                 : t('actionPlan.stopGeneratingBtn')}
             </span>
           </button>
-        ) : (
-          questionTotal > 0 && (
-            <button
-              type="button"
-              className="ost-btn-secondary is-sm"
-              onClick={() => setAngleModalOpen(true)}
-            >
-              <Plus size={14} />
-              <span>{t('actionPlan.newAngleBtn')}</span>
-            </button>
-          )
         )}
       </div>
     </header>

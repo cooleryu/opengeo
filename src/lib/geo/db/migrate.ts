@@ -179,6 +179,49 @@ function appendAuditIfMissing(
   return true;
 }
 
+const verifiedMigrationFingerprints = new Map<string, string>();
+
+function computeMigrationReadFingerprint(
+  db: Database.Database,
+  projectId: string,
+  seed: ReturnType<typeof loadProjectSeed>,
+): { fingerprint: string; activeBatchId: string } | null {
+  const projRow = db
+    .prepare(
+      'SELECT active_batch_id, updated_at, name, description, site_url, repo_url FROM opengeo_projects WHERE id = ?',
+    )
+    .get(projectId) as Record<string, string> | undefined;
+  if (!projRow) return null;
+
+  const seqSig = (tableName: string): string => {
+    if (!tableExists(db, tableName)) return '0:0';
+    const row = db
+      .prepare(`SELECT COUNT(*) AS n, COALESCE(MAX(seq), 0) AS m FROM ${tableName} WHERE project_id = ?`)
+      .get(projectId) as { n: number; m: number };
+    return `${row.n}:${row.m}`;
+  };
+
+  const relCounts = db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM opengeo_questions WHERE project_id = ?) AS qn,
+              (SELECT COUNT(*) FROM opengeo_observations WHERE project_id = ?) AS on_,
+              (SELECT COUNT(*) FROM opengeo_answer_audits WHERE project_id = ?) AS an`,
+    )
+    .get(projectId, projectId, projectId) as { qn: number; on_: number; an: number };
+
+  const fingerprint = [
+    projRow.active_batch_id, projRow.updated_at, projRow.name, projRow.description,
+    projRow.site_url, projRow.repo_url,
+    seqSig('geo_research_batches'), seqSig('geo_research_observations'), seqSig('geo_answer_audits'),
+    `${relCounts.qn}:${relCounts.on_}:${relCounts.an}`,
+    seed.project.name, seed.project.description ?? '', seed.project.siteUrl ?? '',
+    seed.project.repositoryUrl ?? '', seed.project.owner ?? '', seed.project.asOf ?? '',
+    String(seed.assets.length),
+  ].join('||');
+
+  return { fingerprint, activeBatchId: projRow.active_batch_id };
+}
+
 /**
  * Idempotently ensures the 7-table relational schema is populated for `projectId`
  * from its project seed, active research batch, observations, and semantic audits.
@@ -191,10 +234,23 @@ export function ensureProjectRelationalData(
     projectId,
     (db, id) => {
       const seed = loadProjectSeed(id);
+      const dbKey = `${typeof db.name === 'string' ? db.name : ''}::${id}`;
+      const preCheck = computeMigrationReadFingerprint(db, id, seed);
+      if (preCheck && verifiedMigrationFingerprints.get(dbKey) === preCheck.fingerprint) {
+        return {
+          projectId: id,
+          activeBatchId: preCheck.activeBatchId,
+          assetsUpserted: 0,
+          questionsUpserted: 0,
+          observationsInserted: 0,
+          auditsInserted: 0,
+        };
+      }
+
       const batches = loadSourceBatches(db, id);
       const latestBatch = batches.at(-1) ?? null;
 
-      return runInTransaction(db, () => {
+      const summary = runInTransaction(db, () => {
         const now = new Date().toISOString();
         const createdAt =
           latestBatch?.questionPlan?.createdAt ??
@@ -511,6 +567,12 @@ export function ensureProjectRelationalData(
           auditsInserted,
         };
       });
+
+      const postCheck = computeMigrationReadFingerprint(db, id, seed);
+      if (postCheck) {
+        verifiedMigrationFingerprints.set(dbKey, postCheck.fingerprint);
+      }
+      return summary;
     },
     connection,
   );

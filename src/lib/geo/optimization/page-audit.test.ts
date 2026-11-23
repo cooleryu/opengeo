@@ -42,10 +42,10 @@ test('parsePageSections splits Markdown cleanly by H2 while ignoring headings in
     'MIT licensed.',
   ].join('\n');
 
-  const sections = parsePageSections(md, false);
+  const sections = parsePageSections(md);
   assert.equal(sections.length, 3);
   assert.equal(sections[0].id, 'S0');
-  assert.match(sections[0].heading, /OpenGEO/);
+  assert.equal(sections[0].heading, 'OpenGEO');
   assert.equal(sections[0].startLine, 1);
   assert.equal(sections[0].endLine, 8);
   assert.equal(sections[1].id, 'S1');
@@ -274,7 +274,7 @@ test('extractStructuredMarkdownFromHtml turns arbitrary SaaS HTML into clean sec
   assert.equal(md.includes('Sign in'), false);
   assert.equal(md.includes('Copyright Acme'), false);
 
-  const sections = parsePageSections(md, true);
+  const sections = parsePageSections(md);
   assert.equal(sections.length, 3);
   assert.equal(sections[1].heading, 'How we compare');
   assert.equal(sections[2].heading, 'Pricing');

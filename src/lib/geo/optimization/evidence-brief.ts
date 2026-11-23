@@ -8,6 +8,7 @@ export interface CodingAgentEvidenceBriefParams {
   deliverable: OptimizationDeliverable;
   batch?: ResearchBatch | null;
   targetLanguage?: 'en' | 'zh';
+  subQuestionsByQuestionId?: Record<string, string[]>;
 }
 
 function pickLatestObservation(
@@ -57,6 +58,10 @@ export function buildCodingAgentEvidenceBrief(
       const promptText =
         targetLanguage === 'zh' ? q.zh || q.en : q.en || q.zh;
       lines.push(`### Prompt: "${promptText}"`);
+      const subQs = params.subQuestionsByQuestionId?.[qId];
+      if (subQs?.length) {
+        lines.push(`- Sub-questions to address in headings/FAQ: ${subQs.join('; ')}`);
+      }
       let anyObs = false;
       for (const engine of ['chatgpt', 'google'] as const) {
         const obs = pickLatestObservation(q, engine, targetLanguage);

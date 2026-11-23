@@ -29,6 +29,42 @@ const resultSchema = z.object({
   capabilities: z.array(z.string().trim().min(1).max(240)).max(3),
   unknowns: z.array(z.string().trim().min(1).max(260)).max(5),
 }).strict();
+
+function clipCleanly(text: string, max: number): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  const slice = clean.slice(0, max - 1);
+  const sentenceBreak = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('。'), slice.lastIndexOf('; '));
+  if (sentenceBreak >= Math.floor(max * 0.55)) return slice.slice(0, sentenceBreak + 1).trim();
+  const wordBreak = slice.lastIndexOf(' ');
+  const head = wordBreak >= Math.floor(max * 0.65) ? slice.slice(0, wordBreak) : slice;
+  return `${head.replace(/[,;:\s]+$/, '')}…`;
+}
+
+function normalizeUnderstandingOutput(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const obj = raw as Record<string, unknown>;
+  if (
+    typeof obj.summary !== 'string' ||
+    typeof obj.audience !== 'string' ||
+    !Array.isArray(obj.capabilities) ||
+    !Array.isArray(obj.unknowns)
+  ) {
+    return raw;
+  }
+  return {
+    summary: clipCleanly(obj.summary, 240),
+    audience: clipCleanly(obj.audience, 200),
+    capabilities: obj.capabilities
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .slice(0, 3)
+      .map(item => clipCleanly(item, 240)),
+    unknowns: obj.unknowns
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .slice(0, 5)
+      .map(item => clipCleanly(item, 260)),
+  };
+}
 type Parameters = z.infer<typeof parameterSchema>;
 type ReadSource = (url: string, options: { maxBytes: number; timeoutMs: number; accept?: string }) => Promise<PublicSource>;
 type ReadDocument = { title: string; url: string; markdown: string; readAt: string; type: string };
@@ -287,8 +323,9 @@ async function understand(record: OnboardingRecord, documents: ReadDocument[], l
         : singleRequestModel(requireGeoModelConnection(), fetch, controller.signal));
       attempted = true;
       const raw = await selected.generateObject({ schema: resultSchema, messages,
+        prepare: normalizeUnderstandingOutput,
         options: { temperature: parameters.temperature, maxTokens: parameters.maxTokens } });
-      const parsed = resultSchema.safeParse(raw);
+      const parsed = resultSchema.safeParse(normalizeUnderstandingOutput(raw));
       if (!parsed.success) throw new UnderstandingError('model_output_invalid', undefined, 502);
       return parsed.data;
     };
@@ -298,6 +335,10 @@ async function understand(record: OnboardingRecord, documents: ReadDocument[], l
     if (error instanceof GeoSettingsError && error.code === 'model_not_configured') {
       throw new UnderstandingError('model_not_configured', undefined, 400);
     }
+    const diag = error instanceof z.ZodError
+      ? `ZodError(${error.issues.map(i => `${i.path.join('.')}:${i.code}`).join(',')})`
+      : (error && typeof error === 'object' && 'name' in error ? String((error as { name: unknown }).name) : 'UnknownError');
+    console.warn(`[project-onboarding] understand failed (${diag})`);
     throw new UnderstandingError(
       attempted ? 'model_call_failed' : 'model_not_configured',
       undefined,

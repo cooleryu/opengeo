@@ -140,7 +140,7 @@ export class AgentHub {
 
       for (let turn = 1; turn <= maxTurns; turn += 1) {
         const activeTools = !forceJsonOnly && tools.length ? tools : undefined;
-        const res = await transport.complete({ messages, tools: activeTools, jsonMode: !activeTools, temperature: spec.temperature ?? 0.2, maxTokens: spec.maxTokens, signal: ctx.signal });
+        const res = await transport.complete({ messages, tools: activeTools, jsonMode: !activeTools, thinking: spec.thinking, temperature: spec.temperature ?? 0.2, maxTokens: spec.maxTokens, signal: ctx.signal });
         activeModel = res.model;
         promptTokens += res.promptTokens ?? 0;
         completionTokens += res.completionTokens ?? 0;

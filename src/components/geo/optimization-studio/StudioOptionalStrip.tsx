@@ -1,8 +1,10 @@
 'use client';
 
+import { ExternalLink } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import { plural } from '@/lib/geo/i18n';
 import type { OptimizationDeliverable, OptimizationRun } from '@/lib/geo/optimization/types';
+import { resolveActionListingType } from '@/lib/geo/outreach/external-page-meta';
 import type { OutreachActionRecord } from '@/lib/geo/outreach/outreach-store';
 import { estimateReadingMinutes, getDeliverableRoleLabel } from '../DeliverableArticleView';
 import { useUiLanguage } from '../UiLanguageContext';
@@ -31,34 +33,78 @@ export function StudioOptionalStrip({
 }: StudioOptionalStripProps) {
   const { uiLanguage } = useUiLanguage();
   const isEn = uiLanguage === 'en';
+  const hasEditorialRoundups = communityOutreach.some(
+    (item) =>
+      item.kind === 'directory_listing' &&
+      resolveActionListingType(item) === 'editorial_roundup',
+  );
+
   return (
     <details className="oap-optional-strip">
       <summary>
         <span>
           {isEn
             ? `Optional when you have time · ${plural('en', optionalTotalCount, {
-                    one: '{n} community / article draft',
-                    other: '{n} community / article drafts',
-                  })} (no rush — click to inspect or copy)`
-            : `有空再发 · ${optionalTotalCount} 条社区讨论 / 新内容草稿（不着急，点开即可查看或复制）`}
+                    one: '{n} item',
+                    other: '{n} items',
+                  })}${hasEditorialRoundups ? ' (third-party comparison articles to pitch / Show HN / drafts)' : ' (launch posts & standalone drafts)'}`
+            : `有空再做 · ${optionalTotalCount} 项可选外联与草稿${hasEditorialRoundups ? '（第三方测评文章联系编辑 / Show HN / 扩展文章，回复率较低可按需挑着发）' : '（不着急，点开即可查看或复制）'}`}
         </span>
       </summary>
       <div className="oap-optional-grid">
-        {communityOutreach.map((item) => (
-          <div key={item.id} className="oap-optional-row">
-            <div className="oap-optional-copy">
-              <strong data-i18n-skip="">{item.title}</strong>
-              <span>{item.subtitle}</span>
+        {communityOutreach.map((item) => {
+          const isEditorial =
+            item.kind === 'directory_listing' &&
+            resolveActionListingType(item) === 'editorial_roundup';
+          const firstPrompt = item.citedPrompts?.[0];
+          const openUrl =
+            item.listingDraft?.submitUrl || item.postDraft?.submitUrl || item.targetUrl;
+          return (
+            <div key={item.id} className="oap-optional-row">
+              <div className="oap-optional-copy">
+                <strong data-i18n-skip="">{item.title}</strong>
+                <span>
+                  {firstPrompt
+                    ? isEn
+                      ? `Cited for: ${firstPrompt}`
+                      : `触发问题：${firstPrompt}`
+                    : item.subtitle}
+                </span>
+              </div>
+              <div className="oap-optional-actions">
+                {isEditorial && (
+                  <a
+                    href={openUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ost-btn-secondary is-sm"
+                  >
+                    <span>{isEn ? 'Open' : '原文'}</span>
+                    <ExternalLink size={12} />
+                  </a>
+                )}
+                <button
+                  type="button"
+                  className="ost-btn-secondary is-sm"
+                  onClick={() =>
+                    setOutreachModal({
+                      mode: isEditorial ? 'external_item' : 'community_item',
+                      actionId: item.id,
+                    })
+                  }
+                >
+                  {isEditorial
+                    ? isEn
+                      ? 'Pitch email ›'
+                      : '准备自荐信 ›'
+                    : isEn
+                      ? 'Open draft ›'
+                      : '打开草稿 ›'}
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              className="ost-btn-secondary is-sm"
-              onClick={() => setOutreachModal({ mode: 'community_item', actionId: item.id })}
-            >
-              {isEn ? 'Open draft ›' : '打开草稿 ›'}
-            </button>
-          </div>
-        ))}
+          );
+        })}
         {pendingDeliverables.map((d) => {
           const roleLabel = getDeliverableRoleLabel(d, uiLanguage);
           const mins = estimateReadingMinutes(d.afterContent);

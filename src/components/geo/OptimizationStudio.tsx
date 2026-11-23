@@ -6,34 +6,32 @@ import type { HumanProgressStep } from '@/lib/agent-hub';
 import type { OptimizationRunStatus } from '@/lib/geo/db/schema';
 import type { GeoLanguage } from '@/lib/geo/i18n';
 import { buildExternalMarkdown } from '@/lib/geo/optimization/external-export';
+import {
+  fetchOptimizationSnapshot,
+  readCachedOptimizationSnapshot,
+  writeCachedOptimizationSnapshot,
+} from '@/lib/geo/optimization-client-cache';
 import type {
   OptimizationDeliverable,
   OptimizationRun,
   OptimizationRunViewModel,
 } from '@/lib/geo/optimization/types';
-import type { PageAuditRecord, PageAuditTargetOption } from '@/lib/geo/optimization/page-audit';
-import type { OutreachActionRecord } from '@/lib/geo/outreach/outreach-store';
+import type { ActionBoardCard, ActionBoardRecord } from '@/lib/geo/optimization/action-board-catalog';
+import type { PageAuditRecord } from '@/lib/geo/optimization/page-audit';
 import type { ResearchBatch } from '@/lib/geo/research-types';
-import PageAuditSection from './PageAuditSection';
 import { useChineseCompanionPreference, useUiLanguage } from './UiLanguageContext';
 import './optimization-studio.css';
 import {
-  type AngleOptionKey,
-  type OutreachModalState,
   type ReaderState,
   type ShippedHistoryEntry,
-  buildPresetAngleBrief,
   isExternalArticleDeliverable,
   isRepoDocDestinationPath,
 } from './optimization-studio/studio-format';
 import { StudioTopbar } from './optimization-studio/StudioTopbar';
 import { StudioWorkingCard } from './optimization-studio/StudioWorkingCard';
-import { StudioExternalListingsCard } from './optimization-studio/StudioExternalListingsCard';
-import { StudioOptionalStrip } from './optimization-studio/StudioOptionalStrip';
-import { StudioOutreachDialog } from './optimization-studio/StudioOutreachDialog';
 import { StudioReaderDrawer } from './optimization-studio/StudioReaderDrawer';
 import { StudioHistoryDrawer } from './optimization-studio/StudioHistoryDrawer';
-import { StudioAngleModal } from './optimization-studio/StudioAngleModal';
+import { ActionBoardView } from './action-board/ActionBoardView';
 
 export interface OptimizationStudioProps {
   projectId: string;
@@ -59,23 +57,26 @@ export default function OptimizationStudio({
   batch,
   targetLanguage,
   onBackOverview,
-  onOpenQuestions,
   onSelectRun,
   onStatusChange,
   onRefresh,
 }: OptimizationStudioProps) {
   const { t, uiLanguage } = useUiLanguage();
   const isEn = uiLanguage === 'en';
-  const [includeChineseCompanion, setIncludeChineseCompanion] =
-    useChineseCompanionPreference();
+  const [includeChineseCompanion] = useChineseCompanionPreference();
 
-  const [viewModel, setViewModel] = useState<OptimizationRunViewModel | null>(null);
-  const [runs, setRuns] = useState<OptimizationRun[]>([]);
-  const [pageAudit, setPageAudit] = useState<PageAuditRecord | null>(null);
-  const [auditTargets, setAuditTargets] = useState<PageAuditTargetOption[]>([]);
-  const [outreachActions, setOutreachActions] = useState<OutreachActionRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [outreachLoading, setOutreachLoading] = useState(true);
+  const initialSnap = readCachedOptimizationSnapshot(projectId, uiLanguage, selectedRunId);
+  const [viewModel, setViewModel] = useState<OptimizationRunViewModel | null>(
+    initialSnap?.viewModel ?? null,
+  );
+  const [runs, setRuns] = useState<OptimizationRun[]>(initialSnap?.runs ?? []);
+  const [pageAudit, setPageAudit] = useState<PageAuditRecord | null>(
+    initialSnap?.pageAudit ?? null,
+  );
+  const [actionBoard, setActionBoard] = useState<ActionBoardRecord | null>(
+    initialSnap?.actionBoard ?? null,
+  );
+  const [loading, setLoading] = useState(!initialSnap?.viewModel);
   const [renderedAtMs, setRenderedAtMs] = useState<number | null>(null);
 
   // Streaming / doc action states
@@ -90,21 +91,12 @@ export default function OptimizationStudio({
   const [errorCode, setErrorCode] = useState('');
   const [notice, setNotice] = useState('');
 
-  // Launchpad External Pack + Outreach Review Modal state
-  const [selectedExternalIds, setSelectedExternalIds] = useState<Set<string>>(new Set());
-  const [preparingExternalPack, setPreparingExternalPack] = useState(false);
-  const [outreachModal, setOutreachModal] = useState<OutreachModalState>(null);
-  const outreachDialogRef = useRef<HTMLDialogElement | null>(null);
-
   // Slide-over drawers & angle picker modal
   const [readerState, setReaderState] = useState<ReaderState>(null);
   const [readingTab, setReadingTab] = useState<'after' | 'before'>('after');
   const [langVariant, setLangVariant] = useState<string>('default');
   const [generatingZhId, setGeneratingZhId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [angleModalOpen, setAngleModalOpen] = useState(false);
-  const [selectedAngleKey, setSelectedAngleKey] = useState<AngleOptionKey>('comparison');
-  const [customAngleText, setCustomAngleText] = useState('');
   const [cancellingRun, setCancellingRun] = useState(false);
   const streamAbortRef = useRef<AbortController | null>(null);
 
@@ -116,73 +108,48 @@ export default function OptimizationStudio({
   );
 
   const loadOptimization = useCallback(
-    async (signal?: AbortSignal) => {
+    async (isCancelled?: () => boolean, force = false) => {
       if (!projectId) return;
       try {
-        const params = new URLSearchParams({ project: projectId });
-        if (selectedRunId) params.set('runId', selectedRunId);
-        const res = await fetch(`/api/geo/optimization?${params.toString()}`, {
-          cache: 'no-store',
-          signal,
+        const payload = await fetchOptimizationSnapshot(projectId, uiLanguage, {
+          runId: selectedRunId,
+          force,
         });
-        if (!res.ok) return;
-        const payload = (await res.json()) as {
-          viewModel?: OptimizationRunViewModel;
-          runs?: OptimizationRun[];
-          pageAudit?: PageAuditRecord | null;
-          auditTargets?: PageAuditTargetOption[];
-        };
-        if (signal?.aborted) return;
+        if (!payload || isCancelled?.()) return;
         const nextVm = payload.viewModel ?? null;
         setViewModel(nextVm);
         setRuns(payload.runs ?? []);
         setPageAudit(payload.pageAudit ?? null);
-        setAuditTargets(payload.auditTargets ?? []);
+        if (payload.actionBoard !== undefined) setActionBoard(payload.actionBoard ?? null);
         statusCallbackRef.current?.(nextVm);
-      } catch {
-        // Keep last state cleanly on transient error
       } finally {
-        if (!signal?.aborted) setLoading(false);
+        if (!isCancelled?.()) setLoading(false);
       }
     },
-    [projectId, selectedRunId],
-  );
-
-  const loadOutreach = useCallback(
-    async (signal?: AbortSignal) => {
-      if (!projectId) return;
-      try {
-        const params = new URLSearchParams({ project: projectId, lang: uiLanguage });
-        const res = await fetch(`/api/geo/outreach?${params.toString()}`, {
-          cache: 'no-store',
-          signal,
-        });
-        if (!res.ok) return;
-        const payload = (await res.json()) as { actions?: OutreachActionRecord[] };
-        if (signal?.aborted) return;
-        setOutreachActions(payload.actions ?? []);
-      } catch {
-        // Non-fatal
-      } finally {
-        if (!signal?.aborted) setOutreachLoading(false);
-      }
-    },
-    [projectId, uiLanguage],
+    [projectId, selectedRunId, uiLanguage],
   );
 
   useEffect(() => {
-    setLoading(true);
-    setOutreachLoading(true);
+    const cached = readCachedOptimizationSnapshot(projectId, uiLanguage, selectedRunId);
+    if (cached?.viewModel) {
+      setViewModel(cached.viewModel);
+      setRuns(cached.runs ?? []);
+      setPageAudit(cached.pageAudit ?? null);
+      if (cached.actionBoard !== undefined) setActionBoard(cached.actionBoard ?? null);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError('');
     setNotice('');
     setReaderState(null);
     setHistoryOpen(false);
-    setAngleModalOpen(false);
-    const controller = new AbortController();
-    void loadOptimization(controller.signal);
-    void loadOutreach(controller.signal);
-    return () => controller.abort();
-  }, [loadOptimization, loadOutreach]);
+    let cancelled = false;
+    void loadOptimization(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadOptimization, projectId, selectedRunId, uiLanguage]);
 
   const latestRun = viewModel?.run ?? null;
   const effectiveStatus = streamingStatus ?? latestRun?.status ?? null;
@@ -196,17 +163,16 @@ export default function OptimizationStudio({
   useEffect(() => {
     if (!isWorking || submitting) return;
     const timer = setInterval(() => {
-      void loadOptimization();
+      void loadOptimization(undefined, true);
     }, 3000);
     return () => clearInterval(timer);
   }, [isWorking, submitting, loadOptimization]);
 
   useEffect(() => {
-    if (!readerState && !historyOpen && !angleModalOpen) return;
+    if (!readerState && !historyOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (angleModalOpen) setAngleModalOpen(false);
-        else if (readerState) setReaderState(null);
+        if (readerState) setReaderState(null);
         else setHistoryOpen(false);
       }
     };
@@ -217,136 +183,29 @@ export default function OptimizationStudio({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [readerState, historyOpen, angleModalOpen]);
+  }, [readerState, historyOpen]);
 
-  // Select latest valid non-failed run for pending Action Cards (ignoring empty failed runs)
-  const activeDocsRun = useMemo(() => {
-    if (latestRun && latestRun.status !== 'failed') return latestRun;
-    return (
-      runs.find((r) => r.status !== 'failed' && r.deliverables.length > 0) ?? null
-    );
-  }, [latestRun, runs]);
-
-  const activeDeliverables = useMemo(
-    () => activeDocsRun?.deliverables ?? [],
-    [activeDocsRun],
-  );
-
-  const pendingDeliverables = useMemo(
-    () =>
-      activeDeliverables.filter(
-        (d) =>
-          d.status === 'ready' ||
-          (d.status === 'applied' && d.appliedRecord?.mode === 'local_file'),
-      ),
-    [activeDeliverables],
-  );
-
-  const activeOutreach = useMemo(
-    () =>
-      outreachActions.filter(
-        (a) => a.status !== 'completed' && a.status !== 'skipped',
-      ),
-    [outreachActions],
-  );
-
-  // Universal Bucket 2 (Right Launchpad Card): AI-cited Awesome PRs, external directories, and repo metadata
-  const primaryExternalListings = useMemo(
-    () => activeOutreach.filter((a) => a.kind !== 'community_post'),
-    [activeOutreach],
-  );
-
-  // Universal Bucket 3 (Quiet Bottom Strip): Community posts & Show HN drafts
-  const communityOutreach = useMemo(
-    () => activeOutreach.filter((a) => a.kind === 'community_post'),
-    [activeOutreach],
-  );
-
-  // Keep selectedExternalIds synced with primaryExternalListings (all selected by default)
-  const externalIdsKey = primaryExternalListings.map((a) => a.id).join('|');
-  useEffect(() => {
-    setSelectedExternalIds((prev) => {
-      const next = new Set<string>();
-      for (const item of primaryExternalListings) {
-        if (prev.size === 0 || prev.has(item.id)) next.add(item.id);
-      }
-      return next;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [externalIdsKey]);
-
-  // Sync native <dialog> for External Listings / Community Review Modal
-  useEffect(() => {
-    const dlg = outreachDialogRef.current;
-    if (!dlg) return;
-    if (outreachModal && !dlg.open) {
-      dlg.showModal();
-    } else if (!outreachModal && dlg.open) {
-      dlg.close();
-    }
-  }, [outreachModal]);
-
-  // Aggregate all shipped items (pushed docs + external articles + completed outreach)
+  // Single source of truth: shipped ledger mirrors completed cards on the current action board.
   const shippedItems = useMemo<ShippedHistoryEntry[]>(() => {
-    const entries: ShippedHistoryEntry[] = [];
-    const seenDocKeys = new Set<string>();
-
-    for (const r of runs) {
-      if (r.status === 'failed') continue;
-      for (const d of r.deliverables) {
-        if (d.status !== 'applied' || !d.appliedRecord) continue;
-        if (d.appliedRecord.mode === 'local_file') continue;
-        const dedupKey = `${d.appliedRecord.destination}:${d.appliedRecord.commitHash || d.id}`;
-        if (seenDocKeys.has(dedupKey)) continue;
-        seenDocKeys.add(dedupKey);
-        const isExt = isExternalArticleDeliverable(d);
-        entries.push({
-          key: `deliv-${d.id}`,
-          at: d.appliedRecord.appliedAt || d.updatedAt,
-          title: d.title,
-          sourceKind: isExt ? 'article' : 'doc',
-          subtitle:
-            d.appliedRecord.note ||
-            (d.appliedRecord.commitHash
-              ? `${d.appliedRecord.destination} · ${d.appliedRecord.commitHash}`
-              : d.appliedRecord.destination),
-          liveUrl: d.appliedRecord.publishedUrl,
-          run: r,
-          deliverable: d,
-        });
-      }
-    }
-
-    for (const a of outreachActions) {
-      if (a.status !== 'completed') continue;
-      entries.push({
-        key: `outreach-${a.id}`,
-        at: a.completedAt || a.updatedAt,
-        title: a.title,
-        sourceKind: a.kind,
-        subtitle: a.note || a.subtitle,
-        liveUrl: a.resultUrl || (a.kind === 'repo_meta' ? a.targetUrl : undefined),
-      });
-    }
-
-    for (const rec of pageAudit?.shippedRecords ?? []) {
-      const previewTitles = rec.findingTitles.slice(0, 2).join(isEn ? '; ' : '；');
-      entries.push({
-        key: `page-audit-${rec.id}`,
-        at: rec.shippedAt,
-        title: rec.targetLabel,
-        sourceKind: 'page_audit',
-        subtitle:
-          rec.note ||
-          (isEn
-            ? `${rec.findingTitles.length} page updates: ${previewTitles}`
-            : `已上线 ${rec.findingTitles.length} 处修改：${previewTitles}`),
-        liveUrl: rec.liveUrl,
-      });
-    }
-
-    return entries.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
-  }, [isEn, outreachActions, pageAudit, runs]);
+    const kindToSource = (kind: ActionBoardCard['kind']): ShippedHistoryEntry['sourceKind'] => {
+      if (kind === 'page_diff') return 'page_audit';
+      if (kind === 'doc_draft') return 'doc';
+      if (kind === 'pr_patch') return 'awesome_pr';
+      if (kind === 'community_reply') return 'community_post';
+      return 'directory_listing';
+    };
+    return (actionBoard?.cards ?? [])
+      .filter((card): card is ActionBoardCard & { completedAt: string } => Boolean(card.completedAt))
+      .map((card) => ({
+        key: `board-${card.id}`,
+        at: card.completedAt,
+        title: card.target.label,
+        sourceKind: kindToSource(card.kind),
+        subtitle: card.why?.[uiLanguage] || card.why?.en || card.publishedUrl || card.target.label,
+        liveUrl: card.publishedUrl || card.target.url,
+      }))
+      .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  }, [actionBoard, uiLanguage]);
 
   const latestOnlineMs = useMemo(() => {
     const timestamps = shippedItems
@@ -474,7 +333,7 @@ export default function OptimizationStudio({
           }
         }
       }
-      await loadOptimization();
+      await loadOptimization(undefined, true);
     } catch (err) {
       if (
         abortController.signal.aborted ||
@@ -535,24 +394,6 @@ export default function OptimizationStudio({
     } finally {
       setCancellingRun(false);
     }
-  };
-
-  const resolvedCustomAngle = customAngleText.trim();
-  const canStartSelectedAngle =
-    selectedAngleKey !== 'custom' || resolvedCustomAngle.length > 0;
-
-  const handleConfirmAngleDraft = () => {
-    if (!canStartSelectedAngle) return;
-    const angleBrief =
-      selectedAngleKey === 'custom'
-        ? resolvedCustomAngle
-        : buildPresetAngleBrief(selectedAngleKey, projectName);
-    setAngleModalOpen(false);
-    void executeStreamAction('start', undefined, {
-      mode: 'focus',
-      onlyNewContent: true,
-      angleBrief,
-    });
   };
 
   const applyDeliverableDecision = async (
@@ -660,142 +501,39 @@ export default function OptimizationStudio({
     }
   };
 
-  const toggleExternalSelection = (actionId: string) => {
-    setSelectedExternalIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(actionId)) next.delete(actionId);
-      else next.add(actionId);
-      return next;
-    });
-  };
-
-  const handlePrepareExternalPack = async () => {
-    if (preparingExternalPack) return;
-    const chosen = primaryExternalListings.filter((item) => selectedExternalIds.has(item.id));
-    if (!chosen.length) return;
-
-    const unpreparedAwesome = chosen.filter(
-      (item) => item.kind === 'awesome_pr' && !item.awesomePrDraft,
-    );
-
-    if (unpreparedAwesome.length > 0) {
-      setPreparingExternalPack(true);
-      setError('');
-      try {
-        let latestActions: OutreachActionRecord[] | null = null;
-        for (const item of unpreparedAwesome) {
-          const res = await fetch('/api/geo/outreach', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              projectId,
-              lang: uiLanguage,
-              actionId: item.id,
-              action: 'prepare_awesome_pr',
-            }),
-          });
-          const payload = (await res.json().catch(() => ({}))) as {
-            actions?: OutreachActionRecord[];
-            error?: string;
-          };
-          if (res.ok && payload.actions) {
-            latestActions = payload.actions;
-          }
-        }
-        if (latestActions) setOutreachActions(latestActions);
-        setNotice(
-          isEn
-            ? `Prepared ${unpreparedAwesome.length} listing PR draft(s)—review below and click Submit.`
-            : `已为 ${unpreparedAwesome.length} 个开源清单生成插入行与 PR 草稿，确认无误后在下方提交即可。`,
-        );
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : isEn
-              ? 'Could not prepare PR drafts.'
-              : '生成榜单 PR 草稿失败，请稍后重试。',
-        );
-      } finally {
-        setPreparingExternalPack(false);
-      }
-      setOutreachModal({ mode: 'external_pack' });
-      return;
-    }
-
-    const onlyDirectories = chosen.every((item) => item.kind === 'directory_listing');
-    if (onlyDirectories) {
-      const bundleText = chosen
-        .map(
-          (item, i) =>
-            `## ${i + 1}. ${item.title}\nURL: ${item.targetUrl}\n${item.listingDraft?.submissionPitch ?? item.subtitle}`,
-        )
-        .join('\n\n');
-      await navigator.clipboard?.writeText(bundleText).catch(() => {});
-      setNotice(
-        isEn
-          ? `Copied submission details for ${chosen.length} external directories—open each below to submit.`
-          : `已复制 ${chosen.length} 份外部目录提交材料到剪贴板，可在下方直接打开目录页提交。`,
-      );
-    }
-
-    setOutreachModal({ mode: 'external_pack' });
-  };
-
   const handleOpenExternalInEgo = async (deliverable: OptimizationDeliverable) => {
     if (busyDocId) return;
-    setBusyDocId(deliverable.id);
-    setBusyDocOp('ego');
     setError('');
     setNotice('');
+    const branch =
+      deliverable.appliedRecord?.branch ||
+      runs
+        .flatMap((r) => r.deliverables)
+        .find((d) => d.appliedRecord?.branch)?.appliedRecord?.branch ||
+      'main';
+    const content = buildExternalMarkdown({
+      markdown: deliverable.afterContent,
+      destination: deliverable.destination,
+      repositoryUrl,
+      branch,
+    });
+    const opened = window.open('https://dev.to/new', '_blank', 'noopener,noreferrer');
+    let copied = false;
     try {
-      const branch =
-        deliverable.appliedRecord?.branch ||
-        runs
-          .flatMap((r) => r.deliverables)
-          .find((d) => d.appliedRecord?.branch)?.appliedRecord?.branch ||
-        'main';
-      const content = buildExternalMarkdown({
-        markdown: deliverable.afterContent,
-        destination: deliverable.destination,
-        repositoryUrl,
-        branch,
-      });
-      await navigator.clipboard?.writeText(content).catch(() => {});
-      const res = await fetch('/api/geo/outreach', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId,
-          action: 'open_ego',
-          targetUrl: 'https://dev.to/new',
-          draftTitle: deliverable.title,
-        }),
-      });
-      const payload = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        throw new Error(
-          payload.error ||
-            (isEn ? 'Could not open the publish page.' : '无法打开发布页。'),
-        );
-      }
-      setNotice(
-        isEn
-          ? 'Copied full Markdown and opened the publish page—paste, publish, then click Mark Published.'
-          : '已复制外发 Markdown 并打开写作页；粘贴发布后回来点「记为已发布」即可入账。',
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : isEn
-            ? 'Could not open the publish page.'
-            : '打开发布页失败。',
-      );
-    } finally {
-      setBusyDocId(null);
-      setBusyDocOp(null);
+      await navigator.clipboard?.writeText(content);
+      copied = true;
+    } catch {
+      copied = false;
     }
+    setNotice(
+      opened
+        ? isEn
+          ? `${copied ? 'Copied full Markdown and opened' : 'Opened'} dev.to/new in a new tab — paste, publish, then click Mark Published.`
+          : `${copied ? '已复制外发 Markdown 并在新标签页打开' : '已在新标签页打开'} dev.to/new；粘贴发布后回来点「记为已发布」即可入账。`
+        : isEn
+          ? 'Your browser blocked the new tab popup — Markdown is copied, please allow popups or open dev.to/new manually.'
+          : '浏览器拦截了新标签页弹窗（Markdown 已复制），请允许弹窗或手动打开 dev.to/new 粘贴发布。',
+    );
   };
 
   const handleMarkDocPublished = async (
@@ -899,56 +637,9 @@ export default function OptimizationStudio({
     );
   }
 
-  const questionTotal = batch?.questions.length ?? 0;
   const progressSteps = streamingSteps.length ? streamingSteps : (latestRun?.progress ?? []);
   const latestProgress = progressSteps[progressSteps.length - 1] ?? null;
   const showPausedBanner = !isWorking && latestRun?.status === 'failed';
-
-  const hasRightLaunchCard = outreachLoading || primaryExternalListings.length > 0;
-  const selectedExternalCount = primaryExternalListings.filter((item) =>
-    selectedExternalIds.has(item.id),
-  ).length;
-  const allAwesomeExternal =
-    primaryExternalListings.length > 0 &&
-    primaryExternalListings.every((item) => item.kind === 'awesome_pr');
-  const allDirectoryExternal =
-    primaryExternalListings.length > 0 &&
-    primaryExternalListings.every((item) => item.kind === 'directory_listing');
-
-  const externalPackTitle = allAwesomeExternal
-    ? isEn
-      ? `Submit listing PRs to ${primaryExternalListings.length} open-source lists`
-      : `向 ${primaryExternalListings.length} 个开源导航清单提收录 PR`
-    : allDirectoryExternal
-      ? isEn
-        ? `Get listed on ${primaryExternalListings.length} AI-cited directories`
-        : `入驻 ${primaryExternalListings.length} 个高频引用的外部目录站`
-      : isEn
-        ? `Ship ${primaryExternalListings.length} high-authority external listings`
-        : `推进 ${primaryExternalListings.length} 项外部高权清单与收录`;
-
-  const externalPackDesc = allAwesomeExternal
-    ? isEn
-      ? 'Curated open-source directories already cited in your live AI answers — review and submit PRs.'
-      : '这些开源工具目录已被 ChatGPT / Google 直接引用，AI 已为你核对分类与插入行。'
-    : allDirectoryExternal
-      ? isEn
-        ? 'External directories and roundups already cited by AI answers — submission materials are pre-filled.'
-        : '这些外部目录/对比清单已被 AI 回答直接引用，提交材料已自动按你的真实信息备好。'
-      : isEn
-        ? 'AI-cited lists, external directories, and repo facade signals ranked by citation leverage.'
-        : '从实测 AI 引用中挑出的高权重外部榜单、目录收录与门面补全，按投入产出排序。';
-
-  const optionalTotalCount = communityOutreach.length + pendingDeliverables.length;
-
-  const modalOutreachItems =
-    outreachModal?.mode === 'external_pack'
-      ? primaryExternalListings.filter(
-          (item) => selectedExternalIds.size === 0 || selectedExternalIds.has(item.id),
-        )
-      : outreachModal?.mode === 'community_item'
-        ? communityOutreach.filter((item) => item.id === outreachModal.actionId)
-        : [];
 
   return (
     <div className="ost-shell oap-shell">
@@ -962,8 +653,6 @@ export default function OptimizationStudio({
         isWorking={isWorking}
         cancellingRun={cancellingRun}
         handleCancelRun={handleCancelRun}
-        questionTotal={questionTotal}
-        setAngleModalOpen={setAngleModalOpen}
       />
 
       {error && (
@@ -1027,68 +716,21 @@ export default function OptimizationStudio({
         </section>
       )}
 
-      {/* MAIN STAGE: 1-Screen Dual Launchpad (Universal Track 1 + Track 2 via CSS Subgrid) */}
-      <div className={`oap-lp-grid ${hasRightLaunchCard ? '' : 'is-single'}`}>
-        {/* TRACK 1 (Left Card): Own Page / README Surgical Audit + Idea B Continuous Modal */}
-        <PageAuditSection
-          key={projectId}
-          projectId={projectId}
-          questionTotal={questionTotal}
-          initialAudit={pageAudit}
-          targets={auditTargets}
-          onOpenQuestions={onOpenQuestions}
-          onAuditUpdated={(nextAudit) => {
-            setPageAudit(nextAudit);
-            onRefresh?.();
-          }}
-          onNotice={(msg) => setNotice(msg)}
-          onError={(msg) => setError(msg)}
-        />
-
-        {/* TRACK 2 (Right Card): High-Authority External Listings (Awesome PRs + SaaS Directories) */}
-        {hasRightLaunchCard && (
-          <StudioExternalListingsCard
-            outreachLoading={outreachLoading}
-            selectedExternalCount={selectedExternalCount}
-            primaryExternalListings={primaryExternalListings}
-            externalPackTitle={externalPackTitle}
-            externalPackDesc={externalPackDesc}
-            selectedExternalIds={selectedExternalIds}
-            toggleExternalSelection={toggleExternalSelection}
-            setOutreachModal={setOutreachModal}
-            allAwesomeExternal={allAwesomeExternal}
-            preparingExternalPack={preparingExternalPack}
-            handlePrepareExternalPack={handlePrepareExternalPack}
-            allDirectoryExternal={allDirectoryExternal}
-          />
-        )}
-      </div>
-
-      {/* QUIET BUCKET 3: Optional Community Discussions & New Articles (Collapsed by Default) */}
-      {optionalTotalCount > 0 && (
-        <StudioOptionalStrip
-          optionalTotalCount={optionalTotalCount}
-          communityOutreach={communityOutreach}
-          setOutreachModal={setOutreachModal}
-          pendingDeliverables={pendingDeliverables}
-          activeDocsRun={activeDocsRun}
-          setReadingTab={setReadingTab}
-          setLangVariant={setLangVariant}
-          setReaderState={setReaderState}
-        />
-      )}
-
-      {/* NATIVE MODAL: External Listings / Community Draft Review (wraps full OutreachActionCards) */}
-      <StudioOutreachDialog
-        outreachDialogRef={outreachDialogRef}
-        setOutreachModal={setOutreachModal}
-        outreachModal={outreachModal}
-        externalPackTitle={externalPackTitle}
+      <ActionBoardView
+        key={projectId}
         projectId={projectId}
-        modalOutreachItems={modalOutreachItems}
-        setOutreachActions={setOutreachActions}
-        setError={setError}
-        setNotice={setNotice}
+        board={actionBoard}
+        pageAudit={pageAudit}
+        onBoardChange={(nextBoard) => {
+          setActionBoard(nextBoard);
+          writeCachedOptimizationSnapshot(projectId, uiLanguage, { actionBoard: nextBoard }, selectedRunId);
+        }}
+        onPageAuditChange={(nextAudit) => {
+          setPageAudit(nextAudit);
+          writeCachedOptimizationSnapshot(projectId, uiLanguage, { pageAudit: nextAudit }, selectedRunId);
+        }}
+        onError={setError}
+        onNotice={setNotice}
       />
 
       {/* DRAWER A: Right Slide-Over Full Article / Snapshot Reader */}
@@ -1167,20 +809,6 @@ export default function OptimizationStudio({
         />
       )}
 
-      {/* MODAL: Explicit Angle Selection Before Drafting a New Standalone Article */}
-      {angleModalOpen && (
-        <StudioAngleModal
-          setAngleModalOpen={setAngleModalOpen}
-          selectedAngleKey={selectedAngleKey}
-          setSelectedAngleKey={setSelectedAngleKey}
-          customAngleText={customAngleText}
-          setCustomAngleText={setCustomAngleText}
-          includeChineseCompanion={includeChineseCompanion}
-          setIncludeChineseCompanion={setIncludeChineseCompanion}
-          canStartSelectedAngle={canStartSelectedAngle}
-          handleConfirmAngleDraft={handleConfirmAngleDraft}
-        />
-      )}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { ACTION_BOARD_MESSAGES_EN, ACTION_BOARD_MESSAGES_ZH } from './optimization/action-board-messages';
 import type { ResearchBatch, ResearchEngine } from './research-types';
 
 export type GeoLanguage = 'en' | 'zh';
@@ -67,6 +68,7 @@ export function plural(
 }
 
 const zhMessages = {
+  ...ACTION_BOARD_MESSAGES_ZH,
   'term.overview': '概览',
   'term.buyerQuestions': '买家问题',
   'term.whoAiRecommends': 'AI 推荐了谁',
@@ -258,15 +260,12 @@ const zhMessages = {
   'dav.winnerOpeningLabel': '开篇前三段参考',
   'dav.winnerSnippetLabel': 'AI 回答引用上下文',
   'dav.winnerVisitLink': '查看原网页',
-  'actionPlan.title': '行动计划',
   'actionPlan.subtitle': 'AI 已备好文档草稿、榜单 PR 与发帖草稿，确认后即可发布。',
   'actionPlan.newAngleBtn': '写一篇新角度文章',
   'actionPlan.generatingBtn': '正在撰写新草稿…',
   'actionPlan.stopGeneratingBtn': '终止生成',
   'actionPlan.stoppingGeneratingBtn': '正在终止…',
   'actionPlan.cancelledNotice': '已终止本次撰写，当前已发布记录与待确认卡片不受影响。',
-  'actionPlan.shippedHistoryBtn': '已发布 ({count})',
-  'actionPlan.indexingPill': '已发布 {count} 项 · 收录观察（{elapsed}）',
   'actionPlan.ledgerPillBtn': '已发布 ({count}) · 收录观察 {elapsed}',
   'actionPlan.ledgerEmptyBtn': '已发布 (0)',
   'actionPlan.angleModalTitle': '选择新文章的切入角度',
@@ -283,17 +282,8 @@ const zhMessages = {
   'actionPlan.angleCancelBtn': '取消',
   'actionPlan.angleConfirmBtn': '开始撰写这篇草稿',
   'actionPlan.loading': '正在准备行动计划…',
-  'actionPlan.emptyDocsTitle': '先为你写好能被 AI 搜到和引用的内容',
-  'actionPlan.emptyDocsDesc': 'AI 会分析真实回答里的缺口，备好仓库草稿与外发长文，确认后直接发布。',
-  'actionPlan.startFirstBtn': '开始生成行动计划',
-  'actionPlan.needQuestionsBtn': '先去确认客户常问问题',
   'actionPlan.pausedTitle': '刚才的草稿生成中途暂停，已完成部分已保留',
   'actionPlan.pausedBtn': '接着继续生成',
-  'actionPlan.docsSectionTitle': '站内文档与获客长文',
-  'actionPlan.docsAllShippedBanner': '最近一批 {count} 篇内容均已发布，成稿已自动归档进右上角「已发布」。',
-  'actionPlan.viewShippedBtn': '查看已发布',
-  'actionPlan.previewDocBtn': '预览与修改',
-  'actionPlan.previewArticleBtn': '预览全文',
   'actionPlan.copyBriefBtn': '复制给 AI 编辑器',
   'actionPlan.pushGithubOneStepBtn': '确认推送到 GitHub',
   'actionPlan.pushingGithubBtn': '正在推送到 GitHub…',
@@ -450,6 +440,7 @@ const zhMessages = {
 export type UiMessageKey = keyof typeof zhMessages;
 
 const enMessages: Record<UiMessageKey, string> = {
+  ...ACTION_BOARD_MESSAGES_EN,
   'term.overview': 'Overview',
   'term.buyerQuestions': 'Buyer questions',
   'term.whoAiRecommends': 'Who AI recommends',
@@ -641,15 +632,12 @@ const enMessages: Record<UiMessageKey, string> = {
   'dav.winnerOpeningLabel': 'Opening Paragraphs Excerpt',
   'dav.winnerSnippetLabel': 'Cited answer context',
   'dav.winnerVisitLink': 'Open source page',
-  'actionPlan.title': 'Action Plan',
   'actionPlan.subtitle': 'AI drafts your docs, list PRs, and posts — review and confirm to ship.',
   'actionPlan.newAngleBtn': 'Draft New-Angle Article',
   'actionPlan.generatingBtn': 'Drafting article…',
   'actionPlan.stopGeneratingBtn': 'Stop Generating',
   'actionPlan.stoppingGeneratingBtn': 'Stopping…',
   'actionPlan.cancelledNotice': 'Drafting stopped; your published items and pending cards remain untouched.',
-  'actionPlan.shippedHistoryBtn': 'Published ({count})',
-  'actionPlan.indexingPill': '{count} published · Indexing ({elapsed})',
   'actionPlan.ledgerPillBtn': 'Published ({count}) · Indexing {elapsed}',
   'actionPlan.ledgerEmptyBtn': 'Published (0)',
   'actionPlan.angleModalTitle': 'Choose an Angle for Your New Article',
@@ -666,17 +654,8 @@ const enMessages: Record<UiMessageKey, string> = {
   'actionPlan.angleCancelBtn': 'Cancel',
   'actionPlan.angleConfirmBtn': 'Start Drafting',
   'actionPlan.loading': 'Loading Action Plan…',
-  'actionPlan.emptyDocsTitle': 'Generate docs built around real AI visibility gaps',
-  'actionPlan.emptyDocsDesc': 'AI inspects current ChatGPT & Google answers and prepares ready-to-ship drafts for your approval.',
-  'actionPlan.startFirstBtn': 'Generate Action Plan',
-  'actionPlan.needQuestionsBtn': 'Confirm customer prompts first',
   'actionPlan.pausedTitle': 'Previous draft run paused — completed parts are saved',
   'actionPlan.pausedBtn': 'Resume drafting',
-  'actionPlan.docsSectionTitle': 'Repo Docs & Multi-Angle Articles',
-  'actionPlan.docsAllShippedBanner': 'All {count} drafts from the latest package are published and archived under Published.',
-  'actionPlan.viewShippedBtn': 'Open Published',
-  'actionPlan.previewDocBtn': 'Preview & Edit',
-  'actionPlan.previewArticleBtn': 'Read Full Draft',
   'actionPlan.copyBriefBtn': 'Copy brief for AI editor',
   'actionPlan.pushGithubOneStepBtn': 'Confirm & Push to GitHub',
   'actionPlan.pushingGithubBtn': 'Pushing to GitHub…',

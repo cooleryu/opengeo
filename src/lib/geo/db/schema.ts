@@ -367,8 +367,21 @@ export function projectDatabasePath(projectId: string): string {
   return path.join(directory, 'db.sqlite');
 }
 
+const configuredSchemaPaths = new Set<string>();
+
 export function configureSqliteConnection(db: Database.Database): Database.Database {
   db.pragma('busy_timeout = 5000');
+  const dbPath = typeof db.name === 'string' && db.name && db.name !== ':memory:' ? db.name : '';
+  if (dbPath && configuredSchemaPaths.has(dbPath)) {
+    const hasCoreTable = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'opengeo_projects'")
+      .get();
+    if (hasCoreTable) {
+      db.pragma('foreign_keys = ON');
+      return db;
+    }
+    configuredSchemaPaths.delete(dbPath);
+  }
   if (db.pragma('journal_mode', { simple: true }) !== 'wal') {
     db.pragma('journal_mode = WAL');
   }
@@ -526,6 +539,7 @@ export function configureSqliteConnection(db: Database.Database): Database.Datab
   if (!runColumns.some((col) => col.name === 'output_language')) {
     db.exec('ALTER TABLE opengeo_optimization_runs ADD COLUMN output_language TEXT;');
   }
+  if (dbPath) configuredSchemaPaths.add(dbPath);
   return db;
 }
 

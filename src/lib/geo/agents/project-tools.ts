@@ -3,8 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { AgentTool } from '../../agent-hub';
-import { resolveAssetOwnership } from '../asset-ownership';
+import { isProjectOwnedUrl, resolveAssetOwnership } from '../asset-ownership';
 import { ensureProjectRelationalData, parseSourcesJson, withProjectDb } from '../db';
+import {
+  classifyCitedChannel,
+  loadQuestionPlanSignalsMap,
+  lookupQuestionPlanMeta,
+  normalizeUrlMeta,
+  parseRecommendedBrands,
+} from '../optimization/citation-classifier';
 import { readProjectContext } from '../project-context';
 import { loadProjectSeed } from '../project-data';
 import { evidenceLocation, withGeoProject } from '../projects';
@@ -287,12 +294,15 @@ export function createProjectInspectionTools(options?: {
 }): AgentTool<any>[] {
   const listQuestionsTool: AgentTool<Record<string, never>> = {
     name: 'list_project_questions',
-    description: '列出当前项目所有核心监测问题，以及各搜索平台的最新提及与引用结论。',
+    description:
+      '列出当前项目所有核心监测问题，以及各搜索平台的最新提及/引用结论、被引用外部来源渠道和关联子问题。',
     parameters: z.object({}),
     readOnly: true,
-    humanLabel: () => '正在查看项目的核心监测问题与各平台曝光现状…',
-    execute: (_args, ctx) =>
-      withProjectDb(ctx.projectId, (db, projectId) => {
+    humanLabel: () => '正在查看项目的核心监测问题、引用渠道与各平台曝光现状…',
+    execute: (_args, ctx) => {
+      const planMaps = loadQuestionPlanSignalsMap(ctx.projectId);
+      const seed = loadProjectSeed(ctx.projectId);
+      return withProjectDb(ctx.projectId, (db, projectId) => {
         ensureProjectRelationalData(projectId, db);
         const questions = db
           .prepare(
@@ -308,41 +318,99 @@ export function createProjectInspectionTools(options?: {
           query_en: string;
         }>;
 
+        type ObsSummaryRow = {
+          id: string;
+          engine: string;
+          entry_type: string | null;
+          recorded_at: string;
+          sources_json: string;
+          mention: string | null;
+          citation: string | null;
+          mention_evidence: string | null;
+          recommended_competitors_json: string | null;
+        };
+
         return questions.map((q) => {
           const filteredObs = options?.targetLanguage
-            ? db
+            ? (db
                 .prepare(
-                  `SELECT o.id, o.engine, o.entry_type, o.recorded_at, a.mention, a.citation, a.mention_evidence
+                  `SELECT o.id, o.engine, o.entry_type, o.recorded_at, o.sources_json, a.mention, a.citation, a.mention_evidence, a.recommended_competitors_json
                    FROM opengeo_observations o
                    LEFT JOIN opengeo_answer_audits a
                      ON a.project_id = o.project_id AND a.observation_id = o.id AND a.is_current = 1
                    WHERE o.project_id = ? AND o.question_id = ? AND o.language = ? AND o.engine IN ('chatgpt', 'google')
                    ORDER BY o.seq DESC`,
                 )
-                .all(projectId, q.id, options.targetLanguage)
+                .all(projectId, q.id, options.targetLanguage) as ObsSummaryRow[])
             : [];
-          const latestObs =
+          const allObs =
             filteredObs.length > 0
               ? filteredObs
-              : db
+              : (db
                   .prepare(
-                    `SELECT o.id, o.engine, o.entry_type, o.recorded_at, a.mention, a.citation, a.mention_evidence
+                    `SELECT o.id, o.engine, o.entry_type, o.recorded_at, o.sources_json, a.mention, a.citation, a.mention_evidence, a.recommended_competitors_json
                      FROM opengeo_observations o
                      LEFT JOIN opengeo_answer_audits a
                        ON a.project_id = o.project_id AND a.observation_id = o.id AND a.is_current = 1
                      WHERE o.project_id = ? AND o.question_id = ? AND o.engine IN ('chatgpt', 'google')
                      ORDER BY o.seq DESC`,
                   )
-                  .all(projectId, q.id);
+                  .all(projectId, q.id) as ObsSummaryRow[]);
+          // Deduplicate to latest observation per engine so stale history does not drown current signals.
+          const seenEngines = new Set<string>();
+          const latestObs = allObs
+            .filter((row) => {
+              if (seenEngines.has(row.engine)) return false;
+              seenEngines.add(row.engine);
+              return true;
+            })
+            .map((row) => {
+              const citedSources = parseSourcesJson(row.sources_json)
+                .map((src) => {
+                  const meta = src.url ? normalizeUrlMeta(src.url) : null;
+                  if (!meta) return null;
+                  const title = (src.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
+                  return {
+                    domain: meta.registrable,
+                    title: title || meta.registrable,
+                    url: meta.url,
+                    channel: classifyCitedChannel(meta.url, title),
+                    owned: isProjectOwnedUrl(meta.url, seed.project),
+                  };
+                })
+                .filter((item): item is NonNullable<typeof item> => Boolean(item))
+                .slice(0, 6);
+              return {
+                id: row.id,
+                engine: row.engine,
+                entry_type: row.entry_type,
+                recorded_at: row.recorded_at,
+                mention: row.mention,
+                citation: row.citation,
+                mention_evidence: row.mention_evidence,
+                recommendedBrands: parseRecommendedBrands(row.recommended_competitors_json),
+                citedSources,
+              };
+            });
+          const planMeta = lookupQuestionPlanMeta(planMaps, {
+            id: q.id,
+            queryEn: q.query_en,
+            queryZh: q.query_zh,
+          });
           return {
             questionId: q.id,
             category: q.category ?? 'problem',
             queryZh: q.query_zh,
             queryEn: q.query_en,
+            ...(planMeta?.tactic ? { tactic: planMeta.tactic } : {}),
+            ...(planMeta?.demandStatus ? { demandStatus: planMeta.demandStatus } : {}),
+            ...(planMeta?.demandStrength ? { demandStrength: planMeta.demandStrength } : {}),
+            ...(planMeta?.fanoutQueries?.length ? { fanoutQueries: planMeta.fanoutQueries } : {}),
             observations: latestObs,
           };
         });
-      }),
+      });
+    },
   };
 
   const readObservationTool: AgentTool<{

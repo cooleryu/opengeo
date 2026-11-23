@@ -5,9 +5,8 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { generateText, jsonSchema, NoObjectGeneratedError, Output, type JSONSchema7, type LanguageModel, type ModelMessage } from 'ai';
 import { z } from 'zod';
-import type { Message } from '@/lib/types';
 import type { ModelProviderId } from './providers';
-import type { GenerateObjectInput } from './types';
+import type { GenerateObjectInput, Message } from './types';
 
 /** The one bridge between OpenGEO and the Vercel AI SDK. Provider quirks live in the SDK packages. */
 export type ModelConnection = { provider: ModelProviderId; baseURL: string; apiKey: string; model: string };

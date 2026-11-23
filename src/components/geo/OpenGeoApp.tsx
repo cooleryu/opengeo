@@ -35,6 +35,7 @@ import {
 } from './TaskWorkspace';
 import OptimizationHeroCard from './OptimizationHeroCard';
 import OptimizationStudio from './OptimizationStudio';
+import { fetchOptimizationSnapshot } from '@/lib/geo/optimization-client-cache';
 import type { OptimizationRunViewModel } from '@/lib/geo/optimization/types';
 import { readQuestionGenerationStream } from './question-generation-stream';
 import type { QuestionGenerationProgress } from '@/lib/geo/question-types';
@@ -347,20 +348,14 @@ function OpenGeoAppInner() {
       setOptViewModel(null);
       return;
     }
-    const controller = new AbortController();
-    fetch(`/api/geo/optimization?project=${encodeURIComponent(projectId)}`, {
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((payload: { viewModel?: OptimizationRunViewModel } | null) => {
-        if (!controller.signal.aborted && payload) {
-          setOptViewModel(payload.viewModel ?? null);
-        }
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, [projectId]);
+    let active = true;
+    void fetchOptimizationSnapshot(projectId, uiLanguage).then((payload) => {
+      if (active && payload) setOptViewModel(payload.viewModel ?? null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [projectId, uiLanguage]);
 
   useEffect(() => {
     if (!projectMenuOpen) return;

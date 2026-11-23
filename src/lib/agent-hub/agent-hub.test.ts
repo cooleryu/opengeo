@@ -333,3 +333,63 @@ test('AgentHub.mapReduce runs parallel shards with bounded concurrency, preserve
   assert.equal(mr.telemetry.completionTokens, 28);
   assert.ok(mr.progress.some((p) => p.message.includes('并发调度 4 个')));
 });
+
+test('model transport disables DeepSeek thinking in jsonMode and reports length cut-offs cleanly', async () => {
+  let seenBody: Record<string, unknown> | null = null;
+  const transport = createModelTransport({
+    provider: 'deepseek',
+    baseURL: 'https://api.deepseek.com',
+    apiKey: 'synthetic-key',
+    models: ['deepseek-flash'],
+    fetchImpl: async (_url: unknown, init?: RequestInit) => {
+      seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          model: 'deepseek-flash',
+          choices: [{ index: 0, finish_reason: 'length', message: { role: 'assistant', content: '{"partial":' } }],
+          usage: { prompt_tokens: 100, completion_tokens: 1200 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    },
+  });
+
+  await assert.rejects(
+    () => transport.complete({ messages: [{ role: 'user', content: 'return json' }], jsonMode: true, maxTokens: 1200 }),
+    /Model JSON was cut off/,
+  );
+  assert.deepEqual((seenBody as { thinking?: unknown } | null)?.thinking, { type: 'disabled' });
+});
+
+test('model transport enables DeepSeek thinking when req.thinking is true in jsonMode', async () => {
+  let seenBody: Record<string, unknown> | null = null;
+  const transport = createModelTransport({
+    provider: 'deepseek',
+    baseURL: 'https://api.deepseek.com',
+    apiKey: 'synthetic-key',
+    models: ['deepseek-flash'],
+    fetchImpl: async (_url: unknown, init?: RequestInit) => {
+      seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          model: 'deepseek-flash',
+          choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: '{"ok":true}' } }],
+          usage: { prompt_tokens: 100, completion_tokens: 240 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    },
+  });
+
+  const res = await transport.complete({
+    messages: [{ role: 'user', content: 'reason carefully and return json' }],
+    jsonMode: true,
+    thinking: true,
+    temperature: 0.3,
+    maxTokens: 8192,
+  });
+  assert.equal(res.message.content, '{"ok":true}');
+  assert.deepEqual((seenBody as { thinking?: unknown } | null)?.thinking, { type: 'enabled' });
+  assert.equal((seenBody as { temperature?: unknown } | null)?.temperature, undefined);
+  assert.equal((seenBody as { max_tokens?: number } | null)?.max_tokens, 16384);
+});

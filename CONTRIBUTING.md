@@ -34,4 +34,4 @@ Keep credentials, local project materials, and databases out of Git. Preserve `d
 - Run checks relevant to the behavior you changed, and state what you verified and what remains unverified.
 - Format only changed files. `npm run format:write` formats the whole repository, so avoid using it when it would rewrite unrelated work.
 - Keep API contracts and the relevant Agent documentation aligned with implementation changes.
-- Preserve the inherited [MIT license and copyright notices](LICENSE), and discuss issues and contributions respectfully.
+- Follow the repository's [MIT license](LICENSE), and discuss issues and contributions respectfully.

@@ -13,9 +13,9 @@ import type {
   ResearchQuestion,
   ResearchSource,
 } from '@/lib/geo/research-types';
+import { extractTopCompetitorLeaders } from '@/lib/geo/competitor-leaders';
 import {
   extractOverviewGapSources,
-  extractTopExternalCitedSources,
   getResearchMetrics,
   getResearchRows,
   isBrandPrompt,
@@ -422,23 +422,19 @@ export default function ProjectOverview({
     citation.yes === 0 &&
     mention.unknown === 0 &&
     citation.unknown === 0;
-  const overviewTopWinners = extractTopExternalCitedSources(
-    batch,
-    project,
-    activeLanguage,
-    4,
-  );
+  const topCompetitorLeaders = extractTopCompetitorLeaders(batch, project, {
+    language: activeLanguage,
+    engine: selectedEngine,
+    limit: 2,
+  });
   const overviewGapSources = extractOverviewGapSources(batch, project, {
     engine: selectedEngine,
     language: activeLanguage,
     limit: 5,
   });
 
-  // Deterministic 0-cost Peec Insights-style situation verdict
-  const topLeaderNames = overviewTopWinners
-    .slice(0, 2)
-    .map((w) => w.label)
-    .join(' & ');
+  // Deterministic 0-cost Peec Insights-style situation verdict (actual rival products, never youtube/reddit)
+  const topLeaderNames = topCompetitorLeaders.map((w) => w.label).join(' & ');
   const measuredPlatforms = platformStats.filter((p) => p.rate !== null);
   const sortedByRate = [...measuredPlatforms].sort(
     (a, b) => (b.rate ?? 0) - (a.rate ?? 0),
@@ -540,6 +536,9 @@ export default function ProjectOverview({
 
       {/* Layer 1: Peec Insights-Style 0-Cost Situation Verdict */}
       <OverviewInsightsHero
+        batch={batch}
+        project={project}
+        activeLanguage={activeLanguage}
         situationVerdict={situationVerdict}
         mention={mention}
         sourceOnly={sourceOnly}

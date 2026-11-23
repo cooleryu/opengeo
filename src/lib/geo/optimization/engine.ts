@@ -27,6 +27,7 @@ import {
   deliverableWriterAgent,
   optimizationStrategistAgent,
 } from './agents';
+import { loadActiveQuestionsWithPlanMeta, type EnrichedTargetQuestion } from './citation-landscape';
 import {
   appendRunProgress,
   computeRetestComparison,
@@ -392,7 +393,7 @@ async function produceReviewedDeliverable(params: {
   recordId: string;
   beforeContent: string;
   companionFiles?: DeliverableCompanionFile[];
-  targetQuestions: Array<{ id: string; queryZh: string; queryEn: string }>;
+  targetQuestions: EnrichedTargetQuestion[];
   targetLanguage: 'en' | 'zh';
   referenceWinners: ReferenceWinner[];
   baseRevisionRound: number;
@@ -744,14 +745,7 @@ export async function startOptimizationRun(
     );
     throwIfAborted();
 
-    const activeQuestions = withProjectDb(projectId, (db, id) => {
-      ensureProjectRelationalData(id, db);
-      return db
-        .prepare(
-          "SELECT id, query_zh AS queryZh, query_en AS queryEn FROM opengeo_questions WHERE project_id = ? AND status = 'active'",
-        )
-        .all(id) as Array<{ id: string; queryZh: string; queryEn: string }>;
-    });
+    const activeQuestions = loadActiveQuestionsWithPlanMeta(projectId);
     const questionLookup = new Map(activeQuestions.map((q) => [q.id, q]));
 
     const createdDeliverables = planRes.output.deliverables.map((planned) => {
@@ -804,7 +798,7 @@ export async function startOptimizationRun(
       throwIfAborted();
       const targetQuestions = planned.questionIds
         .map((qid) => questionLookup.get(qid))
-        .filter((q): q is { id: string; queryZh: string; queryEn: string } => Boolean(q));
+        .filter((q): q is EnrichedTargetQuestion => Boolean(q));
 
       if (run.status !== 'drafting') {
         run = transitionOptimizationRun(projectId, run.id, 'drafting', {
@@ -908,14 +902,7 @@ export async function resumeOptimizationRun(
     const targetLanguage =
       seed.project.targetLanguage ??
       resolveProjectTargetLanguage(seed.project, readRelationalOverview(projectId));
-    const activeQuestions = withProjectDb(projectId, (db, id) => {
-      ensureProjectRelationalData(id, db);
-      return db
-        .prepare(
-          "SELECT id, query_zh AS queryZh, query_en AS queryEn FROM opengeo_questions WHERE project_id = ? AND status = 'active'",
-        )
-        .all(id) as Array<{ id: string; queryZh: string; queryEn: string }>;
-    });
+    const activeQuestions = loadActiveQuestionsWithPlanMeta(projectId);
     const questionLookup = new Map(activeQuestions.map((q) => [q.id, q]));
 
     let lastVetoSummary: string | null = null;
@@ -926,7 +913,7 @@ export async function resumeOptimizationRun(
 
       const targetQuestions = record.questionIds
         .map((qid) => questionLookup.get(qid))
-        .filter((q): q is { id: string; queryZh: string; queryEn: string } => Boolean(q));
+        .filter((q): q is EnrichedTargetQuestion => Boolean(q));
 
       if (run.status !== 'drafting') {
         run = transitionOptimizationRun(projectId, run.id, 'drafting', {

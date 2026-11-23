@@ -12,6 +12,11 @@ import {
   listAvailableProjectMedia,
   localMediaPathExists,
 } from '../agents/project-tools';
+import {
+  buildOptimizationStrategicBrief,
+  formatWriterTargetQuestions,
+  type EnrichedTargetQuestion,
+} from './citation-landscape';
 import type { ReferenceWinner } from './types';
 
 const optimizationSkillParamsSchema = z.object({
@@ -169,6 +174,7 @@ export const optimizationStrategistAgent: AgentSpec<StrategistInput, StrategistO
           description: seed.project.description,
         },
         projectContext,
+        strategicBrief: buildOptimizationStrategicBrief(ctx.projectId, { targetLanguage: targetLang }),
       }),
     };
   },
@@ -223,7 +229,7 @@ export const optimizationStrategistAgent: AgentSpec<StrategistInput, StrategistO
 
 export interface WriterInput {
   deliverable: z.infer<typeof plannedDeliverableSchema>;
-  targetQuestions: Array<{ id: string; queryZh: string; queryEn: string }>;
+  targetQuestions: EnrichedTargetQuestion[];
   beforeContent: string;
   targetLanguage?: 'en' | 'zh';
   referenceWinners?: ReferenceWinner[];
@@ -300,9 +306,10 @@ export const deliverableWriterAgent: AgentSpec<WriterInput, WriterOutput> = {
           ].join('\n')
         : '';
     const structuralGuardrail = [
-      '## REFERENCE WINNERS & LENGTH GUARDRAIL',
+      '## REFERENCE WINNERS, SUB-QUESTIONS & LENGTH GUARDRAIL',
       '- Only adopt H2/opening structural patterns from `referenceWinners` whose `probeStatus !== "local_fallback"` and `headings.length > 0`. NEVER invent or claim structural patterns across winners marked `local_fallback`.',
       '- Ground all capabilities, product scope, and competitors strictly in `projectContext` and `referenceWinners`—never import another product’s features or assumptions.',
+      '- When `questionsToAddress` includes `subQuestionsToCover`, answer those specific buyer sub-questions naturally across your H2/H3 headings, comparison table rows, and FAQ—never print internal labels like "fan-out", "KD", "CPC", or "tactic" in the prose.',
       /readme/i.test(input.deliverable.destination)
         ? '- Target length for README updates: keep total length crisp and scannable (~650-1,100 words, ~4-6 min read max). Lead with sharp positioning and link out to dedicated docs instead of padding a 15-minute manual.'
         : '- Keep sections tight, scannable, and concrete—avoid repeating the same pitch across multiple headings.',
@@ -332,9 +339,7 @@ export const deliverableWriterAgent: AgentSpec<WriterInput, WriterOutput> = {
           localSnippet: w.localSnippet,
         })),
         deliverablePlan: input.deliverable,
-        questionsToAddress: input.targetQuestions.map((q) =>
-          targetLanguage === 'en' ? q.queryEn || q.queryZh : q.queryZh || q.queryEn,
-        ),
+        questionsToAddress: formatWriterTargetQuestions(input.targetQuestions, targetLanguage),
         ...(input.beforeContent ? { existingContentToEnhance: input.beforeContent } : {}),
         ...(input.draftToRevise ? { draftToRevise: input.draftToRevise } : {}),
         ...(input.revisionFeedback?.length
@@ -438,7 +443,7 @@ export interface ReviewerInput {
   beforeContent: string;
   afterContent: string;
   targetLanguage?: 'en' | 'zh';
-  targetQuestions?: Array<{ id: string; queryZh: string; queryEn: string }>;
+  targetQuestions?: EnrichedTargetQuestion[];
   referenceWinners?: ReferenceWinner[];
 }
 

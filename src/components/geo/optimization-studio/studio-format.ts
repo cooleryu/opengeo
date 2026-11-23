@@ -72,10 +72,11 @@ export interface ShippedHistoryEntry {
   deliverable?: OptimizationDeliverable;
 }
 
-/** Which outreach review the pop-up shows: the whole outside-site pack or one community post. */
+/** Which outreach review the pop-up shows: the whole outside-site pack or one item. */
 export type OutreachModalState =
   | null
   | { mode: 'external_pack' }
+  | { mode: 'external_item'; actionId: string }
   | { mode: 'community_item'; actionId: string };
 
 /** The draft open in the reader side panel. */

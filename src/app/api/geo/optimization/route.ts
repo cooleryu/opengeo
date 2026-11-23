@@ -18,6 +18,7 @@ import {
   previewPageFindingPatch,
   publishPageFindingsToGitHub,
   publishRepoDeliverablesToGitHub,
+  readLatestActionBoard,
   readLatestPageAudit,
   resumeOptimizationRun,
   runOptimizationRetest,
@@ -52,10 +53,14 @@ export async function GET(request: NextRequest) {
             title: nextOutreach.title,
             citedCount: nextOutreach.citedCount ?? 0,
             targetUrl: nextOutreach.targetUrl,
+            ...(nextOutreach.listingDraft?.listingType
+              ? { listingType: nextOutreach.listingDraft.listingType }
+              : {}),
           }
         : null;
       const pageAudit = readLatestPageAudit(projectId);
       const auditTargets = listAuditableTargets(projectId);
+      const actionBoard = readLatestActionBoard(projectId);
       const shippedTimestamps = [
         ...runs.flatMap((r) =>
           r.status === 'failed'
@@ -74,7 +79,17 @@ export async function GET(request: NextRequest) {
       const latestShippedAt = shippedTimestamps[0] ?? null;
 
       return NextResponse.json(
-        { projectId, viewModel, runs, topNextOutreach, latestShippedAt, pageAudit, auditTargets },
+        {
+          projectId,
+          viewModel,
+          runs,
+          outreachActions,
+          topNextOutreach,
+          latestShippedAt,
+          pageAudit,
+          auditTargets,
+          actionBoard,
+        },
         { headers: { 'Cache-Control': 'no-store' } },
       );
     });

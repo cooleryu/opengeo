@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { improvementModelSettings, loadImprovementModel } from './improvement-model';
 import { z } from 'zod';
-import SessionManager from '@/lib/session';
-import type { WidgetBlock } from '@/lib/types';
 import type { GenerateObjectInput } from '@/lib/models/types';
-import type { AssetGovernanceRecord, GeoTask, GeoSeed, GeoProposal } from './types';
+import type { AssetGovernanceRecord, GeoTask, GeoSeed, GeoProposal, GeoWidgetBlock } from './types';
 import type { GeoDiagnosis, GeoWorkflow, QualityLoop, QualityReview, StrategyMemory } from './workflow-types';
 import { buildDiagnosisContext, localDiagnosis, validateDiagnosis, validateProposal, readRegisteredEvidence, type DiagnosisContext } from './diagnosis';
 import { resolveAssetOwnership } from './asset-ownership';
@@ -315,8 +313,7 @@ function previewLoop(proposal: GeoProposal, seed: GeoSeed, context: DiagnosisCon
 }
 
 function makeBlocks(proposal: GeoProposal, diagnosis: GeoDiagnosis, quality: QualityLoop,
-  context: DiagnosisContext, appliedStrategyIds: string[]): WidgetBlock[] {
-  const session = SessionManager.createSession();
+  context: DiagnosisContext, appliedStrategyIds: string[]): GeoWidgetBlock[] {
   const params: Record<string, Record<string, unknown>> = {
     evidence_summary: { title: '本轮观测与诊断', summary: diagnosis.summary, findings: diagnosis.findings,
       diagnosis, observation: context.savedResearch ?? context.baseline, sourceLabel: diagnosis.source === 'model' ? context.savedResearch ? '基于已保存证据的内容比较' : '基于本轮真实证据诊断' : '本地预览 · 尚未通过审核',
@@ -328,16 +325,17 @@ function makeBlocks(proposal: GeoProposal, diagnosis: GeoDiagnosis, quality: Qua
       mode: context.questions.some(question => question.answer) ? 'live' : 'replay',
       costNote: '采集费用预留，模型生成与审核另计；不作为供应商账单。' },
   };
-  for (const [widgetType, value] of Object.entries(params)) session.emitBlock({ id: randomUUID(), type: 'widget', data: { widgetType, params: value } });
-  const blocks = session.getAllBlocks().filter((block): block is WidgetBlock => block.type === 'widget');
-  session.emit('end', {}); session.removeAllListeners();
-  return blocks;
+  return Object.entries(params).map(([widgetType, value]) => ({
+    id: randomUUID(),
+    type: 'widget',
+    data: { widgetType, params: value },
+  }));
 }
 
 export type TaskPlanProgress = { phase: 'comparing' | 'drafting' | 'reviewing' | 'revising'; message: string };
 export async function buildTaskPlan(task: GeoTask, seed: GeoSeed, strategies: StrategyMemory[] = [],
   onProgress?: (progress: TaskPlanProgress) => void): Promise<{
-  proposal: GeoProposal; blocks: WidgetBlock[]; source: 'evidence' | 'model'; diagnosis: GeoDiagnosis;
+  proposal: GeoProposal; blocks: GeoWidgetBlock[]; source: 'evidence' | 'model'; diagnosis: GeoDiagnosis;
   quality: QualityLoop; appliedStrategyIds: string[];
 }> {
   seed = taskMaterialSeed(task, seed);
@@ -414,7 +412,7 @@ export function canContinueTaskRevision(task: GeoTask): boolean {
 
 /** Continue the exact reviewed draft; neither search nor diagnosis is repeated. */
 export async function continueTaskRevision(task: GeoTask, seed: GeoSeed, strategies: StrategyMemory[],
-  maxAdditionalRounds: number, assertActive: () => void): Promise<{ proposal: GeoProposal; quality: QualityLoop; blocks: WidgetBlock[] }> {
+  maxAdditionalRounds: number, assertActive: () => void): Promise<{ proposal: GeoProposal; quality: QualityLoop; blocks: GeoWidgetBlock[] }> {
   if (!canContinueTaskRevision(task)) throw new Error('当前稿没有可继续使用的未通过审核，请先保存并复检当前版本。');
   seed = taskMaterialSeed(task, seed);
   const context = buildTaskDiagnosisContext(task, seed, strategies);

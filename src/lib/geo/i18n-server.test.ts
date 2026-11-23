@@ -164,4 +164,20 @@ test('localizeOnboardingRecord and localizeBrowserCollectSnapshot translate code
   };
   assert.equal(localizeBrowserCollectSnapshot(codedSnap, 'en').message, 'Asking ChatGPT (2/8)');
   assert.match(localizeBrowserCollectSnapshot(codedSnap, 'zh').message, /ChatGPT.*2\/8/);
+
+  const zhDetailSnap: BrowserCollectJobSnapshot = {
+    ...codedSnap,
+    status: 'failed',
+    errorCode: 'collect_failed',
+    errorParams: { exitCode: 1 },
+    errorDetail: '没有取得可用回答：页面状态未知',
+  };
+  assert.equal(localizeBrowserCollectSnapshot(zhDetailSnap, 'en').errorDetail, null);
+  assert.equal(localizeBrowserCollectSnapshot(zhDetailSnap, 'zh').errorDetail, '没有取得可用回答：页面状态未知');
+
+  const enDetailSnap: BrowserCollectJobSnapshot = {
+    ...zhDetailSnap,
+    errorDetail: 'Selector timed out',
+  };
+  assert.equal(localizeBrowserCollectSnapshot(enDetailSnap, 'en').errorDetail, 'Selector timed out');
 });

@@ -423,7 +423,7 @@ export async function selectAndProbeReferenceWinners(
     ensureProjectRelationalData(id, db);
     const rows = db
       .prepare(
-        `SELECT o.question_id, q.category AS question_category, o.engine, o.language, o.summary, o.answer_path, o.evidence_path, o.sources_json
+        `SELECT o.question_id, q.category AS question_category, q.status AS question_status, o.engine, o.language, o.summary, o.answer_path, o.evidence_path, o.sources_json
          FROM opengeo_observations o
          LEFT JOIN opengeo_questions q ON q.project_id = o.project_id AND q.id = o.question_id
          WHERE o.project_id = ? AND o.engine IN ('chatgpt', 'google')
@@ -432,6 +432,7 @@ export async function selectAndProbeReferenceWinners(
       .all(id) as Array<{
       question_id: string;
       question_category: string | null;
+      question_status: string | null;
       engine: ResearchEngine;
       language: 'en' | 'zh';
       summary: string;
@@ -440,7 +441,18 @@ export async function selectAndProbeReferenceWinners(
       sources_json: string;
     }>;
 
-    const parsedRows = rows.map((row) => ({
+    // Scope strictly to active questions (when present) and deduplicate to latest observation per (question, engine, language).
+    const hasActiveRows = rows.some((r) => r.question_status === 'active');
+    const seenObsKeys = new Set<string>();
+    const scopedRows = rows.filter((row) => {
+      if (hasActiveRows && row.question_status !== 'active') return false;
+      const obsKey = `${row.question_id}:${row.engine}:${row.language}`;
+      if (seenObsKeys.has(obsKey)) return false;
+      seenObsKeys.add(obsKey);
+      return true;
+    });
+
+    const parsedRows = scopedRows.map((row) => ({
       row,
       sources: parseSourcesJson(row.sources_json),
     }));

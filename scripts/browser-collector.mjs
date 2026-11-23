@@ -101,9 +101,21 @@ export async function waitForQuietPage(page, { minMs = 8000, quietMs = 6000, max
   return false;
 }
 
-async function askQuestion(page, query, humanPause) {
-  if (!(await page.evaluate(markInputBox))) return false;
-  await page.click('[data-opengeo-input="1"]');
+async function askQuestion(page, query, humanPause, { maxAttempts = 3, retryMs = 1200 } = {}) {
+  let clicked = false;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (await page.evaluate(markInputBox)) {
+      try {
+        await page.click('[data-opengeo-input="1"]', { timeout: 5000 });
+        clicked = true;
+        break;
+      } catch {
+        // SPA hydration (e.g. React/ProseMirror) can replace the node or drop the temporary attribute; re-mark and retry.
+      }
+    }
+    if (attempt < maxAttempts && retryMs > 0) await sleep(retryMs);
+  }
+  if (!clicked) return false;
   if (humanPause) await jitter(500, 1100);
   await page.keyboard.insertText(query);
   if (humanPause) await jitter(600, 1300);
@@ -111,8 +123,23 @@ async function askQuestion(page, query, humanPause) {
   return true;
 }
 
+async function fetchLocal(url, init, retries = 1) {
+  let lastError;
+  for (let i = 0; i <= retries; i += 1) {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      lastError = error;
+      if (i < retries) await sleep(1500);
+    }
+  }
+  const cause = lastError?.cause?.code || lastError?.cause?.message || '';
+  const detail = cause ? ` (${cause})` : '';
+  throw new Error(`${lastError?.message ?? 'fetch failed'}${detail}`);
+}
+
 async function readPage(input, snapshot, attempt) {
-  const response = await fetch(`${input.base}/api/geo/browser-pages`, {
+  const response = await fetchLocal(`${input.base}/api/geo/browser-pages`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: input.base },
     body: JSON.stringify({ projectId: input.projectId, batchId: input.batchId, questionId: input.questionId,
       captureId: input.captureId, attempt, query: input.query, language: input.language, engine: input.engine, ...snapshot }),
@@ -144,7 +171,9 @@ export async function collectBrowserQuestion(task, input, { maxReads = 5, quiet 
     if (engine.requireSignIn && (await page.evaluate(signInShown))) {
       throw taggedError(`${engine.label} 需要先登录账号，请在打开的浏览器窗口登录后点击继续。`, 'NEEDS_HUMAN_HANDOFF');
     }
-    if (!(await askQuestion(page, input.query, input.humanPause))) console.log('页面上没有输入框，交给 AI 判断页面状态…');
+    if (!(await askQuestion(page, input.query, input.humanPause, { retryMs: quiet.inputRetryMs ?? quiet.retryMs ?? 1200 }))) {
+      console.log('页面上没有可点击的输入框，交给 AI 判断页面状态…');
+    }
   }
 
   let lastNote = '';
@@ -188,7 +217,7 @@ export async function submitBrowserCapture(input, payload) {
   const directory=path.join(input.root,'data','browser-captures');
   const captureFile=path.join(directory,`${payload.captureId}.json`);
   console.log('回答已采集，正在自动分析并保存…');
-  const response=await fetch(`${input.base}/api/geo/browser-observations`,{
+  const response=await fetchLocal(`${input.base}/api/geo/browser-observations`,{
     method:'POST',headers:{'Content-Type':'application/json',Origin:input.base},body:JSON.stringify(payload),
     signal:AbortSignal.timeout(300000),
   });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   BookOpen,
@@ -16,6 +16,10 @@ import {
 import type { HumanProgressStep } from '@/lib/agent-hub';
 import type { OptimizationRunStatus } from '@/lib/geo/db/schema';
 import { inferContentLang } from '@/lib/geo/i18n';
+import {
+  fetchOptimizationSnapshot,
+  readCachedOptimizationSnapshot,
+} from '@/lib/geo/optimization-client-cache';
 import type { OptimizationRunViewModel } from '@/lib/geo/optimization/types';
 import {
   estimateReadingMinutes,
@@ -26,21 +30,20 @@ import {
   getDeliverableRoleLabel,
 } from './DeliverableArticleView';
 import { useChineseCompanionPreference, useUiLanguage } from './UiLanguageContext';
+import {
+  formatNextOutreachCta,
+  formatNextOutreachHeadline,
+  type HeroNextOutreach,
+} from './optimization-hero-copy';
 import './optimization-hero-card.css';
+
+export type { HeroNextOutreach };
 
 export interface HeroCitedSource {
   key: string;
   label: string;
   url: string;
   questionCount: number;
-}
-
-export interface HeroNextOutreach {
-  id: string;
-  kind: 'awesome_pr' | 'repo_meta' | 'community_post';
-  title: string;
-  citedCount: number;
-  targetUrl: string;
 }
 
 export interface OptimizationHeroCardProps {
@@ -155,11 +158,18 @@ export default function OptimizationHeroCard({
   const visibleCitedSources = hideCitedStrip ? [] : topCitedSources;
   const [includeChineseCompanion, setIncludeChineseCompanion] =
     useChineseCompanionPreference();
-  const [viewModel, setViewModel] = useState<OptimizationRunViewModel | null>(null);
-  const [topNextOutreach, setTopNextOutreach] = useState<HeroNextOutreach | null>(null);
-  const [latestShippedAt, setLatestShippedAt] = useState<string | null>(null);
+  const cachedHero = readCachedOptimizationSnapshot(projectId, uiLanguage);
+  const [viewModel, setViewModel] = useState<OptimizationRunViewModel | null>(
+    cachedHero?.viewModel ?? null,
+  );
+  const [topNextOutreach, setTopNextOutreach] = useState<HeroNextOutreach | null>(
+    cachedHero?.topNextOutreach ?? null,
+  );
+  const [latestShippedAt, setLatestShippedAt] = useState<string | null>(
+    cachedHero?.latestShippedAt ?? null,
+  );
   const [mountNowMs, setMountNowMs] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedHero?.viewModel);
   const [streamingStatus, setStreamingStatus] = useState<OptimizationRunStatus | null>(null);
   const [streamingSteps, setStreamingSteps] = useState<HumanProgressStep[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -174,20 +184,11 @@ export default function OptimizationHeroCard({
   }, []);
 
   const loadStatus = useCallback(
-    async (signal?: AbortSignal) => {
+    async (isCancelled?: () => boolean, force = false) => {
       if (!projectId) return;
       try {
-        const res = await fetch(
-          `/api/geo/optimization?project=${encodeURIComponent(projectId)}&lang=${uiLanguage}`,
-          { cache: 'no-store', signal },
-        );
-        if (!res.ok) return;
-        const payload = (await res.json()) as {
-          viewModel?: OptimizationRunViewModel;
-          topNextOutreach?: HeroNextOutreach | null;
-          latestShippedAt?: string | null;
-        };
-        if (signal?.aborted) return;
+        const payload = await fetchOptimizationSnapshot(projectId, uiLanguage, { force });
+        if (!payload || isCancelled?.()) return;
         const nextVm = payload.viewModel ?? null;
         setViewModel(nextVm);
         if (payload.topNextOutreach !== undefined) {
@@ -197,22 +198,30 @@ export default function OptimizationHeroCard({
           setLatestShippedAt(payload.latestShippedAt);
         }
         statusCallbackRef.current?.(nextVm);
-      } catch {
-        // Keep last loaded state on transient network errors
       } finally {
-        if (!signal?.aborted) setLoading(false);
+        if (!isCancelled?.()) setLoading(false);
       }
     },
     [projectId, uiLanguage],
   );
 
   useEffect(() => {
-    setLoading(true);
+    const cached = readCachedOptimizationSnapshot(projectId, uiLanguage);
+    if (cached?.viewModel) {
+      setViewModel(cached.viewModel);
+      if (cached.topNextOutreach !== undefined) setTopNextOutreach(cached.topNextOutreach);
+      if (cached.latestShippedAt !== undefined) setLatestShippedAt(cached.latestShippedAt);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError('');
-    const controller = new AbortController();
-    void loadStatus(controller.signal);
-    return () => controller.abort();
-  }, [loadStatus]);
+    let cancelled = false;
+    void loadStatus(() => cancelled);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadStatus, projectId, uiLanguage]);
 
   const run = viewModel?.run ?? null;
   const effectiveStatus = streamingStatus ?? run?.status ?? null;
@@ -226,7 +235,7 @@ export default function OptimizationHeroCard({
   useEffect(() => {
     if (!isWorking || submitting) return;
     const id = setInterval(() => {
-      void loadStatus();
+      void loadStatus(undefined, true);
     }, 3000);
     return () => clearInterval(id);
   }, [isWorking, submitting, loadStatus]);
@@ -299,7 +308,7 @@ export default function OptimizationHeroCard({
           }
         }
       }
-      await loadStatus();
+      await loadStatus(undefined, true);
     } catch (err) {
       setError(
         err instanceof Error
@@ -649,99 +658,6 @@ export default function OptimizationHeroCard({
     );
   }
 
-  // 3. Awaiting retest & Completed helpers (action-type-aware copy + post-indexing retest trigger)
-  const formatNextOutreachCta = (next: HeroNextOutreach | null): ReactNode => {
-    if (!next) return isEn ? 'Open Action Plan' : '查看行动计划';
-    if (next.kind === 'awesome_pr') {
-      return isEn ? (
-        <>
-          Next: Submit PR to <span data-i18n-skip="">{next.title}</span>
-        </>
-      ) : (
-        <>
-          下一步：向 <span data-i18n-skip="">{next.title}</span> 提榜单 PR
-        </>
-      );
-    }
-    if (next.kind === 'repo_meta') {
-      return isEn ? 'Next: Sync GitHub About & Topics' : '下一步：补齐 GitHub 仓库简介与标签';
-    }
-    if (next.id.startsWith('post:thread:')) {
-      return isEn ? (
-        <>
-          Next: Reply in <span data-i18n-skip="">{next.title}</span>
-        </>
-      ) : (
-        '下一步：参与高引用讨论'
-      );
-    }
-    return isEn ? (
-      <>
-        Next: Share on <span data-i18n-skip="">{next.title}</span>
-      </>
-    ) : (
-      <>
-        下一步：前往「<span data-i18n-skip="">{next.title}</span>」发布分享
-      </>
-    );
-  };
-
-  const formatNextOutreachHeadline = (
-    next: HeroNextOutreach,
-    stage: 'awaiting' | 'indexing' | 'post_window',
-  ): ReactNode => {
-    const titleNode = <span data-i18n-skip="">{next.title}</span>;
-    const prefix = isEn
-      ? stage === 'awaiting'
-        ? 'Docs are live'
-        : stage === 'indexing'
-          ? 'Recent updates are still indexing'
-          : 'No lift yet'
-      : stage === 'awaiting'
-        ? '内容已上线'
-        : stage === 'indexing'
-          ? '最近上线的内容还在收录期内'
-          : '暂未新增提及';
-
-    if (next.kind === 'awesome_pr') {
-      return isEn ? (
-        stage === 'awaiting' ? (
-          <>Docs are live — next, submit your PR to {titleNode}</>
-        ) : stage === 'indexing' ? (
-          <>Recent updates are still indexing — next, submit a PR to {titleNode}</>
-        ) : (
-          <>No lift yet — next, submit your PR to {titleNode}</>
-        )
-      ) : stage === 'awaiting' ? (
-        <>内容已上线，趁收录期间先提交「{titleNode}」榜单 PR</>
-      ) : stage === 'indexing' ? (
-        <>最近上线的内容还在收录期内；这期间先去提交「{titleNode}」PR</>
-      ) : (
-        <>暂未新增提及；下一步先提「{titleNode}」榜单 PR</>
-      );
-    }
-
-    if (next.kind === 'repo_meta') {
-      return isEn
-        ? `${prefix} — next, sync your GitHub repo description & topics`
-        : `${prefix}；下一步先补齐 GitHub 仓库简介与标签`;
-    }
-
-    if (next.id.startsWith('post:thread:')) {
-      return isEn ? (
-        <>{prefix} — next, join cited thread &ldquo;{titleNode}&rdquo;</>
-      ) : (
-        <>{prefix}；下一步可参与高引用讨论「{titleNode}」</>
-      );
-    }
-
-    return isEn ? (
-      <>{prefix} — next, share on {titleNode}</>
-    ) : (
-      <>{prefix}；下一步可去「{titleNode}」发布分享</>
-    );
-  };
-
   const triggerPostIndexingRetest = async (runId: string) => {
     if (startingRetest || !projectId) return;
     setStartingRetest(true);
@@ -766,7 +682,7 @@ export default function OptimizationHeroCard({
         );
       }
       window.dispatchEvent(new Event('focus'));
-      await loadStatus();
+      await loadStatus(undefined, true);
     } catch (err) {
       setError(
         err instanceof Error
@@ -808,7 +724,7 @@ export default function OptimizationHeroCard({
                   ? `${unpushedLocalCount} local draft(s) ready to push to GitHub`
                   : `已采用 ${unpushedLocalCount} 套本地文档，尚未推送到 GitHub 线上仓库`
                 : topNextOutreach
-                  ? formatNextOutreachHeadline(topNextOutreach, 'awaiting')
+                  ? formatNextOutreachHeadline(topNextOutreach, 'awaiting', isEn)
                   : isEn
                     ? 'Updates are live — wait 3–7 days for indexing before retesting'
                     : '新内容已上线，建议等待 3～7 天收录后再按原题复测'}
@@ -834,7 +750,7 @@ export default function OptimizationHeroCard({
                 ? isEn
                   ? 'Push docs to GitHub'
                   : '前往行动计划推送'
-                : formatNextOutreachCta(topNextOutreach)}
+                : formatNextOutreachCta(topNextOutreach, isEn)}
             </span>
             <ArrowRight size={16} />
           </button>
@@ -894,7 +810,7 @@ export default function OptimizationHeroCard({
               </div>
               <h2 className="ohc-headline">
                 {topNextOutreach
-                  ? formatNextOutreachHeadline(topNextOutreach, 'indexing')
+                  ? formatNextOutreachHeadline(topNextOutreach, 'indexing', isEn)
                   : isEn
                     ? 'Updates are still inside the 3–7 day search indexing window'
                     : '新内容仍在搜索引擎收录观察期内，满 3～7 天后再重测更有意义'}
@@ -911,7 +827,7 @@ export default function OptimizationHeroCard({
               className="ohc-cta-primary"
               onClick={() => onOpenStudio(run.id)}
             >
-              <span>{formatNextOutreachCta(topNextOutreach)}</span>
+              <span>{formatNextOutreachCta(topNextOutreach, isEn)}</span>
               <ArrowRight size={16} />
             </button>
           </div>
@@ -1010,7 +926,7 @@ export default function OptimizationHeroCard({
                   ? 'Before vs after comparison shows movement'
                   : '已完成改进前后的同题表现对比'
                 : topNextOutreach
-                  ? formatNextOutreachHeadline(topNextOutreach, 'post_window')
+                  ? formatNextOutreachHeadline(topNextOutreach, 'post_window', isEn)
                   : isEn
                     ? 'No mention or citation lift yet'
                     : '本轮上线并复测后，暂未出现新增提及或引用'}
@@ -1041,7 +957,7 @@ export default function OptimizationHeroCard({
                 ? isEn
                   ? 'Open Action Plan'
                   : '查看行动计划'
-                : formatNextOutreachCta(topNextOutreach)}
+                : formatNextOutreachCta(topNextOutreach, isEn)}
             </span>
             <ArrowRight size={16} />
           </button>

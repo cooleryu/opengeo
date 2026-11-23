@@ -11,6 +11,7 @@ import type { GeoStructuredModel } from './connection-settings';
 import { getChatGPTStatus } from './chatgpt-auth';
 import ChatGPTModel from './chatgpt-model';
 import { buildSetReviewContext, resolveRepairQuote, snapCandidateEvidenceQuotes } from './question-planner-helpers';
+import { demandSignalSchema, demandStatusSchema, tacticSchema } from './market-question-schemas';
 
 const callOptionsSchema = z.object({
   temperature: z.number().min(0).max(2), maxTokens: z.number().int().positive(),
@@ -141,13 +142,12 @@ function cleanSetReview(context: unknown) {
 
 const candidateSchema = draftSchema.extend({
   id: z.string().min(1).max(180), origin: z.enum(['existing', 'curated', 'model', 'manual']),
-  queryEn: z.string().trim().min(3).max(300).optional(),
-  originalQuestionId: z.string().max(160).optional(),
-  sourceQuestionId: z.string().min(1).max(160).optional(),
-  sourceResearchBatchId: z.string().min(1).max(180).optional(),
-  supersedesCandidateId: z.string().min(1).max(180).optional(),
-  supersededByCandidateId: z.string().min(1).max(180).optional(),
-  demandStatus: z.literal('unverified'), review: reviewSchema.extend({
+  queryEn: z.string().trim().min(3).max(300).optional(), originalQuestionId: z.string().max(160).optional(),
+  sourceQuestionId: z.string().min(1).max(160).optional(), sourceResearchBatchId: z.string().min(1).max(180).optional(),
+  supersedesCandidateId: z.string().min(1).max(180).optional(), supersededByCandidateId: z.string().min(1).max(180).optional(),
+  demandStatus: demandStatusSchema, demandSignals: z.array(demandSignalSchema).max(12).optional(),
+  fanoutQueries: z.array(z.string().trim().min(2).max(200)).max(8).optional(), tactic: tacticSchema.optional(),
+  review: reviewSchema.extend({
     source: z.enum(['manual', 'model', 'curated']).optional(),
     status: z.enum(['pending', 'reviewed']).optional(), reviewedAt: z.string().datetime().optional(),
     assessment: assessmentSchema.optional(),
@@ -482,7 +482,7 @@ function validateModelReview(review: z.infer<typeof reviewSchema> & { assessment
   for (const evidence of assessment.evidence) {
     if (!providedEvidence(evidence, context, candidates)) throw new EvidenceQuoteError('复评引用了未提供的材料原文，不能保存。', candidateId, evidence);
   }
-  if (assessment.worthPursuing.demandBasis === 'public-observation' && !assessment.evidence.length) throw new Error('公开观测的需求依据必须附材料原文；推导不能冒充公开观测。');
+  if (assessment.worthPursuing.demandBasis === 'public-observation' && !assessment.evidence.length && !candidates.some(c => c.id === candidateId && (c as { demandSignals?: unknown[] }).demandSignals?.length)) throw new Error('公开观测的需求依据必须附材料原文；推导不能冒充公开观测。');
   if (assessment.currentSupport.level !== 'unverified' && !assessment.evidence.length) throw new Error('确认承接程度必须附材料原文；没有依据时应保留为尚未核实。');
   if (assessment.currentSupport.level !== 'supported' && !assessment.gaps.length) throw new Error('承接不足或尚未核实的复评必须说明具体缺口。');
 }

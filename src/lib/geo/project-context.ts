@@ -2,6 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { resolveAssetOwnership } from './asset-ownership';
 import { projectDatabasePath, readRelationalResearchBatch } from './db';
+import {
+  buildOptimizationStrategicBrief,
+  formatCitationLandscapeForContext,
+  listWorkspaceRepoDocs,
+} from './optimization/citation-landscape';
 import { loadProjectSeed, readRuntimeProjects } from './project-data';
 import { projectDataDirectory, withGeoProject } from './projects';
 import { extractTopExternalCitedSources } from './research-view';
@@ -48,8 +53,42 @@ export function synthesizeProjectContextMarkdown(projectId: string): string {
   if (project.description?.trim()) lines.push(`- Summary: ${project.description.trim()}`);
   lines.push('');
 
+  const liveWorkspaceDocs = listWorkspaceRepoDocs(project);
+  let liveReadmeExcerpt = '';
+  if (liveWorkspaceDocs.includes('README.md')) {
+    try {
+      const readmeAbs = path.resolve(process.cwd(), 'README.md');
+      if (fs.existsSync(readmeAbs)) {
+        const rawReadme = fs
+          .readFileSync(readmeAbs, 'utf8')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/[ \t]+/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+        if (rawReadme.length >= 200) {
+          liveReadmeExcerpt = rawReadme.slice(0, 3200);
+        }
+      }
+    } catch {
+      // Non-fatal if workspace README cannot be read
+    }
+  }
+
+  if (liveReadmeExcerpt) {
+    lines.push('## Current Live README (Authoritative Product Facts)');
+    lines.push(liveReadmeExcerpt);
+    lines.push('');
+  }
+
   if (onboarding) {
-    lines.push('## Onboarding Understanding');
+    const capturedAt =
+      (onboarding as { updatedAt?: string; createdAt?: string }).updatedAt ??
+      (onboarding as { createdAt?: string }).createdAt;
+    lines.push(
+      capturedAt
+        ? `## Onboarding Understanding (captured ${capturedAt.slice(0, 10)})`
+        : '## Onboarding Understanding',
+    );
     lines.push(`- Entry Kind: ${onboarding.kind}`);
     if (onboarding.notes?.trim()) {
       lines.push(`- Maintainer Notes: ${onboarding.notes.trim()}`);
@@ -61,13 +100,13 @@ export function synthesizeProjectContextMarkdown(projectId: string): string {
       if (onboarding.analysis.audience?.trim()) {
         lines.push(`- Target Audience: ${onboarding.analysis.audience.trim()}`);
       }
-      if (onboarding.analysis.capabilities?.length) {
+      if (!liveReadmeExcerpt && onboarding.analysis.capabilities?.length) {
         lines.push('- Verified Capabilities:');
         for (const cap of onboarding.analysis.capabilities) {
           if (cap?.trim()) lines.push(`  - ${cap.trim()}`);
         }
       }
-      if (onboarding.analysis.unknowns?.length) {
+      if (!liveReadmeExcerpt && onboarding.analysis.unknowns?.length) {
         lines.push('- Unverified / Scope Boundaries (do NOT fabricate or overclaim):');
         for (const item of onboarding.analysis.unknowns) {
           if (item?.trim()) lines.push(`  - ${item.trim()}`);
@@ -97,35 +136,50 @@ export function synthesizeProjectContextMarkdown(projectId: string): string {
   const ownedAssets = seed.assets.filter(
     (asset) => resolveAssetOwnership(asset, seed).ownership === 'owned',
   );
-  if (ownedAssets.length > 0) {
+  if (ownedAssets.length > 0 || liveWorkspaceDocs.length > 0) {
     lines.push('## Owned Content Assets');
     for (const asset of ownedAssets.slice(0, 12)) {
       const linkPart = asset.publicUrl ? ` (${asset.publicUrl})` : '';
       const summaryPart = asset.summary?.trim() ? ` — ${asset.summary.trim()}` : '';
       lines.push(`- ${asset.title} [${asset.type}]${linkPart}${summaryPart}`);
     }
+    for (const relDoc of liveWorkspaceDocs) {
+      if (!ownedAssets.some((a) => (a.publicUrl ?? '').endsWith(`/${relDoc}`))) {
+        lines.push(`- ${relDoc} [workspace-doc] — present in current local repository`);
+      }
+    }
     lines.push('');
   }
 
+  let landscapeLines: string[] = [];
   let topCited: ReturnType<typeof extractTopExternalCitedSources> = [];
   try {
     const dbPath = projectDatabasePath(projectId);
     if (fs.existsSync(dbPath)) {
-      const batch = readRelationalResearchBatch(projectId);
-      if (batch) {
-        topCited = extractTopExternalCitedSources(
-          batch,
-          project,
-          project.targetLanguage ?? 'en',
-          6,
-        );
+      const brief = buildOptimizationStrategicBrief(projectId, {
+        targetLanguage: project.targetLanguage ?? 'en',
+      });
+      landscapeLines = formatCitationLandscapeForContext(brief);
+      if (landscapeLines.length === 0) {
+        const batch = readRelationalResearchBatch(projectId);
+        if (batch) {
+          topCited = extractTopExternalCitedSources(
+            batch,
+            project,
+            project.targetLanguage ?? 'en',
+            6,
+          );
+        }
       }
     }
   } catch {
     // Non-fatal if DB or relational batch is absent
   }
 
-  if (topCited.length > 0) {
+  if (landscapeLines.length > 0) {
+    lines.push('## Observed AI-Cited Competitors & External Sources');
+    lines.push(...landscapeLines);
+  } else if (topCited.length > 0) {
     lines.push('## Observed AI-Cited Competitors & External Sources');
     for (const src of topCited) {
       lines.push(`- ${src.label} (${src.url}) — cited across ${src.questionCount} prompt(s)`);

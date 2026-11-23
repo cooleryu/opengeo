@@ -20,19 +20,14 @@
 .og-app * {
   box-sizing: border-box;
 }
-.og-app h1,
-.og-app h2,
-.og-app h3,
-.og-app p {
+/* Element resets carry zero specificity, so any component class wins over them. */
+:where(.og-app) :where(h1, h2, h3, p) {
   margin: 0;
 }
-.og-app button,
-.og-app input,
-.og-app select,
-.og-app textarea {
+:where(.og-app) :where(button, input, select, textarea) {
   font: inherit;
 }
-.og-app button {
+:where(.og-app) :where(button) {
   cursor: pointer;
   border: 0;
   background: none;
@@ -42,11 +37,11 @@
   cursor: not-allowed;
   opacity: 0.45;
 }
-.og-app a {
+:where(.og-app) :where(a) {
   color: inherit;
   text-decoration: none;
 }
-.og-app svg {
+:where(.og-app) :where(svg) {
   flex-shrink: 0;
   stroke-width: 1.7;
 }
@@ -56,11 +51,11 @@
   outline: 2px solid var(--blue);
   outline-offset: 4px;
 }
-.og-app details > summary {
+:where(.og-app) :where(details > summary) {
   cursor: pointer;
   list-style: none;
 }
-.og-app details > summary::-webkit-details-marker {
+:where(.og-app details > summary)::-webkit-details-marker {
   display: none;
 }
 .og-app ::selection {

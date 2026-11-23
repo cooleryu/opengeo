@@ -6,7 +6,7 @@ import {
   GeoSettingsError,
   shouldUseChatGPTSubscription,
 } from '../geo/connection-settings';
-import { createLanguageModel } from '../models/ai-sdk';
+import { createLanguageModel, structuredProviderOptions } from '../models/ai-sdk';
 import type { ModelProviderId } from '../models/providers';
 import type { ChatMessage, LLMCompletionRequest, LLMCompletionResult, LLMTransport, ToolCallRequest } from './types';
 
@@ -73,14 +73,23 @@ export function createModelTransport(config: ModelTransportConfig): LLMTransport
         const start = Date.now();
         try {
           const languageModel = createLanguageModel({ provider: config.provider, baseURL: config.baseURL, apiKey: config.apiKey, model }, config.fetchImpl);
+          const useDeepSeekThinking = Boolean(req.jsonMode && !tools && req.thinking && config.provider === 'deepseek');
+          const providerOptions =
+            req.jsonMode && !tools
+              ? useDeepSeekThinking
+                ? { deepseek: { thinking: { type: 'enabled' as const } } }
+                : structuredProviderOptions[config.provider as keyof typeof structuredProviderOptions]
+              : undefined;
+          const maxOutputTokens = useDeepSeekThinking ? Math.max(req.maxTokens ?? 16384, 16384) : req.maxTokens;
           const call = () => generateText({
             model: languageModel,
             messages: toSdkMessages(req.messages),
             allowSystemInMessages: true,
             tools,
             ...(req.jsonMode && !tools ? { output: Output.json() } : {}),
-            temperature: req.temperature,
-            maxOutputTokens: req.maxTokens,
+            ...(providerOptions ? { providerOptions } : {}),
+            ...(!useDeepSeekThinking && req.temperature !== undefined ? { temperature: req.temperature } : {}),
+            maxOutputTokens,
             maxRetries: 0,
             abortSignal: controller.signal,
           });
@@ -89,8 +98,11 @@ export function createModelTransport(config: ModelTransportConfig): LLMTransport
             try {
               result = await call();
             } catch (callError) {
-              // Invalid JSON goes back to the hub as text: its correction turn handles it.
+              // Truncated JSON is a token-limit cut-off, not a formatting slip; invalid JSON goes back to the hub for repair.
               if (NoObjectGeneratedError.isInstance(callError)) {
+                if (callError.finishReason === 'length') {
+                  throw new Error(`Model JSON was cut off (${config.provider}/${model}); no partial result was accepted.`);
+                }
                 return { message: { role: 'assistant', content: callError.text ?? '' }, model: callError.response?.modelId || model,
                   latencyMs: Date.now() - start, promptTokens: callError.usage?.inputTokens, completionTokens: callError.usage?.outputTokens };
               }

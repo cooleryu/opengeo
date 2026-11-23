@@ -11,14 +11,24 @@ import { requireGeoModelConnection, shouldUseChatGPTSubscription } from '../conn
 import { singleRequestModel } from '../connection-test';
 import type { GeoLanguage } from '../i18n';
 import { OptimizationStateError, parseGitHubRepoSlug } from '../optimization';
+import { buildOutreachDraftPayload } from '../optimization/citation-landscape';
+import { readProjectContext } from '../project-context';
 import { loadProjectSeed } from '../project-data';
 import { getProjectOnboarding } from '../project-onboarding-store';
 import { withGeoProject } from '../projects';
+import { getLatestResearch } from '../research';
 import type { ResearchBatch, ResearchEngine } from '../research-types';
 import { extractOutreachCitedPages } from '../research-view';
 import { parseGitHubRepoUrl, SAFE_GH_SEGMENT_RE } from '../source-identity';
-import { getGeoState } from '../store';
 import type { GeoProject } from '../types';
+import {
+  buildDefaultDirectoryListingDraft,
+  classifyCitedExternalPage,
+  findPublicProjectScreenshotUrl,
+  getExternalListingType,
+  humanizeCitedPageTitle,
+  isCommunityForumPage,
+} from './external-page-meta';
 import {
   getOutreachRecord,
   readOutreachRecords,
@@ -30,67 +40,7 @@ import {
   type RepoMetaDraft,
 } from './outreach-store';
 
-const COMMUNITY_FORUM_HOST_RE =
-  /(?:^|\.)(?:reddit\.com|news\.ycombinator\.com|quora\.com|stackoverflow\.com|stackexchange\.com|indiehackers\.com|v2ex\.com|zhihu\.com|dev\.to|medium\.com|substack\.com|youtube\.com|x\.com|twitter\.com|linkedin\.com)$/i;
-
-const KNOWN_DIRECTORY_HOST_RE =
-  /(?:^|\.)(?:g2\.com|capterra\.com|getapp\.com|trustradius\.com|producthunt\.com|alternativeto\.net|sourceforge\.net|saasworthy\.com|softwaresuggest\.com|glama\.ai|smithery\.ai|mcp\.so|pulsemcp\.com|marketmcp\.vercel\.app|theresanaiforthat\.com|futurepedia\.io|toolify\.ai|aitoolsdirectory\.com|openalternative\.co|selfh\.st|libhunt\.com|stackshare\.io|slant\.co|crozdesk\.com|softwareadvice\.com|betalist\.com)$/i;
-
-const DIRECTORY_URL_OR_TITLE_RE =
-  /(?:\/(?:best|top|alternatives|directory|catalog|marketplace|mcp\/best|tools|compare)\b|\b(?:best|top\s+\d+|alternatives\s+to|directory|catalog|marketplace|open[- ]source\s+\w+\s+list)\b)/i;
-
-/**
- * Project-agnostic classifier distinguishing high-leverage external directories / tool lists
- * (which belong in Main Pack 2 alongside GitHub Awesome PRs) from community threads / posts
- * (which belong in the quiet optional strip).
- */
-export function classifyCitedExternalPage(page: {
-  url: string;
-  title: string;
-  host?: string;
-}): 'directory_listing' | 'community_post' {
-  let host = (page.host || '').trim().toLowerCase().replace(/^www\./, '');
-  if (!host) {
-    try {
-      host = new URL(page.url).hostname.toLowerCase().replace(/^www\./, '');
-    } catch {
-      host = '';
-    }
-  }
-  if (COMMUNITY_FORUM_HOST_RE.test(host)) return 'community_post';
-  if (/\breddit\b|(?:^|[\s·/])r\/[a-z0-9_]+|hacker news/i.test(page.title)) {
-    return 'community_post';
-  }
-  if (KNOWN_DIRECTORY_HOST_RE.test(host)) return 'directory_listing';
-  if (DIRECTORY_URL_OR_TITLE_RE.test(`${page.url} ${page.title}`)) {
-    return 'directory_listing';
-  }
-  return 'community_post';
-}
-
-export function buildDefaultDirectoryListingDraft(
-  project: Pick<GeoProject, 'name' | 'description' | 'repositoryUrl' | 'siteUrl'>,
-  page: { title: string; url: string; host?: string },
-): DirectoryListingDraft {
-  const productUrl = (project.siteUrl || project.repositoryUrl || '').trim();
-  const rawSummary = (project.description || '').replace(/\s+/g, ' ').trim();
-  const oneLiner = rawSummary
-    ? rawSummary.slice(0, 140)
-    : `${project.name} (${productUrl || 'official site'})`;
-  const directoryName = page.host || page.title;
-  return {
-    directoryName,
-    submitUrl: page.url,
-    productUrl,
-    oneLiner,
-    submissionPitch: [
-      `Product: ${project.name}`,
-      ...(productUrl ? [`URL: ${productUrl}`] : []),
-      `Summary: ${oneLiner}`,
-      `Note: Submitting ${project.name} for listing consideration on ${directoryName}. Happy to provide any additional screenshots or verification details.`,
-    ].join('\n'),
-  };
-}
+export { buildDefaultDirectoryListingDraft, classifyCitedExternalPage };
 
 const HAS_CJK_RE = /[\u3400-\u9fff]/;
 const NOISE_THREAD_PAGE_RE =
@@ -256,22 +206,9 @@ function fetchLiveRepoMeta(owner: string, repo: string): {
   const cached = readRepoMetaCache(key);
   if (cached.hit) return cached.value;
 
-  try {
-    const raw = runGh(
-      ['api', `repos/${owner}/${repo}`, '--jq', '{description, homepage, topics}'],
-      4_500,
-    );
-    const snapshot = parseRepoMetaPayload(raw);
-    repoMetaCache.set(key, snapshot);
-    return {
-      description: snapshot.description,
-      homepage: snapshot.homepage,
-      topics: snapshot.topics,
-    };
-  } catch {
-    storeRepoMetaFailure(key);
-    return null;
-  }
+  // Never block request latency on synchronous `gh api` network I/O; warm cache in background.
+  void fetchLiveRepoMetaAsync(owner, repo);
+  return null;
 }
 
 async function fetchLiveRepoMetaAsync(owner: string, repo: string): Promise<{
@@ -866,7 +803,7 @@ export function listOutreachActions(
   const isEn = lang === 'en';
   const seed = loadProjectSeed(projectId);
   const project = seed.project;
-  const latestBatch = withGeoProject(projectId, () => getGeoState().latestResearch) ?? null;
+  const latestBatch = getLatestResearch(projectId);
   let onboardingSummary = '';
   try {
     const onboarding = getProjectOnboarding(projectId);
@@ -1039,11 +976,24 @@ export function listOutreachActions(
       isRelevantCitedThread(page, project, latestBatch, onboardingSummary),
   );
 
+  const questionTextById = new Map(
+    (latestBatch?.questions ?? []).map((q) => [
+      q.id,
+      (isEn ? q.en || q.zh : q.en || q.zh).trim(),
+    ]),
+  );
+
+  const publicScreenshotUrl = findPublicProjectScreenshotUrl(project.repositoryUrl, seed.assets);
+
   let directoryCount = 0;
   let threadCount = 0;
   for (const page of citedPages) {
     const pageKind = classifyCitedExternalPage(page);
     const safeKey = createHash('sha256').update(page.url).digest('base64url').slice(0, 16);
+    const citedPrompts = page.questionIds
+      .map((qid) => questionTextById.get(qid))
+      .filter((text): text is string => Boolean(text))
+      .slice(0, 2);
     const hostLabel =
       page.host ||
       (/\breddit\b|(?:^|[\s·/])r\/[a-z0-9_]+/i.test(page.title)
@@ -1052,23 +1002,48 @@ export function listOutreachActions(
           ? 'External'
           : '该外部');
 
+    const displayTitle = humanizeCitedPageTitle(page.title, page.url, page.host);
+
     if (pageKind === 'directory_listing') {
       if (directoryCount >= 4) continue;
       directoryCount += 1;
+      const listingType = getExternalListingType(page);
       const id = `directory:${safeKey}`;
       const saved = persistedMap.get(id) ?? persistedMap.get(`post:thread:${safeKey}`);
+      const defaultDraft = buildDefaultDirectoryListingDraft(
+        {
+          ...project,
+          englishSummary: !HAS_CJK_RE.test(onboardingSummary) ? onboardingSummary : '',
+          screenshotUrl: publicScreenshotUrl,
+        },
+        {
+          ...page,
+          title: displayTitle,
+        },
+      );
+      const useSavedDraft =
+        saved?.listingDraft &&
+        saved.listingDraft.listingType === listingType &&
+        (listingType === 'directory' ||
+          saved.listingDraft.submissionPitch.includes('Ready-to-paste blurb'));
       records.push({
         id,
         kind: 'directory_listing',
-        title: page.title || hostLabel,
-        subtitle: isEn
-          ? `${hostLabel} directory/list already cited by AI — submit your product details to get listed.`
-          : `${hostLabel} 外部目录/榜单已被 AI 直接引用 — 备好客观提交材料申请收录。`,
+        title: displayTitle || hostLabel,
+        subtitle:
+          listingType === 'editorial_roundup'
+            ? isEn
+              ? `Editorial comparison article on ${hostLabel} already cited by AI — not a self-serve directory; pitch the author/editor to include your product.`
+              : `「${hostLabel}」上的第三方测评/盘点文章（非自助目录），已被 AI 直接引用 — 可查看文章并联系作者/编辑申请补充收录。`
+            : isEn
+              ? `${hostLabel} software directory already cited by AI — submit your product details to get listed.`
+              : `「${hostLabel}」软件目录站已被 AI 直接引用 — 备好客观产品资料打开目录页提交申请。`,
         targetUrl: page.url,
         citedCount: page.questionCount,
         citedEngines: page.engines,
+        ...(citedPrompts.length ? { citedPrompts } : {}),
         status: saved?.status ?? 'prepared',
-        listingDraft: saved?.listingDraft ?? buildDefaultDirectoryListingDraft(project, page),
+        listingDraft: useSavedDraft ? saved.listingDraft : defaultDraft,
         ...(saved?.resultUrl ? { resultUrl: saved.resultUrl } : {}),
         ...(saved?.note ? { note: saved.note } : {}),
         ...(saved?.completedAt ? { completedAt: saved.completedAt } : {}),
@@ -1077,6 +1052,7 @@ export function listOutreachActions(
       continue;
     }
 
+    if (!isCommunityForumPage(page)) continue;
     if (threadCount >= 3) continue;
     threadCount += 1;
     const id = `post:thread:${safeKey}`;
@@ -1084,13 +1060,14 @@ export function listOutreachActions(
     records.push({
       id,
       kind: 'community_post',
-      title: page.title,
+      title: displayTitle,
       subtitle: isEn
         ? `${hostLabel} discussion already cited by AI — draft a concise factual reply.`
-        : `${hostLabel} 社区讨论已被 AI 直接引用 — 可备一段克制的真实经验补充。`,
+        : `「${hostLabel}」社区提问帖已被 AI 直接引用 — 可备一段克制的真实经验回复补充。`,
       targetUrl: page.url,
       citedCount: page.questionCount,
       citedEngines: page.engines,
+      ...(citedPrompts.length ? { citedPrompts } : {}),
       status: saved?.status ?? 'suggested',
       ...(saved?.postDraft ? { postDraft: saved.postDraft } : {}),
       ...(saved?.resultUrl ? { resultUrl: saved.resultUrl } : {}),
@@ -1100,13 +1077,16 @@ export function listOutreachActions(
     });
   }
 
-  // Rank strictly by leverage: AI-cited Awesome PRs & Directories first, then repo metadata, then threads, then Show HN
+  // Rank strictly by direct actionability: Awesome PRs -> self-serve directories -> repo metadata -> live community threads -> editorial roundups -> Show HN
   const priorityWeight = (item: OutreachActionRecord) => {
     if (item.kind === 'awesome_pr') return 0;
-    if (item.kind === 'directory_listing') return 1;
+    if (item.kind === 'directory_listing' && item.listingDraft?.listingType === 'directory') {
+      return 1;
+    }
     if (item.kind === 'repo_meta') return 2;
     if (item.id.startsWith('post:thread:')) return 3;
-    return 4;
+    if (item.kind === 'directory_listing') return 4;
+    return 5;
   };
   return records.sort(
     (a, b) =>
@@ -1126,7 +1106,8 @@ export async function listOutreachActionsAsync(
   const seed = loadProjectSeed(projectId);
   const ownSlug = parseGitHubRepoSlug(seed.project.repositoryUrl);
   if (ownSlug) {
-    await fetchLiveRepoMetaAsync(ownSlug.owner, ownSlug.repo);
+    // Fire-and-forget warm-up so Action Plan & Overview never stall 3-4s on GitHub CLI network latency.
+    void fetchLiveRepoMetaAsync(ownSlug.owner, ownSlug.repo);
   }
   return listOutreachActions(projectId, lang);
 }
@@ -1422,16 +1403,13 @@ export async function prepareCommunityPostAction(
 
   const aiDraft = await generateStructuredJson(
     communityAiSchema,
-    'Write an authentic, non-salesy developer community post/comment in English (unless target page is Chinese). Never use hype, exclamation marks, or marketing cliches. Mention the open-source repo naturally once.',
-    {
-      channel: existing.postDraft?.channelLabel ?? existing.title,
-      targetUrl: existing.targetUrl,
-      project: {
-        name: project.name,
-        repoUrl,
-        description: project.description,
-      },
-    },
+    'Write an authentic, non-salesy community post or reply in English (unless target page is Chinese). Ground your answer in buyerPromptsCitingThisThread, aiAnswerExcerpts, and projectContextExcerpt; never use hype, exclamation marks, or marketing cliches. Mention the project naturally once.',
+    buildOutreachDraftPayload(
+      projectId,
+      { title: existing.title, targetUrl: existing.targetUrl, channelLabel: existing.postDraft?.channelLabel },
+      project,
+      readProjectContext(projectId).markdown,
+    ),
   );
 
   const cleanSummary =

@@ -8,7 +8,9 @@ import type { GeoConnectionSettings, GeoModelProvider, GeoSettingsSource, GeoSet
 import { translateServerCode, type ServerErrorParams } from './i18n-server';
 
 type ModelValues = { provider?: GeoModelProvider; baseURL?: string; model?: string; apiKey?: string };
-type SavedSettings = { version: 1; model?: ModelValues; search?: unknown };
+type SeoDataValues = { dataForSeoLogin?: string; dataForSeoPassword?: string };
+type SavedSettings = { version: 1; model?: ModelValues; search?: unknown; seoData?: SeoDataValues };
+export type DataForSeoCredentials = { login: string; password: string; source: GeoSettingsSource };
 export type GeoModelConnection = {
   provider: GeoModelProvider; baseURL: string; model: string; apiKey: string;
   configured: boolean; source: GeoSettingsSource;
@@ -45,7 +47,8 @@ function readSavedSettings(): SavedSettings {
   try {
     const parsed = JSON.parse(fs.readFileSync(dataPath('geo-settings.json'), 'utf8'));
     if (!parsed || parsed.version !== 1 || (parsed.model && (typeof parsed.model !== 'object' || Array.isArray(parsed.model))) ||
-      (parsed.search && (typeof parsed.search !== 'object' || Array.isArray(parsed.search)))) throw new Error();
+      (parsed.search && (typeof parsed.search !== 'object' || Array.isArray(parsed.search))) ||
+      (parsed.seoData && (typeof parsed.seoData !== 'object' || Array.isArray(parsed.seoData)))) throw new Error();
     return parsed as SavedSettings;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { version: 1 };
@@ -73,6 +76,19 @@ function resolveModel(saved: SavedSettings): GeoModelConnection {
 }
 
 export function getGeoModelConnection(): GeoModelConnection { return resolveModel(readSavedSettings()); }
+
+/** Optional DataForSEO credentials (saved settings take precedence over .env.local). Never throws if absent. */
+export function getDataForSeoCredentials(): DataForSeoCredentials | null {
+  let saved: SavedSettings = { version: 1 };
+  try { saved = readSavedSettings(); } catch { /* Optional SEO data never blocks core flows. */ }
+  const savedLogin = stringValue(saved.seoData?.dataForSeoLogin);
+  const savedPassword = stringValue(saved.seoData?.dataForSeoPassword);
+  if (savedLogin && savedPassword) return { login: savedLogin, password: savedPassword, source: 'saved' };
+  const envLogin = stringValue(process.env.DATAFORSEO_LOGIN);
+  const envPassword = stringValue(process.env.DATAFORSEO_PASSWORD);
+  if (envLogin && envPassword) return { login: envLogin, password: envPassword, source: 'environment' };
+  return null;
+}
 
 export function shouldUseChatGPTSubscription(
   status: { enabled?: boolean; connected?: boolean },

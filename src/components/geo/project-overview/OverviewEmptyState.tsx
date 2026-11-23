@@ -81,38 +81,40 @@ export function OverviewEmptyState({
           startingCollect={startingCollect}
           resumeCollect={resumeCollect}
         />
-        <div className="pov-empty-actions">
-          {collectJob?.status === 'needs_handoff' ? (
-            <button
-              type="button"
-              className="pov-primary-btn"
-              disabled={startingCollect}
-              onClick={() => resumeCollect(collectJob)}
-            >
-              <RefreshCw size={15} />
-              {t('overview.resumeCollectBtn')}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="pov-primary-btn"
-              disabled={startingCollect || collectJob?.status === 'running'}
-              onClick={() => void startCollect({ engine: 'all' })}
-            >
-              {startingCollect || collectJob?.status === 'running' ? (
-                <>
-                  <Loader2 size={15} className="spin" />
-                  {t('overview.startingBrowserCollectBtn')}
-                </>
-              ) : (
-                <>
-                  <Play size={15} />
-                  {t('overview.startBrowserCollectBtn')}
-                </>
-              )}
-            </button>
-          )}
-        </div>
+        {collectJob?.status !== 'running' && (
+          <div className="pov-empty-actions">
+            {collectJob?.status === 'needs_handoff' ? (
+              <button
+                type="button"
+                className="pov-primary-btn"
+                disabled={startingCollect}
+                onClick={() => resumeCollect(collectJob)}
+              >
+                <RefreshCw size={15} />
+                {t('overview.resumeCollectBtn')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="pov-primary-btn"
+                disabled={startingCollect}
+                onClick={() => void startCollect({ engine: 'all' })}
+              >
+                {startingCollect ? (
+                  <>
+                    <Loader2 size={15} className="spin" />
+                    {t('overview.startingBrowserCollectBtn')}
+                  </>
+                ) : (
+                  <>
+                    <Play size={15} />
+                    {t('overview.startBrowserCollectBtn')}
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        )}
         <details className="pov-cli-fallback">
           <summary>{t('overview.cliFallbackSummary')}</summary>
           <div className="pov-command-box">

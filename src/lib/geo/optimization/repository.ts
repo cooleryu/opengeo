@@ -176,7 +176,7 @@ export function getOptimizationRun(
   return withProjectDb(
     projectId,
     (db, id) => {
-      ensureProjectRelationalData(id, db);
+      if (!existingDb) ensureProjectRelationalData(id, db);
       const row = db
         .prepare('SELECT * FROM opengeo_optimization_runs WHERE project_id = ? AND id = ?')
         .get(id, runId) as RelationalOptimizationRunRow | undefined;

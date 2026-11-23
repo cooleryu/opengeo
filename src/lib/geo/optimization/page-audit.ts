@@ -25,6 +25,7 @@ import { loadProjectSeed } from '../project-data';
 import { evidenceLocation, projectDataDirectory, withGeoProject } from '../projects';
 import type { GeoAsset } from '../types';
 import { parseGitHubRepoSlug, pushEditsToProjectRepo, resolveRepoRelativeDocPath, type PublishGitHubOptions } from './git-publisher';
+import { buildCompactCitationSummary } from './citation-landscape';
 import { OptimizationStateError } from './repository';
 
 export type PageAuditEngine = 'chatgpt' | 'google';
@@ -205,8 +206,11 @@ interface PageAuditStorePayload {
   latest: PageAuditRecord | null;
 }
 
-/** Parses Markdown or plain page snapshots into clean numbered sections with 1-based line spans. */
-export function parsePageSections(rawContent: string, isEn = false): PageSection[] {
+const firstTextLine = (chunk: string): string =>
+  chunk.split('\n').map((l) => l.replace(/<[^>]+>/g, ' ').replace(/^#+\s*/, '').trim()).find(Boolean)?.slice(0, 42) ?? '';
+
+/** Parses Markdown or plain page snapshots into numbered sections with 1-based line spans; headings stay verbatim. */
+export function parsePageSections(rawContent: string): PageSection[] {
   const normalized = rawContent.replace(/\r\n/g, '\n');
   const lines = normalized.split('\n');
   if (!lines.length || !normalized.trim()) return [];
@@ -239,13 +243,7 @@ export function parsePageSections(rawContent: string, isEn = false): PageSection
       if (introLines.join('\n').trim()) {
         sections.push({
           id: 'S0',
-          heading: firstH1
-            ? isEn
-              ? `Opening / ${firstH1}`
-              : `顶部介绍 · ${firstH1}`
-            : isEn
-              ? 'Opening / Hero'
-              : '顶部介绍区',
+          heading: firstH1 || firstTextLine(introLines.join('\n')) || 'S0',
           startLine: 1,
           endLine: boundaries[0].startIdx,
           content: introLines.join('\n').trimEnd(),
@@ -284,19 +282,9 @@ export function parsePageSections(rawContent: string, isEn = false): PageSection
     }
     const chunk = lines.slice(cursor, end + 1).join('\n').trimEnd();
     if (chunk.trim()) {
-      const firstTextLine =
-        chunk
-          .split('\n')
-          .map((l) => l.replace(/^#+\s*/, '').trim())
-          .find(Boolean) ?? '';
       sections.push({
         id: `S${sections.length}`,
-        heading:
-          sections.length === 0
-            ? isEn
-              ? 'Opening / Hero'
-              : '页面首屏区'
-            : firstTextLine.slice(0, 42) || (isEn ? `Section ${sections.length + 1}` : `第 ${sections.length + 1} 区块`),
+        heading: firstTextLine(chunk) || `S${sections.length}`,
         startLine: cursor + 1,
         endLine: end + 1,
         content: chunk,
@@ -518,11 +506,10 @@ export const answerSignalReducerAgent: AgentSpec<AnswerSignalReducerInput, Answe
   maxTurns: 2,
   temperature: 0.1,
   outputSchema: answerSignalSheetSchema,
-  buildPrompt(input) {
-    const system = readAgentText('improvement-planning', 'page-audit-reducer.md');
+  buildPrompt(input, ctx) {
     return {
-      system: `${system}\n\n输出语言（uiLanguage）：${input.uiLanguage === 'en' ? 'English' : '简体中文'}。`,
-      user: JSON.stringify(input, null, 2),
+      system: `${readAgentText('improvement-planning', 'page-audit-reducer.md')}\n\n输出语言（uiLanguage）：${input.uiLanguage === 'en' ? 'English' : '简体中文'}。`,
+      user: JSON.stringify({ ...input, citationLandscape: buildCompactCitationSummary(ctx.projectId) }),
     };
   },
 };
@@ -1404,7 +1391,7 @@ export async function runPageContentAudit(
   };
 
   const target = await selectTargetOwnedAssetAsync(projectId, options.assetId, options.signal);
-  const sections = parsePageSections(target.markdown, isEn);
+  const sections = parsePageSections(target.markdown);
   if (!sections.length) {
     throw new Error(`「${target.targetLabel}」正文为空，请先补充基础文档后再体检。`);
   }
@@ -1586,7 +1573,7 @@ export async function previewPageFindingPatch(
   }
 
   const targetContent = await resolveAuditTargetMarkdownAsync(projectId, existing, options.signal);
-  const sections = parsePageSections(targetContent.markdown, existing.uiLanguage === 'en');
+  const sections = parsePageSections(targetContent.markdown);
   const section =
     sections.find((s) => s.id === finding.sectionId) ??
     sections.find((s) => s.heading === finding.sectionHeading) ??
@@ -1677,7 +1664,7 @@ export async function previewPageFindingBatch(
   }
 
   const targetContent = await resolveAuditTargetMarkdownAsync(projectId, existing, options.signal);
-  const sections = parsePageSections(targetContent.markdown, existing.uiLanguage === 'en');
+  const sections = parsePageSections(targetContent.markdown);
   if (!sections.length) {
     throw new Error('未定位到目标页面的可改写区块。');
   }

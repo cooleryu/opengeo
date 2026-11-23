@@ -29,6 +29,7 @@ export interface AwesomePrDraft {
 }
 
 export interface DirectoryListingDraft {
+  listingType?: 'directory' | 'editorial_roundup';
   directoryName: string;
   submitUrl: string;
   oneLiner: string;
@@ -52,6 +53,7 @@ export interface OutreachActionRecord {
   targetUrl: string;
   citedCount?: number;
   citedEngines?: ResearchEngine[];
+  citedPrompts?: string[];
   status: OutreachActionStatus;
   repoMetaDraft?: RepoMetaDraft;
   awesomePrDraft?: AwesomePrDraft;

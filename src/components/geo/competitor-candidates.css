@@ -205,7 +205,6 @@
 .cc-dialog-heading h2 {
   font-size: 21px;
   font-weight: 600;
-  margin: 6px 0;
   overflow-wrap: anywhere;
 }
 .cc-dialog-heading p {
@@ -217,7 +216,6 @@
   border: 0;
   background: none;
   padding: 3px;
-  color: #8b9098;
   flex-shrink: 0;
 }
 .cc-dialog-body {

@@ -93,6 +93,9 @@ export function OverviewCollectStatus({
           <AlertTriangle size={16} />
           <div>
             <strong>{collectJob.error}</strong>
+            {collectJob.errorDetail && (
+              <p style={{ marginTop: 2, opacity: 0.85 }}>{collectJob.errorDetail}</p>
+            )}
           </div>
         </div>
         <button

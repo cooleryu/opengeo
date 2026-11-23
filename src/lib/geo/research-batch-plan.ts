@@ -33,8 +33,16 @@ export function researchBatchFromPlan(plan: GeoQuestionPlan, seed: GeoSeed): Res
       en: candidate.queryEn || (englishOriginal ? candidate.query : ''),
       decision: candidate.selected ? 'search_now' : candidate.review.decision === 'exclude' ? 'drop_for_now' : 'keep_and_fill',
       valueReason: candidate.rationale,
-      evidenceBasis: [candidate.demandStatus === 'unverified' ? '需求依据尚未验证；题目来自已保存的候选与审核判断。' : '',
-        ...candidate.evidence.map(item => `${item.assetId}：${item.quote}`)].filter(Boolean).join('\n'),
+      evidenceBasis: [
+        candidate.demandStatus === 'search-backed'
+          ? '已关联真实搜索行为与竞品流量信号。'
+          : candidate.demandStatus === 'public-observed'
+            ? '已关联真实搜索联想、竞品页面或社区公开讨论信号。'
+            : candidate.demandStatus === 'user-provided'
+              ? '来自用户主动提供的目标问题或关键词。'
+              : '需求依据尚未验证；题目来自已保存的候选与审核判断。',
+        ...candidate.evidence.map(item => `${item.assetId}：${item.quote}`),
+      ].filter(Boolean).join('\n'),
       answerability: candidate.assetIds.length ? `关联材料：${candidate.assetIds.join('、')}。期待帮助：${candidate.expectedResult}；承接程度仍须核实。` : `尚未关联材料。期待帮助：${candidate.expectedResult}；缺少材料不等于没有能力。`,
       gaps: [...candidate.review.concerns], decisionReason: candidate.review.reason, reviewPath: '', observations: [],
       diagnosis: { observed: '本批尚未搜索。', hypothesis: '', nextStep: candidate.selected ? '按已确认原文搜索并保存结果。' : '保留候选及审核依据，后续再决定是否纳入。' },

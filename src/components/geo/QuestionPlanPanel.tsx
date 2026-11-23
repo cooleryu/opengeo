@@ -834,7 +834,7 @@ export default function QuestionPlanPanel({
               disabled={working || positioningChanged}
               onClick={onContinue}
             >
-              {isEn ? 'Continue to Action Plan' : '选择搜索方式'}
+              {isEn ? 'Go to Overview to collect' : '前往概览开始采集'}
             </button>
           )}
         </div>

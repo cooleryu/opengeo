@@ -1,4 +1,5 @@
 import { isProjectOwnedUrl } from './asset-ownership';
+import { humanizeCitedPageTitle } from './outreach/external-page-meta';
 import { getBatchResearchEngines } from './research-engines';
 import type {
   ResearchBatch,
@@ -588,10 +589,9 @@ function cleanGapTitle(rawTitle: string, url: string, host: string): string {
     const gh = parseGitHubRepoUrl(url, { allowSubpaths: true });
     if (gh) return `${gh.owner}/${gh.repo}`;
   }
-  if (/^github repository$/i.test(trimmed) && host) {
-    return host;
-  }
-  return trimmed.length > 74 ? `${trimmed.slice(0, 73).trimEnd()}…` : trimmed;
+  if (/^github repository$/i.test(trimmed) && host) return host;
+  const readable = humanizeCitedPageTitle(trimmed, url, host);
+  return readable.length > 74 ? `${readable.slice(0, 73).trimEnd()}…` : readable;
 }
 
 /**

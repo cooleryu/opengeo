@@ -196,5 +196,8 @@ export function localizeBrowserCollectSnapshot(
   if (snap.errorCode) {
     next.error = translateServerCode(lang, snap.errorCode, snap.errorParams);
   }
+  if (snap.errorDetail && lang === 'en' && /[\p{Script=Han}]/u.test(snap.errorDetail)) {
+    next.errorDetail = null;
+  }
   return next;
 }
