@@ -14,7 +14,7 @@ OpenGEO is an open-source, local-first AI search visibility workbench. It captur
 
 It is MIT licensed and runs on your own machine: no subscription, no seat pricing, no hosted account. Everything it captures stays in a local SQLite database and files on your disk, and the only cost is what your own model provider charges for the queries you run with the API key you configured. Start it locally with Node.js 24 — see Quick Start below.
 
-**[Is OpenGEO for you](#is-opengeo-for-you)** · **[Quick Start](#quick-start)** · **[How it works](#how-it-works)** · **[Features](#features)** · **[Documentation](#documentation)** · **[Privacy & Cost](#privacy--cost)** · **[简体中文](README.zh-CN.md)**
+**[Live Demo](https://www.opengeo-ai.workers.dev)** · **[Compare vs Profound / Otterly / Peec](docs/comparisons/profound-otterly-ai-peec-ai-alternatives.md)** · **[Is OpenGEO for you](#is-opengeo-for-you)** · **[Quick Start](#quick-start)** · **[How it works](#how-it-works)** · **[Features](#features)** · **[Documentation](#documentation)** · **[Privacy & Cost](#privacy--cost)** · **[简体中文](README.zh-CN.md)**
 
 </div>
 

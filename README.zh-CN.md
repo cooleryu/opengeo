@@ -13,7 +13,7 @@
 OpenGEO 是一个开源、本地运行的 AI 搜索可见性工作台：在你自己的浏览器会话里采集真实的 ChatGPT 与 Google AI Overview 回答，<br>
 分清「提到品牌」和「引用官网」，再把每处差距写成一篇可以直接审阅采用的改稿。
 
-**[适合你吗](#opengeo-适合你吗)** · **[快速开始](#快速开始)** · **[工作方式](#工作方式)** · **[核心功能](#核心功能)** · **[文档](#文档)** · **[隐私与费用](#隐私与费用)** · **[English](README.md)**
+**[在线演示官网](https://www.opengeo-ai.workers.dev)** · **[竞品对比（Profound / Otterly / Peec）](docs/comparisons/profound-otterly-ai-peec-ai-alternatives.md)** · **[适合你吗](#opengeo-适合你吗)** · **[快速开始](#快速开始)** · **[工作方式](#工作方式)** · **[核心功能](#核心功能)** · **[文档](#文档)** · **[隐私与费用](#隐私与费用)** · **[English](README.md)**
 
 </div>
 
