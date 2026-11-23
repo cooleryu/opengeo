@@ -10,10 +10,9 @@
 Run the questions your customers actually type, keep the full answers and every page they cite,<br>
 find the gaps, draft the rewrite, and re-run the same questions after you ship.
 
-OpenGEO is an open-source, local-first AI search visibility workbench: it captures real ChatGPT and Google AI Overview answers from your own browser,<br>
-shows who got named and whose pages got cited, then turns each gap into one draft you can publish.
+OpenGEO is an open-source, local-first AI search visibility workbench. It captures real ChatGPT and Google AI Overview answers from your own browser, counts brand mentions and cited pages as two separate numbers, compares one question against your competitors, and re-runs the same questions after you ship.
 
-OpenGEO is MIT licensed and runs on your own machine: start it locally with Node.js 24, and everything it collects stays in a local SQLite database and files on your disk. There is no subscription, no seat pricing, and no hosted account. The only cost is what your own model provider charges when you run a query with the API key you configured.
+It is MIT licensed and runs on your own machine: no subscription, no seat pricing, no hosted account. Everything it captures stays in a local SQLite database and files on your disk, and the only cost is what your own model provider charges for the queries you run with the API key you configured. Start it locally with Node.js 24 — see Quick Start below.
 
 **[Is OpenGEO for you](#is-opengeo-for-you)** · **[Quick Start](#quick-start)** · **[How it works](#how-it-works)** · **[Features](#features)** · **[Documentation](#documentation)** · **[Privacy & Cost](#privacy--cost)** · **[简体中文](README.zh-CN.md)**
 
@@ -39,6 +38,9 @@ OpenGEO is built for indie SaaS teams, docs owners, and open-source maintainers 
 | Page auditors and linters (robots.txt, llms.txt, schema checks) | They report what's missing on your own pages | It reads the pages AI already cites for that question, compares their structure with yours, and then drafts the version that fills the gap |
 | Engine coverage | Scheduled trackers sweep dozens of engines and hand you a score per engine | It stays on the two consumer surfaces that actually cite pages today — ChatGPT and Google AI Overview — and keeps the full answer text for each one |
 | Traffic and conversion context | A visibility score that sits apart from your analytics | The traffic screen keeps referral sources, Umami, and article conversions in the same project as the mentions and citations |
+| Traffic and conversion context | A visibility score that sits apart from your analytics | The traffic screen keeps referral sources, Umami, and article conversions in the same project as the mentions and citations |
+
+**It plugs into the workflow you already run.** Captured answers, cited pages, and competitor lists sit in a local SQLite database and plain files on your disk, not behind an account. `docs/API/OPENGEO-CONTRACTS.md` documents the data shapes and the endpoints each screen uses, so you can read results into your own scripts; `npm run collect` runs a collection round from the terminal if you'd rather not open the UI. OpenGEO is meant to sit beside your existing SEO stack, not replace it — your rank tracker and crawler keep doing their job, and this fills in the layer they can't see: which pages AI actually cited for a question.
 
 **Probably not a fit if** you only want hundreds of keywords scanned on a schedule with a weekly report waiting for you — no API key to connect, no answers to save by hand. A paid hosted monitoring service is less effort there. If what you need is to see whose pages AI actually cites, keep that evidence on your own disk, and walk away with a draft, OpenGEO is the right tool.
 
@@ -80,7 +82,7 @@ flowchart LR
 
 ### Question monitoring with the source evidence attached
 
-Track your core buyer questions across ChatGPT and Google in one list. Run a round, and the answer detail shows the question as phrased, the full answer text, and every page it cited, with your domain flagged in that list. Set a primary competitor and compare the same question and platform line by line.
+Track your core buyer questions across ChatGPT and Google AI Overviews in one list. A round runs the list you saved and records four things per question: brand mentions, citations of your own pages, your primary competitor's mentions on that same question, and the delta against the previous round. The answer detail keeps the question as phrased, the full saved answer, and every page it cited, with your domain flagged in that list. Untested, unknown and a true zero are shown as separate states, so an empty cell never reads as a lost mention. Set a primary competitor and compare the same question and platform line by line; after you publish and register a draft as live, re-test the original question to see what moved.
 
 | On the answer detail screen | What it settles |
 | --- | --- |
@@ -125,7 +127,7 @@ Gemini, Perplexity, Copilot and other engines have no integration here, and no r
 
 ## Privacy & Cost
 
-Project details, saved answers, and the API keys you enter live only on your own machine; this repository uploads none of them to any server. Reading existing records and comparing past answers costs nothing. Costs only appear when you actively send a live query, generate drafts, or run a re-test — the workbench then calls the model and search providers you configured, and their normal usage rates apply based on which provider you chose and how many questions are in the round.
+Project details, saved answers, and the API keys you enter live only on your own machine; this repository uploads none of them to any server. There is no monthly fee, no seat price, and no hosted account — the fixed cost is $0. Money only moves when you send live queries: one question in a round is one live call to the model provider you configured, so a round of N questions is N calls at that provider's rates, plus whatever your search service charges. Reading saved answers and comparing them across runs makes no calls and stays free. A cheap way to start: run three to five questions to see whether the gap is real, then add the rest of the round only if it is.
 
 ## Feedback & Maintenance
 
