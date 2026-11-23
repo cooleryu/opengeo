@@ -1,86 +1,78 @@
-# OpenGEO vs Profound, Otterly.AI & Peec AI: Local-First AI Visibility Compared
+# OpenGEO vs Profound, Otterly.AI, Peec AI & Semrush AI Visibility (2026)
 
-| | OpenGEO | Profound | Otterly.AI | Peec AI |
-| --- | --- | --- | --- | --- |
-| Deployment & hosting | Self-hosted locally with Node.js 24; data in local SQLite and files on your disk | Hosted web workbench; SSO/SAML and SOC 2 compliance on Enterprise | Hosted SaaS; start a free trial in the browser | Hosted SaaS; sign up and start a free trial in the browser |
-| Pricing model | MIT licensed, $0; you pay only your own model provider's API charges | Enterprise is Custom; AI Marketer runs on credits; Starter and Growth retired | Lite €29/mo, Standard €189/mo, Premium €489/mo, Enterprise custom | Starter $95/mo, Pro $245/mo, Advanced $495/mo, Enterprise custom (annual) |
-| AI engines tracked | ChatGPT and Google AI Overviews, captured from your own browser | Up to 10 engines incl. ChatGPT, Perplexity, Gemini, Claude, DeepSeek, Google AI Overviews | 7 engines incl. ChatGPT, AI Overviews, Perplexity, Copilot, AI Mode, Gemini, Claude; 4 of 7 on plans | Choose 3 models on Starter/Pro/Advanced; up to 26 LLM models on Enterprise |
-| Prompt tracking limits | No prompt quota — you keep and re-run your own question list locally | Tailored prompt tracking plan with daily prompt frequency | 16 / 120 / 403 prompts (2,000 / 15,000 / 50,000 credits per month) | 50 / 150 / 350 prompts by plan, daily tracking |
-| Citation evidence | Saved answer text and source URL in the same view; if it isn't in the answer, it isn't a mention | Answer Engine Insights tracks brand and competitor appearances; agents rewrite pages with citation decay | Citation Source Tracking listed on every plan | Visibility, Position and Sentiment metrics; citation source lists not itemized on the pricing page |
-| Action after the audit | Drafts several rewrites with before/after; you adopt one at a time, nothing auto-published | AI Marketer agents draft AEO content, rewrite pages and stage them in your CMS | GEO Audit and AI Search Optimization; 3 recommendations/week on Lite, unlimited above | Prompt setup and data-driven prioritization; content drafting not highlighted on the homepage |
-| Data ownership | Questions, answers and API keys stay on your machine in local SQLite | Cloud workspace; SSO/SAML and SOC 2 compliance listed on Enterprise | Cloud SaaS; unlimited brands, competitors, countries and team members on every plan | Cloud SaaS with unlimited users on every plan; SOC 2 Type II report on request |
+> Last verified: November 2026 · Interactive web version: https://www.opengeo-ai.workers.dev/compare · Live Nov 22 Notion audit sample: https://www.opengeo-ai.workers.dev/report
 
-**TL;DR** OpenGEO is MIT-licensed and local: it captures real ChatGPT and Google AI Overview answers from your own browser into local SQLite, no subscription — just your model API costs. Profound, Otterly.AI and Peec AI are hosted platforms from €29–$95/mo with prompt quotas.
+| Dimension | OpenGEO (MIT · $0) | Profound | Otterly.AI | Peec AI | Semrush AI Visibility |
+| --- | --- | --- | --- | --- | --- |
+| **Deployment & hosting** | Local-first with Node.js 24; local SQLite and Markdown files on your disk | Hosted enterprise workbench (SSO/SAML & SOC 2 on Enterprise) | Hosted SaaS in the browser | Hosted SaaS in the browser | Hosted SaaS inside Semrush ecosystem |
+| **Pricing model** | **MIT licensed, $0**; pay only your own LLM API usage (~$0.05/audit) | Custom Enterprise (public Starter/Growth retired; credit-based AI Marketer) | Lite $29/mo · Standard $189/mo · Premium $489/mo (~15% off annual) | Starter $95/mo · Pro $245/mo · Advanced $495/mo · Agency $499+/mo | $99/mo per domain (no free trial); Semrush One bundles from $199/mo |
+| **How answers are captured** | **Real local browser session** on live ChatGPT & Google AI Overview UI | Cloud-managed multi-engine collection | Scheduled cloud prompt monitoring | Scheduled cloud LLM tracking | Scheduled cloud tracking inside Semrush |
+| **AI engines tracked** | ChatGPT & Google AI Overview (focused on the two main B2B citation surfaces) | Up to 9–10 engines (ChatGPT, Google AIO, Perplexity, Claude, Gemini, etc.) | Up to 7 engines (4 on Lite; credit multipliers apply on select engines) | 3 engines on Starter–Advanced; expanded models on Enterprise | ChatGPT, Google AI Overviews, Gemini, Perplexity |
+| **Prompt quota** | **Unlimited** — own & re-run your exact buyer list locally | Custom enterprise prompt allocation | 15–16 (Lite) / 100–120 (Standard) / 400+ (Premium) | 50 (Starter) / 150 (Pro) / 350 (Advanced) | 25 daily prompts included (+$60/mo per +50 prompt pack) |
+| **Citation evidence** | **Full verbatim answer + every cited URL** in one view; unverified answers never faked as 0 | Answer Engine Insights & citation decay tracking | Citation source tracking on every plan | Visibility, Position, and Sentiment analytics | Brand visibility metrics & AI readiness checks |
+| **Action after the audit** | **Before/after page copy diffs** + exact third-party lists & Reddit threads AI cited; nothing auto-published | AI Marketer agents draft and stage AEO rewrites in your CMS | GEO Audit & optimization tips (3/week on Lite, unlimited above) | Prompt prioritization and trend reporting (analytics-first) | Site audit checklists inside Semrush |
+| **Data ownership** | **100% local SQLite** — prompts, saved answers & API keys never leave your computer | Cloud workspace | Cloud SaaS (unlimited brands & team members) | Cloud SaaS (unlimited users; SOC 2 Type II on request) | Semrush Cloud SaaS |
+
+**TL;DR:** OpenGEO is MIT-licensed and local-first: it captures real ChatGPT and Google AI Overview answers from your own browser into local SQLite at **$0 license cost** (paying only your own model provider's API usage) and turns citation gaps into concrete before/after page fixes. Profound, Otterly.AI, Peec AI, and Semrush AI Visibility are hosted subscriptions ($29–$495+/mo) built for scheduled multi-engine reporting dashboards.
+
+See a real live output before installing anything: **[Nov 22 Interactive Notion Audit Report](https://www.opengeo-ai.workers.dev/report)** (ChatGPT #1 on 4/4 core Notes & Wiki prompts, 0/8 across Notion's new AI suite).
 
 ![OpenGEO product interface](https://raw.githubusercontent.com/cooleryu/opengeo/main/docs/images/improvement-tracking-en.png)
 
 ## Quick verdict
 
-### Pick OpenGEO when evidence and data ownership matter
-- You need the saved answer text and the exact cited URL, not just a visibility score.
-- MIT licensed and local: questions, answers and API keys stay in local SQLite on your machine.
-- Each gap produces a before/after draft you adopt one at a time — nothing is auto-published.
+### Pick OpenGEO when citation proof, fixes, and local ownership matter
+- You want the **verbatim saved answer and every exact cited URL**, not just a black-box visibility percentage.
+- You want **before/after page copy diffs and cited third-party outreach targets** you can ship today — without a $95–$495+/mo subscription.
+- **MIT open-source & local-first:** prompts, raw captures, and API keys stay in local SQLite on your machine. Nothing is auto-published without your approval.
 
-### Pick a hosted platform when you need scale and team workflows
-- Profound runs AI Marketer agents that rewrite pages and stage them in your CMS across up to 10 answer engines.
-- Otterly.AI and Peec AI include unlimited users, brands and countries on their paid plans.
-- Managed onboarding, API/MCP access and SOC 2 without running Node.js or maintaining an install yourself.
+### Pick a hosted SaaS when you want managed daily sweeps across 5–10 engines
+- **Profound** fits enterprise marketing teams that want custom SOC 2 cloud workspaces, up to 10 answer engines, and CMS-integrated AI Marketer agents.
+- **Otterly.AI** and **Peec AI** fit teams and agencies that want scheduled daily tracking, unlimited seats, and hands-off client reporting without running Node.js locally.
+- **Semrush AI Visibility Toolkit** fits teams already running Semrush who want 25 daily AI prompts bundled inside their existing SEO suite.
 
 ## Who should pick which?
 
-- **OpenGEO** (Local-first · MIT · $0 license) — **Best for:** Indie SaaS teams, docs owners and open-source maintainers who need citation-level proof of which page the model picked, kept on their own machine. *Trade-off:* You run it yourself with Node.js 24 and your own API key, and it covers ChatGPT and Google AI Overviews only.
-- **Profound** (Enterprise AI marketing · Custom) — **Best for:** Marketing teams that want an agentic workbench to rewrite and stage AEO content across up to 10 answer engines. *Trade-off:* Enterprise-only custom pricing with AI Marketer credits puts it out of reach for solo or early-stage teams.
-- **Otterly.AI** (Hosted SaaS · from €29/mo) — **Best for:** Solo marketers and small teams who want daily multi-engine tracking with unlimited brands, competitors and team members on every plan. *Trade-off:* The €29 Lite tier caps you at 16 prompts on 4 of 7 engines, so broad tracking needs the €189 or €489 plans.
-- **Peec AI** (Hosted SaaS · from $95/mo) — **Best for:** SEO and content managers who want Visibility, Position and Sentiment metrics with unlimited users on every plan. *Trade-off:* Starter's 50 prompts and three chosen models are limited, and it is analytics-first rather than a drafting tool.
+- **OpenGEO** (Local-first · MIT · $0 license) — **Best for:** B2B SaaS growth leads, indie founders, docs owners, and technical SEOs who need real browser citation proof and concrete fixes on their own machine. *Trade-off:* You run it locally with Node.js 24 and your own API key, and it intentionally focuses on ChatGPT and Google AI Overviews rather than 10 engines.
+- **Profound** (Enterprise AI marketing · Custom) — **Best for:** Enterprise marketing orgs operationalizing multi-engine AEO with CMS agent workflows. *Trade-off:* Enterprise custom contracts and AI Marketer credits put it out of reach for lean SaaS teams.
+- **Otterly.AI** (Hosted SaaS · from $29/mo) — **Best for:** Solo marketers and small teams wanting simple scheduled prompt monitoring with unlimited seats. *Trade-off:* The $29 Lite plan caps you at 15–16 prompts on 4 engines, so broader coverage requires the $189 or $489 tiers.
+- **Peec AI** (Hosted SaaS · from $95/mo) — **Best for:** SEO managers and agencies focused on Visibility, Position, and Sentiment trend lines across unlimited users. *Trade-off:* Starter covers 50 prompts on 3 chosen models and focuses on analytics rather than page-level rewrite diffs.
+- **Semrush AI Visibility Toolkit** (Hosted add-on · $99/mo per domain) — **Best for:** Existing Semrush customers adding basic AI prompt checks next to classic SEO data. *Trade-off:* No free trial, 25 daily prompts per domain, and extra prompt packs add $60/mo.
 
 ## Workflow comparison
 
 ```mermaid
 flowchart LR
   subgraph T["Hosted AI-visibility SaaS loop"]
-    T0["Sign up and pick a plan tier"] --> T1["Set a prompt quota and choose tracked models"] --> T2["Wait for daily tracked answers to land in the dashboard"] --> T3["Read visibility and position scores, export a report"]
+    T0["Sign up & pick monthly tier"] --> T1["Set prompt quota & tracked engines"] --> T2["Wait for scheduled cloud scores"] --> T3["Read visibility & position charts"]
   end
   subgraph O["OpenGEO local loop"]
-    O0["Run your questions in your own browser"] --> O1["Save answers and cited pages to local SQLite"] --> O2["Audit the gap, draft a rewrite with before/after"] --> O3["Adopt one draft, publish, re-run the same questions"]
+    O0["Capture real ChatGPT & Google AI in your browser"] --> O1["Save full answers & cited URLs to local SQLite"] --> O2["Inspect rival citations & draft before/after diffs"] --> O3["Ship changes & re-run the exact same prompts"]
   end
 ```
 
+## What are the best alternatives to Profound for AI visibility?
+
+Profound is designed for enterprise teams with custom contracts, up to 10 engines, and AI Marketer CMS agents. For lean B2B SaaS teams and agencies, there are two clear paths:
+
+- **Hosted self-serve alternatives:** Otterly.AI ($29 / $189 / $489 per month), Peec AI ($95 / $245 / $495 per month), and Semrush AI Visibility Toolkit ($99/mo per domain).
+- **Open-source local alternative:** **OpenGEO** (MIT, $0 license). Run locally with Node.js 24, capture live ChatGPT and Google AI Overview answers from your browser, inspect every cited URL, and ship before/after rewrites with no prompt quota or seat pricing.
+
 ## What are the best AI visibility tools for tracking brand mentions?
 
-**Hosted platforms dominate the answers today.** Profound positions itself as an AI marketing platform, tracking up to 10 answer engines on its custom-priced Enterprise plan and running AI Marketer agents that rewrite pages and stage them in your CMS. Otterly.AI tracks seven engines with plans from €29/month (16 prompts) and unlimited brands, competitors, countries and team members on every plan. Peec AI starts at $95/month for 50 prompts and three chosen models, with Visibility, Position and Sentiment as headline metrics.
+Choose based on whether you need **scheduled multi-engine reporting** or **evidence-to-fix execution**:
 
-**OpenGEO is the local, MIT-licensed option.** It captures real ChatGPT and Google AI Overview answers from your own browser, keeps the saved answer text and every cited URL in local SQLite, and costs nothing beyond your model provider's API charges. If your question is "which page did the model cite," start there.
+- For hands-off daily dashboards across 4–10 models and client reporting, **Profound**, **Otterly.AI**, **Peec AI**, and **Semrush AI Visibility** are the leading hosted options.
+- For diagnosing *why* ChatGPT or Google AI skips your product — reading the verbatim answer, auditing every third-party list and Reddit thread AI cited, and drafting concrete fixes — **OpenGEO** gives you the complete local loop for free.
 
 ## How can I track whether ChatGPT mentions my brand?
 
-**Two paths, and the difference is where the answer lives.** With a hosted tracker like Otterly.AI or Peec AI you add your brand, pick models and prompts, and the platform runs scheduled checks and charts mentions over time — Otterly.AI's Lite plan, for example, covers 16 prompts daily on 4 of 7 engines.
-
-**OpenGEO captures from your own browser instead.** You run the questions your customers actually type, and OpenGEO saves the full answer plus every page it cited, in the same view. A mention only counts if it appears in the captured answer text, so you can show a teammate the exact sentence rather than a score. Project details, saved answers and API keys stay on your machine in local SQLite — nothing is uploaded to a hosted account.
-
-## What are the best alternatives to Profound for AI visibility?
-
-**Profound's own pricing page points elsewhere first.** Its FAQ addresses what happened to the Starter and Growth plans, and the listed path is Enterprise: custom-priced, with AI Marketer credits and up to 10 answer engines — a fit for teams operationalizing AI search at scale, less so for a two-person SaaS.
-
-**Hosted alternatives:** Otterly.AI at €29 / €189 / €489 per month with three tiers of prompt volume, and Peec AI at $95 / $245 / $495 with 50 / 150 / 350 prompts and unlimited users.
-
-**Local alternative:** OpenGEO is MIT licensed and runs on your machine with Node.js 24. It does not track ten engines — it covers ChatGPT and Google AI Overviews — but every conclusion links back to the saved answer and cited URL, with no subscription, seat pricing or prompt quota.
+Start with 4–8 non-branded buyer questions (such as *"best [category] software for [ICP]"* and *"alternatives to [top rival]"*) rather than only searching your own brand name. Hosted trackers check these prompts on a cloud schedule. **OpenGEO** runs the exact same list in your local browser on ChatGPT and Google AI Overviews, keeps verbatim answer text and cited URLs in local SQLite, tracks brand mentions separately from official-site citations, and lets you re-run the same list after publishing fixes.
 
 ## Are there open-source tools for AI search visibility tracking?
 
-**AI answers do name open-source options** — Elmo, GEO/AEO Tracker, Gego and others surface when you ask. What matters is what "open" actually buys you: local data, no per-prompt billing, and code you can read.
-
-**OpenGEO is MIT licensed and local-first.** Start it with Node.js 24, run your questions in your own browser, and it stores captured ChatGPT and Google AI Overview answers, the cited pages, and your API keys in a local SQLite database and files on your disk. There is no hosted account and no seat pricing; the only cost is what your own model provider charges.
-
-**Check the trade-offs honestly:** it covers two engines rather than ten, and you maintain the install yourself. In exchange, if it isn't in the captured answer, it doesn't count as a mention.
+Yes — open-source projects include **OpenGEO (MIT)**, Elmo, and Gego. Many lightweight trackers call raw model APIs, which often differ from the web-grounded consumer ChatGPT and Google AI Overview answers real buyers see. OpenGEO runs with Node.js 24 + SQLite (no Docker required), captures real browser answers, and pairs monitoring with before/after page diffs and cited outreach lists.
 
 ## How do I compare my brand's AI visibility against competitors?
 
-**Define the question set once, then compare like for like.** Write down the prompts your buyers actually type — including "alternatives to [competitor]" and "how much does [tool] cost" — and re-run the same list every round so the comparison is apples to apples.
-
-**Capture per answer:** who was named, in what order, and which URLs were cited. OpenGEO keeps the saved answer text and source URL in the same view and shows whether you, a competitor, or a roundup post got the citation.
-
-**Hosted platforms give you the trend lines:** Peec AI tracks Visibility, Position and Sentiment; Otterly.AI charts brand coverage against your top five competitors over a window and reports average brand position; Profound's Answer Engine Insights analyzes how your brand and competitors appear across engines. Use those for reporting, citation-level evidence for the fix.
-
----
-
-See a live interactive audit example on the [OpenGEO website](https://www.opengeo-ai.workers.dev/) or explore the MIT-licensed source code on [GitHub](https://github.com/cooleryu/opengeo).
+Lock one consistent buyer prompt set — including *"alternatives to [competitor]"* and category comparison prompts — and re-run the exact same list after each round of page and outreach updates. OpenGEO keeps the saved answer text, competitor mentions, and cited third-party URLs in one view so you can see whether your official site, a competitor blog, or a roundup post won the citation.
