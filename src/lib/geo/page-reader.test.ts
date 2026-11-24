@@ -140,3 +140,23 @@ test('null fields from the reader model read as empty instead of failing the pag
   assert.equal(parsed.success, true);
   if (parsed.success) assert.deepEqual([parsed.data.model, parsed.data.sourceLinks, parsed.data.temporaryChat], ['', [], 'unknown']);
 });
+
+test('Google AI Overview [Highlight start/end] markers and NBSP are stripped without breaking snippet matching', async () => {
+  const page = googlePage({
+    pageText: [
+      'AI Overview',
+      'Yes, several open-source, self-hosted tools\n[Highlight end]\n track brand mentions [L1]\u00A0and citations.',
+      'See full guide below.',
+    ].join('\n'),
+  });
+  const outcome = await interpretReading(page, reader({
+    answerStart: 'Yes, several open-source, self-hosted tools track brand mentions',
+    answerEnd: 'See full guide below.',
+    sourceLinks: [2],
+  }), fakeFetch);
+  assert.equal(outcome.state, 'answer');
+  if (outcome.state !== 'answer') return;
+  assert.ok(!outcome.observation.answerText.includes('[Highlight end]'));
+  assert.ok(outcome.observation.answerText.includes('self-hosted tools'));
+  assert.deepEqual(outcome.observation.sources.map(s => s.url), ['https://docs.sample.dev/intro', 'https://github.com/owner/sample']);
+});

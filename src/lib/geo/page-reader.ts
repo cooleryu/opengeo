@@ -102,26 +102,40 @@ const ENGINE_HOST: Record<PageCapture['engine'], RegExp> = {
 const SEARCH_MODE: Record<PageCapture['engine'], string> = { chatgpt: 'ChatGPT web answer', google: 'Google default search page' };
 
 const MARK = /[ \t]?\[L(\d+)\]/g;
+const A11Y_MARKER = /[ \t]*\[Highlight (?:start|end)\][ \t]*/gi;
+const TOKEN_OR_NOISE = /[ \t]?\[L(\d+)\]|[ \t]*\[Highlight (?:start|end)\][ \t]*/gi;
 
-/** Remove the link marks and remember where each one sat in the clean text. */
+/** Remove link marks (remembering their positions) and Google AI Overview a11y highlight markers. */
 export function cleanPageText(pageText: string): { text: string; marks: Array<{ n: number; at: number }> } {
   const marks: Array<{ n: number; at: number }> = [];
   let text = '';
   let last = 0;
-  for (const match of pageText.matchAll(MARK)) {
+  for (const match of pageText.matchAll(TOKEN_OR_NOISE)) {
     text += pageText.slice(last, match.index);
-    marks.push({ n: Number(match[1]), at: text.length });
+    if (match[1] !== undefined) {
+      marks.push({ n: Number(match[1]), at: text.length });
+    } else {
+      const prev = text[text.length - 1] ?? '';
+      const next = pageText[match.index! + match[0].length] ?? '';
+      if (prev && next && !/\s/.test(prev) && !/\s/.test(next)) text += ' ';
+    }
     last = match.index! + match[0].length;
   }
   text += pageText.slice(last);
   return { text, marks };
 }
 
-const fold = (value: string) => value.replace(/[‘’‚′]/g, "'").replace(/[“”„″]/g, '"').replace(/[‐‑‒–—―]/g, '-');
+const fold = (value: string) =>
+  value
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[‘’‚′]/g, "'")
+    .replace(/[“”„″]/g, '"')
+    .replace(/[‐‑‒–—―]/g, '-');
 
-/** Find a quoted snippet in the page while tolerating whitespace, link marks and typographic quotes. */
+/** Find a quoted snippet in the page while tolerating whitespace, link marks, a11y highlight markers and typographic quotes. */
 export function findSnippet(text: string, snippet: string, from = 0): { start: number; end: number } | null {
-  const tokens = fold(snippet.replace(MARK, ' ')).split(/\s+/).filter(Boolean);
+  const tokens = fold(snippet.replace(MARK, ' ').replace(A11Y_MARKER, ' ')).split(/\s+/).filter(Boolean);
   if (!tokens.length || tokens.join(' ').length < 6) return null;
   const pattern = new RegExp(tokens.map(token => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'), 'gu');
   pattern.lastIndex = from;

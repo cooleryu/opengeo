@@ -333,6 +333,7 @@ async function runChromeDriver() {
   console.log(`[BROWSER_READY] browser: ${workspace.browserLabel} total: ${queue.length} language: ${language} humanPace: ${humanPace}`);
 
   let reviewPendingCount = 0;
+  let failedCount = 0;
   let skipNextCooldown = false;
   try {
     for (let i = 0; i < queue.length; i += 1) {
@@ -386,12 +387,23 @@ async function runChromeDriver() {
               continue;
             }
           }
+          throw stepError;
+        }
+        if (isBatch && i + 1 < queue.length) {
+          failedCount += 1;
+          console.log(`[单题跳过] ${item.questionId} (${item.engine}) 采集失败：${message} — 继续下一题。`);
+          continue;
+        }
+        if (isBatch && failedCount < queue.length - 1) {
+          failedCount += 1;
+          console.log(`[单题跳过] ${item.questionId} (${item.engine}) 采集失败：${message}`);
+          continue;
         }
         throw stepError;
       }
     }
     await finalizeRetestIfNeeded();
-    console.log(`本轮批量采集全部完成（待人工核实条数: ${reviewPendingCount}）！请刷新 OpenGEO 概览查看最新表现。`);
+    console.log(`本轮批量采集完成（跳过失败: ${failedCount}，待人工核实: ${reviewPendingCount}）！请刷新 OpenGEO 概览查看最新表现。`);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
@@ -581,6 +593,7 @@ console.log('__EGO_SPACE_INIT__' + JSON.stringify({ spaceId: task.spaceId, owned
     console.log(`[BROWSER_READY] browser: Ego Lite spaceId: ${spaceId} total: ${queue.length} language: ${language} humanPace: ${humanPace}`);
 
     let reviewPendingCount = 0;
+    let failedCount = 0;
     for (let i = 0; i < queue.length; i += 1) {
       if (stopping) break;
       const item = queue[i];
@@ -645,10 +658,19 @@ try {
           console.log(`[已入库待核实] ${item.questionId} (${item.engine}) — 继续下一题。`);
           continue;
         }
-        if (stepRes.sawHandoff && process.platform === 'darwin') {
-          try {
-            spawn('open', ['-a', 'ego lite'], { stdio: 'ignore', detached: true }).unref();
-          } catch {}
+        if (stepRes.sawHandoff) {
+          if (process.platform === 'darwin') {
+            try {
+              spawn('open', ['-a', 'ego lite'], { stdio: 'ignore', detached: true }).unref();
+            } catch {}
+          }
+          process.exitCode = stepRes.code || 1;
+          return;
+        }
+        if (isBatch && queue.length > 1) {
+          failedCount += 1;
+          console.log(`[单题跳过] ${item.questionId} (${item.engine}) 采集失败，继续下一题。`);
+          continue;
         }
         process.exitCode = stepRes.code || 1;
         return;
@@ -668,8 +690,12 @@ await task.finish({ keep: [] });
 `;
       await runEgoScript(finishScript, { forwardOutput: false });
     }
+    if (failedCount >= queue.length) {
+      process.exitCode = 1;
+      return;
+    }
     await finalizeRetestIfNeeded();
-    console.log(`本轮批量采集全部完成（待人工核实条数: ${reviewPendingCount}）！请刷新 OpenGEO 概览查看最新表现。`);
+    console.log(`本轮批量采集完成（跳过失败: ${failedCount}，待人工核实: ${reviewPendingCount}）！请刷新 OpenGEO 概览查看最新表现。`);
   } finally {
     process.off('SIGTERM', stopEgoDriver);
     process.off('SIGINT', stopEgoDriver);
