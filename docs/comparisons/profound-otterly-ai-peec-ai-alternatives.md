@@ -1,6 +1,6 @@
 # OpenGEO vs Profound, Otterly.AI, Peec AI & Semrush AI Visibility (2026)
 
-> Last verified: November 2026 · Interactive web version: https://www.opengeo-ai.workers.dev/compare · Live Nov 22 Notion audit sample: https://www.opengeo-ai.workers.dev/report
+> Last verified: November 2026 · Interactive web version: https://www.opengeo-ai.workers.dev/compare · Live Nov 22 Notion audit sample: https://www.opengeo-ai.workers.dev/report · 90s walkthrough (YouTube): https://youtu.be/Dj8AopJg6SY
 
 | Dimension | OpenGEO (MIT · $0) | Profound | Otterly.AI | Peec AI | Semrush AI Visibility |
 | --- | --- | --- | --- | --- | --- |

@@ -14,11 +14,17 @@ OpenGEO is an open-source, local-first AI search visibility workbench. It captur
 
 It is MIT licensed and runs on your own machine: no subscription, no seat pricing, no hosted account. Everything it captures stays in a local SQLite database and files on your disk, and the only cost is what your own model provider charges for the queries you run with the API key you configured. Start it locally with Node.js 24 — see Quick Start below.
 
-**[Live Demo](https://www.opengeo-ai.workers.dev)** · **[Compare vs Profound / Otterly / Peec](docs/comparisons/profound-otterly-ai-peec-ai-alternatives.md)** · **[Is OpenGEO for you](#is-opengeo-for-you)** · **[Quick Start](#quick-start)** · **[How it works](#how-it-works)** · **[Features](#features)** · **[Documentation](#documentation)** · **[Privacy & Cost](#privacy--cost)** · **[简体中文](README.zh-CN.md)**
+**[Live Demo](https://www.opengeo-ai.workers.dev)** · **[90s Video (YouTube)](https://youtu.be/Dj8AopJg6SY)** · **[Compare vs Profound / Otterly / Peec](docs/comparisons/profound-otterly-ai-peec-ai-alternatives.md)** · **[Is OpenGEO for you](#is-opengeo-for-you)** · **[Quick Start](#quick-start)** · **[How it works](#how-it-works)** · **[Features](#features)** · **[Documentation](#documentation)** · **[Privacy & Cost](#privacy--cost)** · **[简体中文](README.zh-CN.md)**
 
 </div>
 
-https://github.com/user-attachments/assets/cfe721b2-81eb-4690-9801-ebcc39a582c7
+<p align="center">
+  <a href="https://youtu.be/Dj8AopJg6SY">
+    <img src="docs/images/youtube-demo-thumb.jpg" width="760" alt="Watch the 90-second OpenGEO walkthrough on YouTube — Notion #1 for notes vs 0/8 for Notion AI on ChatGPT & Google AI" />
+  </a>
+  <br />
+  <em>▶ <a href="https://youtu.be/Dj8AopJg6SY">Watch the 90-second walkthrough on YouTube</a> — live Notion audit (#1 for notes, 0/8 on ChatGPT &amp; 0/16 site links) + dogfooding OpenGEO on this repo.</em>
+</p>
 
 ## Is OpenGEO for you?
 

@@ -13,11 +13,17 @@
 OpenGEO 是一个开源、本地运行的 AI 搜索可见性工作台：在你自己的浏览器会话里采集真实的 ChatGPT 与 Google AI Overview 回答，<br>
 分清「提到品牌」和「引用官网」，再把每处差距写成一篇可以直接审阅采用的改稿。
 
-**[在线演示官网](https://www.opengeo-ai.workers.dev)** · **[竞品对比（Profound / Otterly / Peec）](docs/comparisons/profound-otterly-ai-peec-ai-alternatives.md)** · **[适合你吗](#opengeo-适合你吗)** · **[快速开始](#快速开始)** · **[工作方式](#工作方式)** · **[核心功能](#核心功能)** · **[文档](#文档)** · **[隐私与费用](#隐私与费用)** · **[English](README.md)**
+**[在线演示官网](https://www.opengeo-ai.workers.dev)** · **[90 秒演示视频 (YouTube)](https://youtu.be/Dj8AopJg6SY)** · **[竞品对比（Profound / Otterly / Peec）](docs/comparisons/profound-otterly-ai-peec-ai-alternatives.md)** · **[适合你吗](#opengeo-适合你吗)** · **[快速开始](#快速开始)** · **[工作方式](#工作方式)** · **[核心功能](#核心功能)** · **[文档](#文档)** · **[隐私与费用](#隐私与费用)** · **[English](README.md)**
 
 </div>
 
-https://github.com/user-attachments/assets/cfe721b2-81eb-4690-9801-ebcc39a582c7
+<p align="center">
+  <a href="https://youtu.be/Dj8AopJg6SY">
+    <img src="docs/images/youtube-demo-thumb.jpg" width="760" alt="观看 OpenGEO 90 秒 YouTube 演示视频 — Notion 笔记排第 1 与新 AI 0/8 实测及本地工作台" />
+  </a>
+  <br />
+  <em>▶ <a href="https://youtu.be/Dj8AopJg6SY">点击观看 90 秒 YouTube 实操演示</a> — Notion 真实 AI 检索实测 + 本仓库 dogfooding 完整闭环。</em>
+</p>
 
 ## OpenGEO 适合你吗？
 
