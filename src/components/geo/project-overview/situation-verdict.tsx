@@ -84,10 +84,10 @@ export function buildSituationVerdict({
   if (discoverySplit.total > 0 && discoverySplit.yes === 0) {
     return {
       headline: isEn ? (
-        `Visible on brand searches only — 0/${discoverySplit.total} non-branded prompts`
+        `Visible on brand searches only — 0/${discoverySplit.total} non-branded answers`
       ) : (
         <>
-          仅搜「<span data-i18n-skip="">{brandLabel}</span>」时出现 — 非品牌拉新仍为 0/{discoverySplit.total}
+          仅搜「<span data-i18n-skip="">{brandLabel}</span>」时出现 — 非品牌回答仍为 0/{discoverySplit.total}
         </>
       ),
       subline: isEn

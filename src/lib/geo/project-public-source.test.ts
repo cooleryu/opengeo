@@ -74,3 +74,37 @@ test('decompresses gzip, deflate, and br bodies safely and rejects decompressed 
   await assert.rejects(() => decodeCompressedBody(bomb, 'gzip', 512), /大小上限/);
   await assert.rejects(() => decodeCompressedBody(Buffer.from(plainText), 'zstd', 4096), /暂不支持的压缩格式/);
 });
+
+test('preserves trailing slashes on directory redirects instead of looping while still rejecting unsafe targets', async () => {
+  const seenPaths: string[] = [];
+  const runtime: PublicSourceRuntime = {
+    lookup: async () => [publicAddress],
+    request: async (url) => {
+      seenPaths.push(url.pathname);
+      if (url.pathname === '/about') {
+        return { status: 301, headers: { location: 'https://www.example.com/about/' }, body: '' };
+      }
+      if (url.pathname === '/') {
+        return { status: 302, headers: { location: '/mcp/' }, body: '' };
+      }
+      if (url.pathname === '/about/' || url.pathname === '/mcp/') {
+        return success;
+      }
+      return { status: 404, headers: {}, body: '' };
+    },
+  };
+
+  const about = await readPublicSource('https://www.example.com/about', options, runtime);
+  assert.equal(about.url, 'https://www.example.com/about/');
+  assert.deepEqual(seenPaths, ['/about', '/about/']);
+
+  seenPaths.length = 0;
+  const mcp = await readPublicSource('https://www.example.com/', options, runtime);
+  assert.equal(mcp.url, 'https://www.example.com/mcp/');
+  assert.deepEqual(seenPaths, ['/', '/mcp/']);
+
+  await assert.rejects(() => readPublicSource('https://www.example.com/about', options, {
+    lookup: async () => [publicAddress],
+    request: async () => ({ status: 302, headers: { location: 'http://127.0.0.1/about/' }, body: '' }),
+  }), /无法安全读取/);
+});

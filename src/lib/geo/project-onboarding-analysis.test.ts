@@ -61,7 +61,7 @@ test('reads README plus at most two related documents; persists real sources and
   await analyzeProjectOnboarding(projectId, { model, readSource: async (url, options) => {
     readUrls.push(url);
     assert.equal(getProjectOnboarding(projectId)?.status, 'reading');
-    assert.ok(options.maxBytes <= 262144);
+    assert.ok(options.maxBytes <= 2097152);
     if (url.includes('api.github.com')) return readmeSource(url);
     return source(url, 'A complete guide explaining local document editing and export. '.repeat(4));
   } });
@@ -317,4 +317,31 @@ test('uiLanguage=en forwards outputLanguage=en and accepts natural English under
   assert.equal(record.status, 'ready');
   assert.equal(record.uiLanguage, 'en');
   assert.equal(record.analysis?.summary, englishSummary);
+});
+
+test('accepts modern HTML homepages larger than 256 KB while keeping model payloads bounded', async () => {
+  const created = createProjectOnboarding({
+    kind: 'company',
+    url: 'https://www.example.com/large-home',
+    targetLanguage: 'en',
+    uiLanguage: 'en',
+  });
+  const inlineCss = `.card{padding:12px;margin:8px;}`.repeat(9000); // ~280 KB inline stylesheet
+  const largeHtml = `<html><head><title>Large Modern Homepage</title><style>${inlineCss}</style></head><body><main><h1>Large Modern Homepage</h1><p>${'Independent comparison guides and technical specifications for US buyers. '.repeat(6)}</p></main></body></html>`;
+  assert.ok(Buffer.byteLength(largeHtml, 'utf8') > 262_144);
+  await analyzeProjectOnboarding(created.project.id, {
+    readSource: async (url, options) => {
+      assert.ok(options.maxBytes >= 1_048_576);
+      assert.ok(Buffer.byteLength(largeHtml, 'utf8') <= options.maxBytes);
+      return source(url, largeHtml, 'text/html');
+    },
+    model: {
+      generateObject: async (input) => {
+        const serialized = JSON.stringify(input.messages);
+        assert.ok(Buffer.byteLength(serialized, 'utf8') < 98_304);
+        return understood;
+      },
+    },
+  });
+  assert.equal(getProjectOnboarding(created.project.id)?.status, 'ready');
 });

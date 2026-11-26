@@ -140,6 +140,18 @@ const defaultRuntime: PublicSourceRuntime = {
   lookup: lookupPublicProjectHost, request,
 };
 
+function validatePublicFetchUrl(value: string): URL {
+  // Reuse normalizeProjectEntryUrl for every security invariant (scheme, credentials,
+  // private/reserved hosts, ports, secret query parameters, tracking cleanup), while
+  // preserving trailing slashes required by servers that canonicalize directory URLs.
+  const normalized = new URL(normalizeProjectEntryUrl(value));
+  const original = new URL(value.trim());
+  if (original.pathname.endsWith('/') && !normalized.pathname.endsWith('/')) {
+    normalized.pathname = `${normalized.pathname}/`;
+  }
+  return normalized;
+}
+
 export async function readPublicSource(value: string,
   options: { maxBytes: number; timeoutMs: number; maxRedirects?: number; accept?: string },
   runtime: PublicSourceRuntime = defaultRuntime): Promise<PublicSource> {
@@ -149,7 +161,7 @@ export async function readPublicSource(value: string,
     reject(new PublicSourceError('page_unreadable', { reason: 'timeout' })), { once: true }));
   try {
     return await Promise.race([(async () => {
-      let url = new URL(normalizeProjectEntryUrl(value));
+      let url = validatePublicFetchUrl(value);
       for (let redirects = 0; redirects <= (options.maxRedirects ?? 3); redirects += 1) {
         controller.signal.throwIfAborted();
         const hostname = url.hostname.replace(/^\[|\]$/g, '');
@@ -163,7 +175,7 @@ export async function readPublicSource(value: string,
         controller.signal.throwIfAborted();
         if ([301, 302, 303, 307, 308].includes(response.status)) {
           if (!response.headers.location) throw new PublicSourceError('page_unreadable', { reason: 'bad_redirect' });
-          url = new URL(normalizeProjectEntryUrl(new URL(response.headers.location, url).href));
+          url = validatePublicFetchUrl(new URL(response.headers.location, url).href);
           continue;
         }
         if ([401, 403, 429].includes(response.status)) throw new PublicSourceError('page_unreadable', { reason: 'login_or_blocked' });

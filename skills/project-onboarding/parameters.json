@@ -1,7 +1,7 @@
 {
   "sourceTimeoutMs": 20000,
-  "sourceMaxBytes": 262144,
-  "totalSourceMaxBytes": 524288,
+  "sourceMaxBytes": 2097152,
+  "totalSourceMaxBytes": 4194304,
   "modelSourceMaxBytes": 65536,
   "inputLimitBytes": 98304,
   "relatedSourceLimit": 2,
